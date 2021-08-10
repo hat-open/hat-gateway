@@ -1,0 +1,5 @@
+/.doit.db
+/build
+/src_py/**/json_schema_repo.json
+/test_pytest/.coverage
+__pycache__
