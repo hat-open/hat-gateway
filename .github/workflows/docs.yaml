@@ -22,9 +22,9 @@ jobs:
           - name: doit docs
             run: doit docs
           - name: create CNAME
-            if: github.repository == 'hat-open/hat-event'
+            if: github.repository == 'hat-open/hat-gateway'
             run: |
-                 echo "hat-event.hat-open.com" > build/docs/CNAME
+                 echo "hat-gateway.hat-open.com" > build/docs/CNAME
           - name: deploy
             uses: peaceiris/actions-gh-pages@v3
             with:
