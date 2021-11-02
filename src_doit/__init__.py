@@ -43,8 +43,6 @@ def task_build():
         build_wheel(
             src_dir=src_py_dir,
             dst_dir=build_py_dir,
-            src_paths=list(common.path_rglob(src_py_dir,
-                                             blacklist={'__pycache__'})),
             name='hat-gateway',
             description='Hat gateway',
             url='https://github.com/hat-open/hat-gateway',
