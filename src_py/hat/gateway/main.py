@@ -17,6 +17,7 @@ from hat import json
 from hat.gateway import common
 from hat.gateway.engine import create_engine
 import hat.event.client
+import hat.event.common
 import hat.monitor.client
 
 
@@ -67,15 +68,26 @@ async def async_main(conf: json.Data):
     async_group = aio.Group()
 
     try:
-        monitor = await hat.monitor.client.connect(conf['monitor'])
-        _bind_resource(async_group, monitor)
+        subscriptions = [('gateway', conf['gateway_name'], '?', '?',
+                          'system', '*')]
 
-        component = hat.monitor.client.Component(monitor, run_with_monitor,
-                                                 conf, monitor)
-        component.set_enabled(True)
-        _bind_resource(async_group, component)
+        if 'monitor' in conf:
+            monitor = await hat.monitor.client.connect(conf['monitor'])
+            _bind_resource(async_group, monitor)
 
-        await async_group.wait_closing()
+            component = hat.monitor.client.Component(
+                monitor, run_with_monitor, conf, monitor, subscriptions)
+            component.set_enabled(True)
+            _bind_resource(async_group, component)
+
+            await async_group.wait_closing()
+
+        else:
+            client = await hat.event.client.connect(
+                conf['event_server_address'], subscriptions)
+            _bind_resource(async_group, client)
+
+            await async_group.spawn(run_with_event, conf, client)
 
     finally:
         await aio.uncancellable(async_group.async_close())
@@ -83,11 +95,10 @@ async def async_main(conf: json.Data):
 
 async def run_with_monitor(component: hat.monitor.client.Component,
                            conf: json.Data,
-                           monitor: hat.monitor.client.Client):
+                           monitor: hat.monitor.client.Client,
+                           subscriptions: typing.List[hat.event.common.EventType]):  # NOQA
     """Run monitor component"""
     run_cb = functools.partial(run_with_event, conf)
-    subscriptions = [('gateway', conf['gateway_name'], '?', '?', 'system',
-                      '*')]
     await hat.event.client.run_client(monitor, conf['event_server_group'],
                                       run_cb, subscriptions)
 
