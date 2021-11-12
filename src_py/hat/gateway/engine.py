@@ -1,10 +1,8 @@
 """Gateway engine"""
 
 import collections
-import contextlib
 import importlib
 import logging
-import typing
 
 from hat import aio
 from hat import json
@@ -21,44 +19,17 @@ async def create_engine(conf: json.Data,
                         client: hat.event.client.Client
                         ) -> 'Engine':
     """Create gateway engine"""
-    gateway_name = conf['gateway_name']
-
     engine = Engine()
     engine._client = client
-    engine._async_group = aio.Group()
     engine._devices = {}
 
     try:
         for device_conf in conf['devices']:
-            device = DeviceProxy(device_conf, client, gateway_name)
-            engine.async_group.spawn(aio.call_on_cancel, device.async_close)
-            engine.async_group.spawn(aio.call_on_done, device.wait_closing(),
-                                     engine.close)
-
-            key = device.device_type, device.name
-            if key in engine._devices:
-                raise Exception('duplicate device identifier: %s', key)
-            engine._devices[key] = device
-
-        if engine._devices:
-            enable_event_types = [('gateway', gateway_name, device.device_type,
-                                   device.name, 'system', 'enable')
-                                  for device in engine._devices.values()]
-            enable_query = hat.event.common.QueryData(
-                event_types=enable_event_types,
-                unique_type=True)
-            enable_events = await client.query(enable_query)
-
-        else:
-            enable_events = []
-
-        for event in enable_events:
-            if not _is_enable_event(event):
-                continue
-            key = event.event_type[2:4]
-            device = engine._devices.get(key)
-            if device:
-                device.set_enabled(True)
+            device = _DeviceProxy(device_conf, client, conf['gateway_name'])
+            if device.event_type_prefix in engine._devices:
+                raise Exception(f'duplicate device identifier: '
+                                f'{device.event_type_prefix}')
+            engine._devices[device.event_type_prefix] = device
 
         engine.async_group.spawn(engine._read_loop)
 
@@ -75,31 +46,36 @@ class Engine(aio.Resource):
     @property
     def async_group(self) -> aio.Group:
         """Async group"""
-        return self._async_group
+        return self._client.async_group
 
     async def _read_loop(self):
         try:
+            events = []
+
+            if self._devices:
+                event_types = [(*device.event_type_prefix, 'system', 'enable')
+                               for device in self._devices.values()]
+                query = hat.event.common.QueryData(event_types=event_types,
+                                                   unique_type=True)
+                events = await self._client.query(query)
+
             while True:
-                events = await self._client.receive()
                 device_events = {}
 
                 for event in events:
-                    key = event.event_type[2:4]
-                    device = self._devices.get(key)
-
+                    event_type_prefix = event.event_type[:4]
+                    device = self._devices.get(event_type_prefix)
                     if not device:
                         continue
 
-                    elif event.event_type[5:] == ('enable',):
-                        device.set_enabled(_is_enable_event(event))
-
-                    elif device.enabled:
-                        if device not in device_events:
-                            device_events[device] = collections.deque()
-                        device_events[device].append(event)
+                    if device not in device_events:
+                        device_events[device] = collections.deque()
+                    device_events[device].append(event)
 
                 for device, events in device_events.items():
-                    device.client.receive_queue.put_nowait(list(events))
+                    device.receive_queue.put_nowait(events)
+
+                events = await self._client.receive()
 
         except ConnectionError:
             pass
@@ -111,106 +87,116 @@ class Engine(aio.Resource):
             self.close()
 
 
-def _is_enable_event(event):
-    return (event.payload and
-            event.payload.type == hat.event.common.EventPayloadType.JSON and
-            event.payload.data is True)
+class _DeviceProxy(aio.Resource):
 
-
-class DeviceProxy(aio.Resource):
-    """Device proxy"""
-
-    def __init__(self,
-                 conf: json.Data,
-                 client: hat.event.client.Client,
-                 gateway_name: str):
+    def __init__(self, conf, client, gateway_name):
         self._conf = conf
-        self._async_group = aio.Group()
-        self._enabled_queue = aio.Queue()
-        self._enabled = False
-        self._client = DeviceEventClient(client)
+        self._client = client
+        self._receive_queue = aio.Queue()
+        self._events_queues_queue = aio.Queue()
         self._device_module = importlib.import_module(conf['module'])
         self._event_type_prefix = ('gateway', gateway_name,
                                    self._device_module.device_type,
                                    conf['name'])
-        self._async_group.spawn(self._enable_loop)
+
+        self.async_group.spawn(self._read_loop)
+        self.async_group.spawn(self._device_loop)
 
     @property
-    def async_group(self) -> aio.Group:
-        """Async group"""
-        return self._async_group
+    def async_group(self):
+        return self._client.async_group
 
     @property
-    def device_type(self) -> str:
-        """Device type"""
-        return self._device_module.device_type
+    def event_type_prefix(self):
+        return self._event_type_prefix
 
     @property
-    def name(self) -> str:
-        """Device name"""
-        return self._conf['name']
+    def receive_queue(self):
+        return self._receive_queue
 
-    @property
-    def enabled(self) -> bool:
-        """Enabled flag"""
-        return self._enabled
+    async def _read_loop(self):
+        try:
+            while True:
+                events = await self._receive_queue.get()
 
-    @property
-    def client(self) -> 'DeviceEventClient':
-        """Device's event client"""
-        return self._client
+                while events and events[0].event_type[5:] != ('enable', ):
+                    events.popleft()
 
-    def set_enabled(self, enabled: bool):
-        """Set enable flag"""
-        if enabled == self._enabled:
-            return
+                if not events:
+                    continue
 
-        self._enabled_queue.put_nowait(enabled)
-        self._enabled = enabled
+                if not _is_enable_event(events.popleft()):
+                    continue
 
-    async def _enable_loop(self):
-        enabled = False
-        is_running = False
+                events_queue = aio.Queue()
+                try:
+                    self._events_queues_queue.put_nowait(events_queue)
+
+                    while True:
+                        filtered_events = collections.deque()
+                        enabled = True
+
+                        while events and enabled:
+                            event = events.popleft()
+                            if event.event_type[5:] == ('enable', ):
+                                enabled = _is_enable_event(event)
+                            else:
+                                filtered_events.append(event)
+
+                        if not enabled:
+                            break
+
+                        if filtered_events and not events_queue.is_closed:
+                            events_queue.put_nowait(list(filtered_events))
+
+                        events = await self._receive_queue.get()
+
+                finally:
+                    events_queue.close()
+
+        except Exception as e:
+            mlog.error('read loop error: %s', e, exc_info=e)
+
+        finally:
+            self.close()
+
+    async def _device_loop(self):
         try:
             self._register_running(False)
             while True:
-                while not enabled:
-                    enabled = await self._enabled_queue.get_until_empty()
+                events_queue = await self._events_queues_queue.get()
+                if events_queue.is_closed:
+                    continue
 
-                async with self._async_group.create_subgroup() as subgroup:
-                    device = await subgroup.spawn(aio.call,
-                                                  self._device_module.create,
-                                                  self._conf, self._client,
-                                                  self._event_type_prefix)
+                async with self.async_group.create_subgroup() as subgroup:
+                    client = _DeviceEventClient(self._client)
+                    device = await aio.call(self._device_module.create,
+                                            self._conf, client,
+                                            self._event_type_prefix)
+
                     subgroup.spawn(aio.call_on_cancel, device.async_close)
+                    subgroup.spawn(aio.call_on_cancel, events_queue.close)
                     subgroup.spawn(aio.call_on_done, device.wait_closing(),
                                    subgroup.close)
 
-                    self._register_running(True)
-                    is_running = True
+                    try:
+                        self._register_running(True)
+                        while True:
+                            events = await events_queue.get()
+                            client.receive_queue.put_nowait(events)
 
-                    while enabled:
-                        enabled = await subgroup.spawn(
-                            self._enabled_queue.get_until_empty)
+                    except aio.QueueClosedError:
+                        if not device.is_open:
+                            break
 
-                self._register_running(False)
-                is_running = False
-
-        except ConnectionError:
-            pass
+                    finally:
+                        self._register_running(False)
 
         except Exception as e:
-            mlog.error('enable loop error: %s', e, exc_info=e)
+            mlog.error('device loop error: %s', e, exc_info=e)
 
         finally:
-            self._enabled = False
-            self._enabled_queue.close()
-            self.client.receive_queue.close()
             self.close()
-
-            if is_running:
-                with contextlib.suppress(Exception):
-                    self._register_running(False)
 
     def _register_running(self, is_running):
         self._client.register([hat.event.common.RegisterEvent(
@@ -221,36 +207,40 @@ class DeviceProxy(aio.Resource):
                 data=is_running))])
 
 
-class DeviceEventClient(common.DeviceEventClient):
+class _DeviceEventClient(common.DeviceEventClient):
 
-    def __init__(self, client: hat.event.client.Client):
+    def __init__(self, client):
         self._client = client
         self._receive_queue = aio.Queue()
 
+        self.async_group.spawn(aio.call_on_cancel, self._receive_queue.close)
+
     @property
-    def async_group(self) -> aio.Group:
+    def async_group(self):
         return self._client.async_group
 
     @property
-    def receive_queue(self) -> aio.Queue:
+    def receive_queue(self):
         return self._receive_queue
 
-    async def receive(self) -> typing.List[hat.event.common.Event]:
+    async def receive(self):
         try:
             return await self._receive_queue.get()
 
-        except ConnectionError:
+        except aio.QueueClosedError:
             raise ConnectionError()
 
-    def register(self, events: typing.List[hat.event.common.RegisterEvent]):
+    def register(self, events):
         self._client.register(events)
 
-    async def register_with_response(self,
-                                     events: typing.List[hat.event.common.RegisterEvent]  # NOQA
-                                     ) -> typing.List[typing.Optional[hat.event.common.Event]]:  # NOQA
+    async def register_with_response(self, events):
         return await self._client.register_with_response(events)
 
-    async def query(self,
-                    data: hat.event.common.QueryData
-                    ) -> typing.List[hat.event.common.Event]:
+    async def query(self, data):
         return await self._client.query(data)
+
+
+def _is_enable_event(event):
+    return (event.payload and
+            event.payload.type == hat.event.common.EventPayloadType.JSON and
+            event.payload.data is True)

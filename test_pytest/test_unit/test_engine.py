@@ -411,11 +411,16 @@ async def test_device_event_client_register(device_module, device_queue,
 
     engine = await hat.gateway.engine.create_engine(conf, client)
     device = await device_queue.get()
-    result = await client.register_queue.get()
 
+    result = await client.register_queue.get()
     assert len(result) == 1
     assert result[0].event_type == running_event_type
     assert result[0].payload == create_json_payload(False)
+
+    result = await client.register_queue.get()
+    assert len(result) == 1
+    assert result[0].event_type == running_event_type
+    assert result[0].payload == create_json_payload(True)
 
     event = create_event(('a', 'b', 'c'), 123)
     device.client.register([event])

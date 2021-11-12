@@ -34,9 +34,6 @@ Gateway functionality can be defined according to following components:
 
     folder "Gateway" {
         component Engine
-        component "Device proxy 1" <<Device proxy>> as DeviceProxy1
-        component "Device proxy 2" <<Device proxy>> as DeviceProxy2
-        component "Device proxy 3" <<Device proxy>> as DeviceProxy3
         component "Device 1" <<Device>> as Device1
         component "Device 2" <<Device>> as Device2
         component "Device 3" <<Device>> as Device3
@@ -48,13 +45,9 @@ Gateway functionality can be defined according to following components:
 
     EventServer <---> Engine
 
-    Engine o--- DeviceProxy1
-    Engine o--- DeviceProxy2
-    Engine o--- DeviceProxy3
-
-    DeviceProxy1 o--- Device1
-    DeviceProxy2 o--- Device2
-    DeviceProxy3 o--- Device3
+    Engine o--- Device1
+    Engine o--- Device2
+    Engine o--- Device3
 
     Device1 <---> RemoteDevice1
     Device2 <---> RemoteDevice2
@@ -120,37 +113,24 @@ Engine
 
 Central part responsible for device orchestration. It is created when new
 connection with Event Server is established and destroyed when connection is
-closed. During initialization, engine creates new instance of device proxy for
-each configured device. These device proxies are destroyed during engine
-deletion procedure.
+closed. It's main responsibility is managing lifetime of devices and
+providing custom device's interface to event server.
 
+Device lifetime is dependent of last `enable` event state. During
+initialization, engine registers a new `running` events with payload ``false``,
+queries last devices' associated `enable` event and keeps monitoring for any
+new `enable` events. When device is enabled, engine creates new instance of
+device. Once device is successfully created, engine registers new `running`
+event with payload ``true``. If at any time device is disabled, engine will
+destroy associated device instance and continue waiting for new `enable` event.
+When device is successfully destroyed, engine will try to register new
+`running` event with payload ``false``. Once engine is destroyed, all devices
+are also destroyed.
 
-Device proxy
-------------
-
-Each device proxy is responsible for managing lifetime of single device and
-providing custom device's interface to event server. Device lifetime is
-dependent of last `enable` event state. During initialization, device proxy
-registers a new `running` event with payload ``false``, queries last device's
-associated `enable` event and keeps monitoring for any new `enable` events. When
-device is enabled, proxy creates new instance of device. Once device is
-successfully created, proxy registers new `running` event with payload ``true``.
-If at any time device is disabled, proxy will destroy associated device instance
-and continue waiting for new `enable` event. When device is successfully
-destroyed, proxy will try to register new `running` event with payload
-``false``. Once proxy is destroyed, associated device is also destroyed.
-
-Prior to new device instance initialization, responsibility of proxy is to
+Prior to new device instance initialization, responsibility of engine is to
 create interface for event server communication appropriate for associated
 device. This interface provides event filtering (based on event type) specific
-for associated device. Newly received events are passed to device only
-when devices `running` state is ``true`` (after successful initialization
-and until device is successfully destroyed).
-
-.. todo::
-
-    maybe we should start putting new events to DeviceEventClient prior
-    to calling create_device
+for associated device.
 
 
 Device
