@@ -116,17 +116,20 @@ class _DeviceProxy(aio.Resource):
 
     async def _read_loop(self):
         try:
+            events = collections.deque()
+            enabled = False
+
             while True:
-                events = await self._receive_queue.get()
+                while True:
+                    while events and not enabled:
+                        event = events.popleft()
+                        if event.event_type[5:] == ('enable', ):
+                            enabled = _is_enable_event(event)
 
-                while events and events[0].event_type[5:] != ('enable', ):
-                    events.popleft()
+                    if enabled:
+                        break
 
-                if not events:
-                    continue
-
-                if not _is_enable_event(events.popleft()):
-                    continue
+                    events = await self._receive_queue.get()
 
                 events_queue = aio.Queue()
                 try:
@@ -134,7 +137,6 @@ class _DeviceProxy(aio.Resource):
 
                     while True:
                         filtered_events = collections.deque()
-                        enabled = True
 
                         while events and enabled:
                             event = events.popleft()
@@ -143,11 +145,11 @@ class _DeviceProxy(aio.Resource):
                             else:
                                 filtered_events.append(event)
 
-                        if not enabled:
-                            break
-
                         if filtered_events and not events_queue.is_closed:
                             events_queue.put_nowait(list(filtered_events))
+
+                        if not enabled:
+                            break
 
                         events = await self._receive_queue.get()
 
