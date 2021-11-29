@@ -55,8 +55,17 @@ class RemoteDeviceReader(aio.Resource):
         self._status = None
         self._data_readers = collections.deque()
 
+        reader_data = {}
         for data in remote_device.data.values():
-            data_reader = DataReader(self._async_group, data,
+            key = (data.data_type, data.start_address, data.quantity,
+                   data._interval)
+            reader_data.setdefault(key, []).append(data)
+
+        for key, data in reader_data.items():
+            data_type, start_address, quantity, interval = key
+            data_reader = DataReader(self._async_group, remote_device.conn,
+                                     data, remote_device.device_id, data_type,
+                                     start_address, quantity, interval,
                                      self._on_response)
             self._data_readers.append(data_reader)
 
@@ -109,20 +118,44 @@ class Data:
         self._name = conf['name']
 
     @property
+    def device_id(self) -> int:
+        return self._device_id
+
+    @property
     def conn(self) -> Connection:
         return self._conn
 
     @property
-    def interval(self):
+    def data_type(self) -> DataType:
+        return self._data_type
+
+    @property
+    def register_size(self) -> int:
+        return self._register_size
+
+    @property
+    def start_address(self) -> int:
+        return self._start_address
+
+    @property
+    def bit_count(self) -> int:
+        return self._bit_count
+
+    @property
+    def bit_offset(self) -> int:
+        return self._bit_offset
+
+    @property
+    def quantity(self) -> int:
+        return self._quantity
+
+    @property
+    def interval(self) -> typing.Optional[float]:
         return self._interval
 
     @property
-    def name(self):
+    def name(self) -> str:
         return self._name
-
-    @property
-    def device_id(self):
-        return self._device_id
 
     async def write(self, value: int) -> typing.Optional[Error]:
         if self._data_type == DataType.COIL:
@@ -190,14 +223,23 @@ class DataReader(aio.Resource):
 
     def __init__(self,
                  async_group: aio.Group,
-                 data: Data,
+                 conn: Connection,
+                 data: typing.List[Data],
+                 device_id: int,
+                 data_type: DataType,
+                 start_address: int,
+                 quantity: int,
+                 interval: typing.Optional[float],
                  response_cb: ResponseCb):
-        self._data = data
-        self._response_cb = response_cb
-        self._device_id = data.device_id
-        self._name = data.name
-        self._interval = data.interval
         self._async_group = async_group
+        self._conn = conn
+        self._data = data
+        self._device_id = device_id
+        self._data_type = data_type
+        self._start_address = start_address
+        self._quantity = quantity
+        self._interval = interval
+        self._response_cb = response_cb
         self._last_response = None
 
         if self._interval is not None:
@@ -221,34 +263,55 @@ class DataReader(aio.Resource):
             mlog.debug('starting read loop')
             while True:
                 mlog.debug('reading data')
-                result = await self._data.read()
-                mlog.debug('received response (device_id: %s; data_name: %s)',
-                           self._device_id, self._name)
+                result = await self._conn.read(
+                    self._device_id, self._data_type, self._start_address,
+                    self._quantity)
+                mlog.debug('received response (device_id: %s; data_type: %s; '
+                           'start_address: %s; quantity: %s): %s',
+                           self._device_id, self._data_type,
+                           self._start_address, self._quantity, result)
 
-                if isinstance(result, Error):
-                    mlog.debug('received error response: %s', result)
-                    response = self._create_response(
-                        result.name, None, None)
+                for data in self._data:
+                    if isinstance(result, Error):
+                        value = None
 
-                elif (self._last_response is None or
-                        self._last_response.result != 'SUCCESS'):
-                    mlog.debug('received initial value: %s', result)
-                    response = self._create_response(
-                        'SUCCESS', result, 'INTERROGATE')
+                    else:
+                        offset = data.start_address - self._start_address
+                        value = _get_registers_value(
+                            data.register_size, data.bit_offset,
+                            data.bit_count,
+                            result[offset:offset+data.quantity])
 
-                elif self._last_response.value != result:
-                    mlog.debug('data value change: %s -> %s',
-                               self._last_response.value, result)
-                    response = self._create_response(
-                        'SUCCESS', result, 'CHANGE')
+                    if isinstance(result, Error):
+                        mlog.debug('received error response (device_id: %s; '
+                                   'data_name: %s): %s',
+                                   data.device_id, data.name, result)
+                        response = _create_read_response(
+                            data, result.name, None, None)
 
-                else:
-                    mlog.debug('no data change')
-                    response = None
+                    elif (self._last_response is None or
+                            self._last_response.result != 'SUCCESS'):
+                        mlog.debug('received initial value (device_id: %s; '
+                                   'data_name: %s): %s',
+                                   data.device_id, data.name, value)
+                        response = _create_read_response(
+                            data, 'SUCCESS', value, 'INTERROGATE')
 
-                if response:
-                    self._last_response = response
-                    self._response_cb(response)
+                    elif self._last_response.value != value:
+                        mlog.debug('data value change value (device_id: %s; '
+                                   'data_name: %s): %s -> %s',
+                                   data.device_id, data.name,
+                                   self._last_response.value, value)
+                        response = _create_read_response(
+                            data, 'SUCCESS', value, 'CHANGE')
+
+                    else:
+                        mlog.debug('no data change')
+                        response = None
+
+                    if response:
+                        self._last_response = response
+                        self._response_cb(response)
 
                 mlog.debug('waiting poll interval: %s', self._interval)
                 await asyncio.sleep(self._interval)
@@ -263,13 +326,14 @@ class DataReader(aio.Resource):
             mlog.debug('closing read loop')
             self.close()
 
-    def _create_response(self, result, value, cause):
-        return RemoteDeviceReadRes(
-            device_id=self._device_id,
-            data_name=self._name,
-            result=result,
-            value=value,
-            cause=cause)
+
+def _create_read_response(data, result, value, cause):
+    return RemoteDeviceReadRes(
+        device_id=data.device_id,
+        data_name=data.name,
+        result=result,
+        value=value,
+        cause=cause)
 
 
 def _get_register_size(data_type):
