@@ -128,7 +128,8 @@ class ModbusMasterDevice(aio.Resource):
             self.close()
             if self._conn:
                 await aio.uncancellable(self._conn.async_close())
-            self._set_status('DISCONNECTED')
+            with contextlib.suppress(ConnectionError):
+                self._set_status('DISCONNECTED')
 
     def _notify_response(self, response):
         self._event_client.write([response])
