@@ -83,7 +83,7 @@ Together with read and write processing, device continuously reports current
 status of communication connection and each modbus device identified by
 `device_id` data parameter. Status of modbus device identified by `device_id`
 is calculated according to availability of data associated with that
-`device_id`. Alailable remote device statuses:
+`device_id`. Available remote device statuses:
 
     * ``DISABLED``
 
@@ -91,13 +91,13 @@ is calculated according to availability of data associated with that
 
     * ``CONNECTING``
 
-        Data polling is enabled and all data read requests have resulted
+        Data polling is enabled and some data read requests have resulted
         in timeout or haven't completed.
 
     * ``CONNECTED``
 
-        Data polling is enabled and data with valid read request response
-        exists.
+        Data polling is enabled or and all data read responses have been
+        received.
 
 Polling of data values can be enabled/disabled based on `device_id`. Initially,
 polling for all remote devices is disabled and has to be explicitly enabled.

@@ -57,16 +57,18 @@ class RemoteDeviceReader(aio.Resource):
 
         reader_data = {}
         for data in remote_device.data.values():
+            if data.interval is None:
+                continue
             key = (data.data_type, data.start_address, data.quantity,
-                   data._interval)
+                   data.interval)
             reader_data.setdefault(key, []).append(data)
 
         for key, data in reader_data.items():
             data_type, start_address, quantity, interval = key
-            data_reader = DataReader(self._async_group, remote_device.conn,
-                                     data, remote_device.device_id, data_type,
-                                     start_address, quantity, interval,
-                                     self._on_response)
+            data_reader = _DataReader(self._async_group, remote_device.conn,
+                                      data, remote_device.device_id, data_type,
+                                      start_address, quantity, interval,
+                                      self._on_response)
             self._data_readers.append(data_reader)
 
         self._async_group.spawn(aio.call_on_cancel, self._eval_status)
@@ -83,8 +85,7 @@ class RemoteDeviceReader(aio.Resource):
     def _eval_status(self):
         if not self.is_open:
             status = 'DISABLED'
-        elif (not self._data_readers or
-                any(i.is_connected for i in self._data_readers)):
+        elif all(i.is_connected for i in self._data_readers):
             status = 'CONNECTED'
         else:
             status = 'CONNECTING'
@@ -219,7 +220,7 @@ class Data:
                                     self._bit_count, result)
 
 
-class DataReader(aio.Resource):
+class _DataReader(aio.Resource):
 
     def __init__(self,
                  async_group: aio.Group,
@@ -229,7 +230,7 @@ class DataReader(aio.Resource):
                  data_type: DataType,
                  start_address: int,
                  quantity: int,
-                 interval: typing.Optional[float],
+                 interval: float,
                  response_cb: ResponseCb):
         self._async_group = async_group
         self._conn = conn
@@ -242,19 +243,14 @@ class DataReader(aio.Resource):
         self._response_cb = response_cb
         self._last_response = None
 
-        if self._interval is not None:
-            async_group.spawn(self._read_loop)
+        async_group.spawn(self._read_loop)
 
     @property
     def async_group(self):
         return self._async_group
 
     @property
-    def is_connected(self) -> bool:
-        if self.is_closing:
-            return False
-        if self._interval is None:
-            return True
+    def is_connected(self):
         return bool(self._last_response and
                     self._last_response.result != 'TIMEOUT')
 
