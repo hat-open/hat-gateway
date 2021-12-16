@@ -241,7 +241,7 @@ class _DataReader(aio.Resource):
         self._quantity = quantity
         self._interval = interval
         self._response_cb = response_cb
-        self._last_response = None
+        self._is_connected = False
 
         async_group.spawn(self._read_loop)
 
@@ -251,12 +251,13 @@ class _DataReader(aio.Resource):
 
     @property
     def is_connected(self):
-        return bool(self._last_response and
-                    self._last_response.result != 'TIMEOUT')
+        return self._is_connected
 
     async def _read_loop(self):
         try:
             mlog.debug('starting read loop')
+            last_responses = {data: None for data in self._data}
+
             while True:
                 mlog.debug('reading data')
                 result = await self._conn.read(
@@ -267,7 +268,12 @@ class _DataReader(aio.Resource):
                            self._device_id, self._data_type,
                            self._start_address, self._quantity, result)
 
+                self._is_connected = not (isinstance(result, Error) and
+                                          result.name == 'TIMEOUT')
+
                 for data in self._data:
+                    last_response = last_responses[data]
+
                     if isinstance(result, Error):
                         value = None
 
@@ -285,19 +291,19 @@ class _DataReader(aio.Resource):
                         response = _create_read_response(
                             data, result.name, None, None)
 
-                    elif (self._last_response is None or
-                            self._last_response.result != 'SUCCESS'):
+                    elif (last_response is None or
+                            last_response.result != 'SUCCESS'):
                         mlog.debug('received initial value (device_id: %s; '
                                    'data_name: %s): %s',
                                    data.device_id, data.name, value)
                         response = _create_read_response(
                             data, 'SUCCESS', value, 'INTERROGATE')
 
-                    elif self._last_response.value != value:
+                    elif last_response.value != value:
                         mlog.debug('data value change value (device_id: %s; '
                                    'data_name: %s): %s -> %s',
                                    data.device_id, data.name,
-                                   self._last_response.value, value)
+                                   last_response.value, value)
                         response = _create_read_response(
                             data, 'SUCCESS', value, 'CHANGE')
 
@@ -306,7 +312,7 @@ class _DataReader(aio.Resource):
                         response = None
 
                     if response:
-                        self._last_response = response
+                        last_responses[data] = response
                         self._response_cb(response)
 
                 mlog.debug('waiting poll interval: %s', self._interval)
