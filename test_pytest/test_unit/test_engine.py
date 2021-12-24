@@ -40,7 +40,7 @@ def device_module():
 
 
 @pytest.fixture
-def device_queue(device_module, monkeypatch):
+async def device_queue(device_module, monkeypatch):
     queue = aio.Queue()
 
     def create(conf, client, prefix):
