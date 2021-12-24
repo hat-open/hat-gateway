@@ -47,7 +47,7 @@ def main(conf: typing.Optional[Path]):
 
 def sync_main(conf: json.Data):
     """Sync main entry point"""
-    aio.init_asyncio()
+    loop = aio.init_asyncio()
 
     common.json_schema_repo.validate('hat-gateway://main.yaml#', conf)
 
@@ -60,7 +60,7 @@ def sync_main(conf: json.Data):
     logging.config.dictConfig(conf['log'])
 
     with contextlib.suppress(asyncio.CancelledError):
-        aio.run_asyncio(async_main(conf))
+        aio.run_asyncio(async_main(conf), loop=loop)
 
 
 async def async_main(conf: json.Data):
