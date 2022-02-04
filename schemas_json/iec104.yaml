@@ -1,0 +1,174 @@
+---
+"$schema": "http://json-schema.org/schema#"
+id: "hat-gateway://iec104.yaml#"
+definitions:
+    master:
+        type: object
+        required:
+            - remote_host
+            - remote_port
+            - response_timeout
+            - supervisory_timeout
+            - test_timeout
+            - send_window_size
+            - receive_window_size
+            - reconnect_delay
+        properties:
+            remote_host:
+                type: string
+            remote_port:
+                type: integer
+            response_timeout:
+                type: number
+            supervisory_timeout:
+                type: number
+            test_timeout:
+                type: number
+            send_window_size:
+                type: integer
+            receive_window_size:
+                type: integer
+            reconnect_delay:
+                type: number
+    slave:
+        type: object
+        required:
+            - local_host
+            - local_port
+            - remote_hosts
+            - response_timeout
+            - supervisory_timeout
+            - test_timeout
+            - send_window_size
+            - receive_window_size
+            - data_without_timestamp
+        properties:
+            local_host:
+                type: string
+            local_port:
+                type: integer
+            remote_hosts:
+                type:
+                    - array
+                    - "null"
+                description: |
+                    if null, all remote hosts are allowed
+                items:
+                    type: string
+            response_timeout:
+                type: number
+            supervisory_timeout:
+                type: number
+            test_timeout:
+                type: number
+            send_window_size:
+                type: integer
+            receive_window_size:
+                type: integer
+            data_without_timestamp:
+                type: array
+                description: |
+                    data whose change notifications are sent without timestamp
+                items:
+                    type: object
+                    required:
+                        - type
+                        - asdu_address
+                        - io_address
+                    properties:
+                        type:
+                            enum:
+                                - SINGLE
+                                - DOUBLE
+                                - STEP_POSITION
+                                - BITSTRING
+                                - NORMALIZED
+                                - SCALED
+                                - FLOATING
+                                - BINARY_COUNTER
+                                - PROTECTION
+                                - PROTECTION_START
+                                - PROTECTION_COMMAND
+                                - STATUS
+                        asdu_address:
+                            type: integer
+                        io_address:
+                            type: integer
+    events:
+        master:
+            gateway:
+                status:
+                    enum:
+                        - CONNECTING
+                        - CONNECTED
+                        - DISCONNECTED
+                data:
+                    type: object
+                    required:
+                        - data_type
+                        - cause
+                        - value
+                        - quality
+                    properties:
+                        cause:
+                            enum:
+                                - PERIODIC
+                                - BACKGROUND_SCAN
+                                - SPONTANEOUS
+                                - REQUEST
+                                - REMOTE_COMMAND
+                                - LOCAL_COMMAND
+                                - INTERROGATED
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/data_types"
+                command:
+                    type: object
+                    required:
+                        - command_type
+                        - cause
+                        - value
+                        - success
+                    properties:
+                        cause:
+                            enum:
+                                - ACTIVATION_CONFIRMATION
+                                - DEACTIVATION_CONFIRMATION
+                                - ACTIVATION_TERMINATION
+                                - UNKNOWN_TYPE
+                                - UNKNOWN_CAUSE
+                                - UNKNOWN_ASDU_ADDRESS
+                                - UNKNOWN_IO_ADDRESS
+                        success:
+                            type: boolean
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/command_types"
+            system:
+                command:
+                    type: object
+                    required:
+                        - command_type
+                        - cause
+                        - value
+                    properties:
+                        cause:
+                            enum:
+                                - ACTIVATION
+                                - DEACTIVATION
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/command_types"
+                counter_interrogation:
+                    enum:
+                        - READ
+                        - FREEZE
+                        - FREEZE_AND_RESET
+                        - RESET
+    data_types:
+        oneOf:
+          - type: object
+            properties:
+                data_type:
+                    const: SINGLE
+    command_types:
+        oneOf:
+          - type: object
+            properties:
+                command_type:
+                    const: SINGLE
+...
