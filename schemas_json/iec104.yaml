@@ -103,72 +103,565 @@ definitions:
                         - CONNECTED
                         - DISCONNECTED
                 data:
-                    type: object
-                    required:
-                        - data_type
-                        - cause
-                        - value
-                        - quality
-                    properties:
-                        cause:
-                            enum:
-                                - PERIODIC
-                                - BACKGROUND_SCAN
-                                - SPONTANEOUS
-                                - REQUEST
-                                - REMOTE_COMMAND
-                                - LOCAL_COMMAND
-                                - INTERROGATED
-                    "$ref": "hat-gateway://iec104.yaml#/definitions/data_types"
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/messages/data/res"
                 command:
-                    type: object
-                    required:
-                        - command_type
-                        - cause
-                        - value
-                        - success
-                    properties:
-                        cause:
-                            enum:
-                                - ACTIVATION_CONFIRMATION
-                                - DEACTIVATION_CONFIRMATION
-                                - ACTIVATION_TERMINATION
-                                - UNKNOWN_TYPE
-                                - UNKNOWN_CAUSE
-                                - UNKNOWN_ASDU_ADDRESS
-                                - UNKNOWN_IO_ADDRESS
-                        success:
-                            type: boolean
-                    "$ref": "hat-gateway://iec104.yaml#/definitions/command_types"
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/messages/command/res"
+                interrogation:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/messages/interrogation/res"
+                counter_interrogation:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/messages/counter_interrogation/res"
             system:
                 command:
-                    type: object
-                    required:
-                        - command_type
-                        - cause
-                        - value
-                    properties:
-                        cause:
-                            enum:
-                                - ACTIVATION
-                                - DEACTIVATION
-                    "$ref": "hat-gateway://iec104.yaml#/definitions/command_types"
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/messages/command/req"
+                interrogation:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/messages/interrogation/req"
                 counter_interrogation:
-                    enum:
-                        - READ
-                        - FREEZE
-                        - FREEZE_AND_RESET
-                        - RESET
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/messages/counter_interrogation/req"
+        slave:
+            gateway:
+                connections:
+                    type: array
+                    items:
+                        type: object
+                        required:
+                            - local
+                            - remote
+                        properties:
+                            local:
+                                type: object
+                                required:
+                                    - host
+                                    - port
+                                properties:
+                                    host:
+                                        type: string
+                                    port:
+                                        type: integer
+                            remote:
+                                type: object
+                                required:
+                                    - host
+                                    - port
+                                properties:
+                                    host:
+                                        type: string
+                                    port:
+                                        type: integer
+                command:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/messages/command/req"
+                interrogation:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/messages/interrogation/req"
+                counter_interrogation:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/messages/counter_interrogation/req"
+            system:
+                data:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/messages/data/res"
+                command:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/messages/command/res"
+                interrogation:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/messages/interrogation/res"
+                counter_interrogation:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/messages/counter_interrogation/res"
+    messages:
+        data:
+            res:
+                type: object
+                required:
+                    - cause
+                properties:
+                    cause:
+                        enum:
+                            - PERIODIC
+                            - BACKGROUND_SCAN
+                            - SPONTANEOUS
+                            - REQUEST
+                            - REMOTE_COMMAND
+                            - LOCAL_COMMAND
+                            - INTERROGATED
+                "$ref": "hat-gateway://iec104.yaml#/definitions/data_types"
+        command:
+            req:
+                type: object
+                required:
+                    - cause
+                properties:
+                    cause:
+                        enum:
+                            - ACTIVATION
+                            - DEACTIVATION
+                "$ref": "hat-gateway://iec104.yaml#/definitions/command_types"
+            res:
+                type: object
+                required:
+                    - cause
+                    - success
+                properties:
+                    cause:
+                        enum:
+                            - ACTIVATION_CONFIRMATION
+                            - DEACTIVATION_CONFIRMATION
+                            - ACTIVATION_TERMINATION
+                            - UNKNOWN_TYPE
+                            - UNKNOWN_CAUSE
+                            - UNKNOWN_ASDU_ADDRESS
+                            - UNKNOWN_IO_ADDRESS
+                    success:
+                        type: boolean
+                "$ref": "hat-gateway://iec104.yaml#/definitions/command_types"
+        interrogation:
+            req:
+                type: object
+                required:
+                    - qualifier
+                properties:
+                    qualifier:
+                        type: integer
+            res:
+                type: object
+                required:
+                    - qualifier
+                properties:
+                    qualifier:
+                        type: integer
+        counter_interrogation:
+            req:
+                type: object
+                required:
+                    - request
+                    - freeze
+                properties:
+                    request:
+                        type: integer
+                    freeze:
+                        enum:
+                            - READ
+                            - FREEZE
+                            - FREEZE_AND_RESET
+                            - RESET
+            res:
+                type: object
+                required:
+                    - request
+                    - freeze
+                properties:
+                    request:
+                        type: integer
+                    freeze:
+                        enum:
+                            - READ
+                            - FREEZE
+                            - FREEZE_AND_RESET
+                            - RESET
     data_types:
         oneOf:
           - type: object
+            required:
+                - data_type
+                - value
+                - quality
             properties:
                 data_type:
                     const: SINGLE
+                value:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/values/single"
+                quality:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/qualities/indication"
+          - type: object
+            required:
+                - data_type
+                - value
+                - quality
+            properties:
+                data_type:
+                    const: DOUBLE
+                value:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/values/double"
+                quality:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/qualities/indication"
+          - type: object
+            required:
+                - data_type
+                - value
+                - quality
+            properties:
+                data_type:
+                    const: STEP_POSITION
+                value:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/values/step_position"
+                quality:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/qualities/measurement"
+          - type: object
+            required:
+                - data_type
+                - value
+                - quality
+            properties:
+                data_type:
+                    const: BITSTRING
+                value:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/values/bitstring"
+                quality:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/qualities/measurement"
+          - type: object
+            required:
+                - data_type
+                - value
+                - quality
+            properties:
+                data_type:
+                    const: NORMALIZED
+                value:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/values/normalized"
+                quality:
+                    oneOf:
+                      - type: "null"
+                      - "$ref": "hat-gateway://iec104.yaml#/definitions/qualities/measurement"
+          - type: object
+            required:
+                - data_type
+                - value
+                - quality
+            properties:
+                data_type:
+                    const: SCALED
+                value:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/values/scaled"
+                quality:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/qualities/measurement"
+          - type: object
+            required:
+                - data_type
+                - value
+                - quality
+            properties:
+                data_type:
+                    const: FLOATING
+                value:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/values/floating"
+                quality:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/qualities/measurement"
+          - type: object
+            required:
+                - data_type
+                - value
+                - quality
+            properties:
+                data_type:
+                    const: BINARY_COUNTER
+                value:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/values/binary_counter"
+                quality:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/qualities/counter"
+          - type: object
+            required:
+                - data_type
+                - value
+                - quality
+                - elapsed_time
+            properties:
+                data_type:
+                    const: PROTECTION
+                value:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/values/protection"
+                quality:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/qualities/protection"
+                elapsed_time:
+                    type: integer
+          - type: object
+            required:
+                - data_type
+                - value
+                - quality
+                - duration_time
+            properties:
+                data_type:
+                    const: PROTECTION_START
+                value:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/values/protection_start"
+                quality:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/qualities/protection"
+                duration_time:
+                    type: integer
+          - type: object
+            required:
+                - data_type
+                - value
+                - quality
+            properties:
+                data_type:
+                    const: PROTECTION_COMMAND
+                value:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/values/protection_command"
+                quality:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/qualities/protection"
+                operating_time:
+                    type: integer
+          - type: object
+            required:
+                - data_type
+                - value
+                - quality
+            properties:
+                data_type:
+                    const: STATUS
+                value:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/values/status"
+                quality:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/qualities/measurement"
     command_types:
         oneOf:
           - type: object
+            required:
+                - command_type
+                - value
+                - select
+                - qualifier
             properties:
                 command_type:
                     const: SINGLE
+                value:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/values/single"
+                select:
+                    type: boolean
+                qualifier:
+                    type: integer
+          - type: object
+            required:
+                - command_type
+                - value
+                - select
+                - qualifier
+            properties:
+                command_type:
+                    const: DOUBLE
+                value:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/values/double"
+                select:
+                    type: boolean
+                qualifier:
+                    type: integer
+          - type: object
+            required:
+                - command_type
+                - value
+                - select
+                - qualifier
+            properties:
+                command_type:
+                    const: REGULATING
+                value:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/values/regulating"
+                select:
+                    type: boolean
+                qualifier:
+                    type: integer
+          - type: object
+            required:
+                - command_type
+                - value
+                - select
+            properties:
+                command_type:
+                    const: NORMALIZED
+                value:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/values/normalized"
+                select:
+                    type: boolean
+          - type: object
+            required:
+                - command_type
+                - value
+                - select
+            properties:
+                command_type:
+                    const: SCALED
+                value:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/values/scaled"
+                select:
+                    type: boolean
+          - type: object
+            required:
+                - command_type
+                - value
+                - select
+            properties:
+                command_type:
+                    const: FLOATING
+                value:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/values/floating"
+                select:
+                    type: boolean
+          - type: object
+            required:
+                - command_type
+                - value
+            properties:
+                command_type:
+                    const: BITSTRING
+                value:
+                    "$ref": "hat-gateway://iec104.yaml#/definitions/values/bitstring"
+    values:
+        single:
+            enum:
+                - "OFF"
+                - "ON"
+        double:
+            enum:
+                - "INTERMEDIATE"
+                - "OFF"
+                - "ON"
+                - "FAULT"
+        regulating:
+            enum:
+                - LOWER
+                - HIGHER
+        step_position:
+            type: object
+            required:
+                - value
+                - transient
+            properties:
+                value:
+                    type: integer
+                transient:
+                    type: boolean
+        bitstring:
+            type: array
+            items:
+                type: integer
+        normalized:
+            type: number
+        scaled:
+            type: integer
+        floating:
+            type: number
+        binary_counter:
+            type: integer
+        protection:
+            enum:
+                - "OFF"
+                - "ON"
+        protection_start:
+            type: object
+            required:
+                - general
+                - l1
+                - l2
+                - l3
+                - ie
+                - reverse
+            properties:
+                general:
+                    type: boolean
+                l1:
+                    type: boolean
+                l2:
+                    type: boolean
+                l3:
+                    type: boolean
+                ie:
+                    type: boolean
+                reverse:
+                    type: boolean
+        protection_command:
+            type: object
+            required:
+                - general
+                - l1
+                - l2
+                - l3
+            properties:
+                general:
+                    type: boolean
+                l1:
+                    type: boolean
+                l2:
+                    type: boolean
+                l3:
+                    type: boolean
+        status:
+            type: object
+            required:
+                - value
+                - change
+            properties:
+                value:
+                    type: array
+                    items:
+                        type: boolean
+                change:
+                    type: array
+                    items:
+                        type: boolean
+    qualities:
+        indication:
+            type: object
+            required:
+                - invalid
+                - not_topical
+                - substituted
+                - blocked
+            properties:
+                invalid:
+                    type: boolean
+                not_topical:
+                    type: boolean
+                substituted:
+                    type: boolean
+                blocked:
+                    type: boolean
+        measurement:
+            type: object
+            required:
+                - invalid
+                - not_topical
+                - substituted
+                - blocked
+                - overflow
+            properties:
+                invalid:
+                    type: boolean
+                not_topical:
+                    type: boolean
+                substituted:
+                    type: boolean
+                blocked:
+                    type: boolean
+                overflow:
+                    type: boolean
+        counter:
+            type: object
+            required:
+                - invalid
+                - adjusted
+                - overflow
+                - sequence
+            properties:
+                invalid:
+                    type: boolean
+                adjusted:
+                    type: boolean
+                overflow:
+                    type: boolean
+                sequence:
+                    type: boolean
+        protection:
+            type: object
+            required:
+                - invalid
+                - not_topical
+                - substituted
+                - blocked
+                - time_invalid
+            properties:
+                invalid:
+                    type: boolean
+                not_topical:
+                    type: boolean
+                substituted:
+                    type: boolean
+                blocked:
+                    type: boolean
+                time_invalid:
+                    type: boolean
 ...
