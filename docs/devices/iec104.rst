@@ -4,14 +4,9 @@ IEC 60870-5-104 devices
 Together with IEC104 specific events, generic `enable` and `running` events
 are also supported.
 
-IEC104 device configurations and event payloads are defined by:
 
-    .. literalinclude:: ../../schemas_json/iec104.yaml
-        :language: yaml
-
-
-IEC104 master device
---------------------
+Master device
+-------------
 
 IEC104 master device configuration is specified by
 ``hat-gateway://iec104.yaml#/definitions/master``.
@@ -24,8 +19,7 @@ event types have prefix::
 .. todo::
 
     * reconnect procedure when device is enabled (reconnect delay)
-    * iec104 asdu messages are sent to device only as reaction to
-      `system` events
+    * iec104 messages are sent to device only as reaction to `system` events
     * only "automatic" driver action is reconnect loop
     * new `gateway` events are generated only as reaction to:
         - receiving iec104 asdu messages
@@ -95,7 +89,8 @@ event types are used:
 
             Represents request for command execution.
 
-            Source timestamp is ``None``.
+            Source timestamp is dependent on existence of IEC104 time.
+            If IEC104 time is not available, source timestamp is ``None``.
 
             Payload is specified by
             ``hat-gateway://iec104.yaml#/definitions/events/master/system/command``.
@@ -124,8 +119,8 @@ event types are used:
     * should we add data_type/command_type to event type
 
 
-IEC104 slave device
---------------------
+Slave device
+------------
 
 IEC104 slave device configuration is specified by
 ``hat-gateway://iec104.yaml#/definitions/slave``.
@@ -230,3 +225,10 @@ event types are used:
 
     * what to do when cause is None (discard message or return None cause)
     * should we add data_type/command_type to event type
+
+
+Configurations and event payloads
+---------------------------------
+
+.. literalinclude:: ../../schemas_json/iec104.yaml
+    :language: yaml

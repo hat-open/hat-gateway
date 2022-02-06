@@ -1,0 +1,153 @@
+IEC 60870-5-101 devices
+=======================
+
+Together with IEC101 specific events, generic `enable` and `running` events
+are also supported.
+
+
+Master device
+-------------
+
+IEC101 master device configuration is specified by
+``hat-gateway://iec101.yaml#/definitions/master``.
+
+According to :ref:`gateway specification <gateway>`, all IEC101 master device
+event types have prefix::
+
+    'gateway', <gateway_name>, 'iec101_master', <device_name>, <source>, ...
+
+.. todo::
+
+    * create master loop (open serial endpoint) (serial port reconnect delay)
+    * enable/disable remote device (query last state on enable device and
+      listen for changes)
+    * reconnect procedure when serial endpoint available and remote
+      device is enabled (remote device reconnect delay)
+    * iec101 messages are sent to device only as reaction to `system` events
+    * only "automatic" driver action is reconnect loop
+    * new `gateway` events are generated only as reaction to:
+        - receiving iec101 messages
+        - change of connection state
+    * messages with test flag are ignored
+
+To enable communication between device and rest of the hat system, following
+event types are used:
+
+    * 'gateway', <gateway_name>, 'iec101_master', <device_name>, 'gateway', ...
+
+        * ..., 'status'
+
+            Represents change in serial endpoint status. Upon enabling device,
+            new ``CONNECTING`` status should be registered, and ``CONNECTED``
+            once serial endpoint is opened. Once device is disabled,
+            ``DISCONNECTED`` status should be assumed regardless of last
+            registered `status` event (registration of ``DISCONNECTED`` status
+            event during device disabling is mandatory but should not be relied
+            upon).
+
+            Source timestamp is ``None``.
+
+            Payload is specified by
+            ``hat-gateway://iec101.yaml#/definitions/events/master/gateway/status``.
+
+        * ..., 'remote_device', <device_address>, 'status'
+
+            Represents change in remote device connection status. Once serial
+            endpoint is opened and remote device enabled, new ``CONNECTING``
+            status should be registered. Once device is disabled or remote
+            device is disabled, ``DISCONNECTED`` status should be
+            assumed regardless of last registered `status` event (registration
+            of ``DISCONNECTED`` status event during device disabling or remote
+            device disabling is mandatory but should not be relied upon).
+
+            Source timestamp is ``None``.
+
+            Payload is specified by
+            ``hat-gateway://iec101.yaml#/definitions/events/master/gateway/status``.
+
+        * ..., 'remote_device', <device_address>, 'data', <asdu_address>, <io_address>
+
+            Represents received IEC101 data message.
+
+            Source timestamp is dependent on existence of IEC101 time.
+            If IEC101 time is not available, source timestamp is ``None``.
+
+            Payload is specified by
+            ``hat-gateway://iec101.yaml#/definitions/events/master/gateway/data``.
+
+        * ..., 'remote_device', <device_address>, 'command', <asdu_address>, <io_address>
+
+            Represents received IEC101 command message.
+
+            Source timestamp is ``None``.
+
+            Payload is specified by
+            ``hat-gateway://iec101.yaml#/definitions/events/master/gateway/command``.
+
+        * ..., 'remote_device', <device_address>, 'interrogation', <asdu_address>
+
+            Represents received IEC101 end of interrogation message.
+
+            Source timestamp is ``None``.
+
+            Payload is specified by
+            ``hat-gateway://iec101.yaml#/definitions/events/master/gateway/interrogation``.
+
+        * ..., 'remote_device', <device_address>, 'counter_interrogation', <asdu_address>
+
+            Represents received IEC101 end of counter interrogation message.
+
+            Source timestamp is ``None``.
+
+            Payload is specified by
+            ``hat-gateway://iec101.yaml#/definitions/events/master/gateway/counter_interrogation``.
+
+    * 'gateway', <gateway_name>, 'iec101_master', <device_name>, 'system', ...
+
+        * ..., 'remote_device', <device_address>, 'enable'
+
+            Represents request for enable/disable remote device.
+
+            Source timestamp is ``None``.
+
+            Payload is specified by
+            ``hat-gateway://iec101.yaml#/definitions/events/master/system/enable``.
+
+        * ..., 'remote_device', <device_address>, 'command', <asdu_address>, <io_address>
+
+            Represents request for command execution.
+
+            Source timestamp is ``None``.
+
+            Payload is specified by
+            ``hat-gateway://iec101.yaml#/definitions/events/master/system/command``.
+
+        * ..., 'remote_device', <device_address>, 'interrogation', <asdu_address>
+
+            Represents request for interrogation.
+
+            Source timestamp is ``None``.
+
+            Payload is specified by
+            ``hat-gateway://iec101.yaml#/definitions/events/master/system/interrogation``.
+
+        * ..., 'remote_device', <device_address>, 'counter_interrogation', <asdu_address>
+
+            Represents request for counter interrogation.
+
+            Source timestamp is ``None``.
+
+            Payload is specified by
+            ``hat-gateway://iec101.yaml#/definitions/events/master/system/counter_interrogation``.
+
+.. todo::
+
+    * what to do when cause is None (discard message or return None cause)
+    * should we add data_type/command_type to event type
+
+
+Configurations and event payloads
+---------------------------------
+
+.. literalinclude:: ../../schemas_json/iec101.yaml
+    :language: yaml
