@@ -105,9 +105,7 @@ definitions:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/messages/counter_interrogation/res"
             system:
                 enable:
-                    enum:
-                        - ENABLE
-                        - DISABLE
+                    type: boolean
                 command:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/messages/command/req"
                 interrogation:
@@ -164,16 +162,16 @@ definitions:
             req:
                 type: object
                 required:
-                    - qualifier
+                    - request
                 properties:
-                    qualifier:
+                    request:
                         type: integer
             res:
                 type: object
                 required:
-                    - qualifier
+                    - request
                 properties:
-                    qualifier:
+                    request:
                         type: integer
         counter_interrogation:
             req:

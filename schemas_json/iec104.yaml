@@ -212,16 +212,16 @@ definitions:
             req:
                 type: object
                 required:
-                    - qualifier
+                    - request
                 properties:
-                    qualifier:
+                    request:
                         type: integer
             res:
                 type: object
                 required:
-                    - qualifier
+                    - request
                 properties:
-                    qualifier:
+                    request:
                         type: integer
         counter_interrogation:
             req:
