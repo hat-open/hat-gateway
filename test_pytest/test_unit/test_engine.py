@@ -11,9 +11,6 @@ import hat.event.common
 import hat.gateway.engine
 
 
-pytestmark = pytest.mark.asyncio
-
-
 gateway_name = 'gateway_name'
 device_type = 'device_type'
 

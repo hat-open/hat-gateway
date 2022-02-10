@@ -150,7 +150,6 @@ async def run_event_client(event_server_address, gateway_conf):
 
 
 @pytest.fixture
-@pytest.mark.asyncio
 async def event_client(event_process, event_server_address, gateway_conf):
     client = await run_event_client(event_server_address, gateway_conf)
 
@@ -253,7 +252,6 @@ async def until_devices_running(client, conf, running):
                 devices.remove(e.event_type[3])
 
 
-@pytest.mark.asyncio
 async def test_devices_enable_disable(monitor_process, event_process,
                                       event_client, gateway_conf,
                                       create_gateway):
@@ -284,7 +282,6 @@ async def test_devices_enable_disable(monitor_process, event_process,
 
 
 @pytest.mark.timeout(10)
-@pytest.mark.asyncio
 async def test_devices_on_gateway_close(monitor_process, event_process,
                                         event_client, gateway_conf,
                                         create_gateway):
@@ -305,7 +302,6 @@ async def test_devices_on_gateway_close(monitor_process, event_process,
 
 @pytest.mark.skip('WIP')
 @pytest.mark.timeout(10)
-@pytest.mark.asyncio
 async def test_device_client(monitor_process, event_process,
                              event_client, gateway_conf, create_gateway):
     await register_enable(event_client, gateway_conf, enable=True)
@@ -350,7 +346,6 @@ async def test_device_client(monitor_process, event_process,
 
 
 @pytest.mark.timeout(10)
-@pytest.mark.asyncio
 async def test_on_monitor_close(monitor_process, monitor_port,
                                 gateway_conf_no_devices, create_gateway):
     gw_process = create_gateway(gateway_conf_no_devices, ignore_stderr=True)
@@ -366,7 +361,6 @@ async def test_on_monitor_close(monitor_process, monitor_port,
 
 
 @pytest.mark.timeout(10)
-@pytest.mark.asyncio
 async def test_on_event_close(monitor_process, event_process, event_client,
                               gateway_conf, create_gateway,
                               tmp_path, event_conf, event_server_port,
