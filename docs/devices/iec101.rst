@@ -140,6 +140,14 @@ event types are used:
             Payload is specified by
             ``hat-gateway://iec101.yaml#/definitions/events/master/system/counter_interrogation``.
 
+        * ..., 'remote_device', <device_address>, 'time_sync'
+
+            Represents request for time synchronization.
+
+            Source timestamp is ``None``.
+
+            Payload is ``None``.
+
 .. todo::
 
     * what to do when cause is None (discard message or return None cause)
