@@ -4,6 +4,31 @@ IEC 60870-5-104 devices
 Together with IEC104 specific events, generic `enable` and `running` events
 are also supported.
 
+Supported data types (<data_type>):
+
+    * 'single'
+    * 'double'
+    * 'step_position'
+    * 'bitstring'
+    * 'normalized'
+    * 'scaled'
+    * 'floating'
+    * 'binary_counter'
+    * 'protection'
+    * 'protection_start'
+    * 'protection_command'
+    * 'status'
+
+Supported command types (<command_type>):
+
+    * 'single'
+    * 'double'
+    * 'regulating'
+    * 'normalized'
+    * 'scaled'
+    * 'floating'
+    * 'bitstring'
+
 
 Master device
 -------------
@@ -45,7 +70,7 @@ event types are used:
             Payload is specified by
             ``hat-gateway://iec104.yaml#/definitions/events/master/gateway/status``.
 
-        * ..., 'data', <asdu_address>, <io_address>
+        * ..., 'data', <data_type>, <asdu_address>, <io_address>
 
             Represents received IEC104 data message.
 
@@ -55,7 +80,7 @@ event types are used:
             Payload is specified by
             ``hat-gateway://iec104.yaml#/definitions/events/master/gateway/data``.
 
-        * ..., 'command', <asdu_address>, <io_address>
+        * ..., 'command', <command_type>, <asdu_address>, <io_address>
 
             Represents received IEC104 command message.
 
@@ -85,7 +110,7 @@ event types are used:
 
     * 'gateway', <gateway_name>, 'iec104_master', <device_name>, 'system', ...
 
-        * ..., 'command', <asdu_address>, <io_address>
+        * ..., 'command', <command_type>, <asdu_address>, <io_address>
 
             Represents request for command execution.
 
@@ -161,7 +186,7 @@ event types are used:
             Payload is specified by
             ``hat-gateway://iec104.yaml#/definitions/events/slave/gateway/connections``.
 
-        * ..., 'command', <asdu_address>, <io_address>
+        * ..., 'command', <command_type>, <asdu_address>, <io_address>
 
             Represents received IEC104 command message.
 
@@ -191,7 +216,7 @@ event types are used:
 
     * 'gateway', <gateway_name>, 'iec104_slave', <device_name>, 'system', ...
 
-        * ..., 'data', <asdu_address>, <io_address>
+        * ..., 'data', <data_type> <asdu_address>, <io_address>
 
             Represents data change.
 
@@ -201,7 +226,7 @@ event types are used:
             Payload is specified by
             ``hat-gateway://iec104.yaml#/definitions/events/slave/system/data``.
 
-        * ..., 'command', <asdu_address>, <io_address>
+        * ..., 'command', <command_type>, <asdu_address>, <io_address>
 
             Represents command response.
 

@@ -4,6 +4,31 @@ IEC 60870-5-101 devices
 Together with IEC101 specific events, generic `enable` and `running` events
 are also supported.
 
+Supported data types (<data_type>):
+
+    * 'single'
+    * 'double'
+    * 'step_position'
+    * 'bitstring'
+    * 'normalized'
+    * 'scaled'
+    * 'floating'
+    * 'binary_counter'
+    * 'protection'
+    * 'protection_start'
+    * 'protection_command'
+    * 'status'
+
+Supported command types (<command_type>):
+
+    * 'single'
+    * 'double'
+    * 'regulating'
+    * 'normalized'
+    * 'scaled'
+    * 'floating'
+    * 'bitstring'
+
 
 Master device
 -------------
@@ -65,7 +90,7 @@ event types are used:
             Payload is specified by
             ``hat-gateway://iec101.yaml#/definitions/events/master/gateway/status``.
 
-        * ..., 'remote_device', <device_address>, 'data', <asdu_address>, <io_address>
+        * ..., 'remote_device', <device_address>, 'data', <data_type>, <asdu_address>, <io_address>
 
             Represents received IEC101 data message.
 
@@ -75,7 +100,7 @@ event types are used:
             Payload is specified by
             ``hat-gateway://iec101.yaml#/definitions/events/master/gateway/data``.
 
-        * ..., 'remote_device', <device_address>, 'command', <asdu_address>, <io_address>
+        * ..., 'remote_device', <device_address>, 'command', <command_type>, <asdu_address>, <io_address>
 
             Represents received IEC101 command message.
 
@@ -113,7 +138,7 @@ event types are used:
             Payload is specified by
             ``hat-gateway://iec101.yaml#/definitions/events/master/system/enable``.
 
-        * ..., 'remote_device', <device_address>, 'command', <asdu_address>, <io_address>
+        * ..., 'remote_device', <device_address>, 'command', <command_type>, <asdu_address>, <io_address>
 
             Represents request for command execution.
 

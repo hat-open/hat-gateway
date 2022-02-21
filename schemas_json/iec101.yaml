@@ -128,7 +128,19 @@ definitions:
                             - REMOTE_COMMAND
                             - LOCAL_COMMAND
                             - INTERROGATED
-                "$ref": "hat-gateway://iec101.yaml#/definitions/data_types"
+                oneOf:
+                    - "$ref": "hat-gateway://iec101.yaml#/definitions/data_types/single"
+                    - "$ref": "hat-gateway://iec101.yaml#/definitions/data_types/double"
+                    - "$ref": "hat-gateway://iec101.yaml#/definitions/data_types/step_position"
+                    - "$ref": "hat-gateway://iec101.yaml#/definitions/data_types/bitstring"
+                    - "$ref": "hat-gateway://iec101.yaml#/definitions/data_types/normalized"
+                    - "$ref": "hat-gateway://iec101.yaml#/definitions/data_types/scaled"
+                    - "$ref": "hat-gateway://iec101.yaml#/definitions/data_types/floating"
+                    - "$ref": "hat-gateway://iec101.yaml#/definitions/data_types/binary_counter"
+                    - "$ref": "hat-gateway://iec101.yaml#/definitions/data_types/protection"
+                    - "$ref": "hat-gateway://iec101.yaml#/definitions/data_types/protection_start"
+                    - "$ref": "hat-gateway://iec101.yaml#/definitions/data_types/protection_command"
+                    - "$ref": "hat-gateway://iec101.yaml#/definitions/data_types/status"
         command:
             req:
                 type: object
@@ -139,7 +151,14 @@ definitions:
                         enum:
                             - ACTIVATION
                             - DEACTIVATION
-                "$ref": "hat-gateway://iec101.yaml#/definitions/command_types"
+                oneOf:
+                    - "$ref": "hat-gateway://iec101.yaml#/definitions/command_types/single"
+                    - "$ref": "hat-gateway://iec101.yaml#/definitions/command_types/double"
+                    - "$ref": "hat-gateway://iec101.yaml#/definitions/command_types/regulating"
+                    - "$ref": "hat-gateway://iec101.yaml#/definitions/command_types/normalized"
+                    - "$ref": "hat-gateway://iec101.yaml#/definitions/command_types/scaled"
+                    - "$ref": "hat-gateway://iec101.yaml#/definitions/command_types/floating"
+                    - "$ref": "hat-gateway://iec101.yaml#/definitions/command_types/bitstring"
             res:
                 type: object
                 required:
@@ -157,7 +176,14 @@ definitions:
                             - UNKNOWN_IO_ADDRESS
                     success:
                         type: boolean
-                "$ref": "hat-gateway://iec101.yaml#/definitions/command_types"
+                oneOf:
+                    - "$ref": "hat-gateway://iec101.yaml#/definitions/command_types/single"
+                    - "$ref": "hat-gateway://iec101.yaml#/definitions/command_types/double"
+                    - "$ref": "hat-gateway://iec101.yaml#/definitions/command_types/regulating"
+                    - "$ref": "hat-gateway://iec101.yaml#/definitions/command_types/normalized"
+                    - "$ref": "hat-gateway://iec101.yaml#/definitions/command_types/scaled"
+                    - "$ref": "hat-gateway://iec101.yaml#/definitions/command_types/floating"
+                    - "$ref": "hat-gateway://iec101.yaml#/definitions/command_types/bitstring"
         interrogation:
             req:
                 type: object
@@ -203,251 +229,212 @@ definitions:
                             - FREEZE_AND_RESET
                             - RESET
     data_types:
-        oneOf:
-          - type: object
+        single:
+            type: object
             required:
-                - data_type
                 - value
                 - quality
             properties:
-                data_type:
-                    const: SINGLE
                 value:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/values/single"
                 quality:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/qualities/indication"
-          - type: object
+        double:
+            type: object
             required:
-                - data_type
                 - value
                 - quality
             properties:
-                data_type:
-                    const: DOUBLE
                 value:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/values/double"
                 quality:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/qualities/indication"
-          - type: object
+        step_position:
+            type: object
             required:
-                - data_type
                 - value
                 - quality
             properties:
-                data_type:
-                    const: STEP_POSITION
                 value:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/values/step_position"
                 quality:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/qualities/measurement"
-          - type: object
+        bitstring:
+            type: object
             required:
-                - data_type
                 - value
                 - quality
             properties:
-                data_type:
-                    const: BITSTRING
                 value:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/values/bitstring"
                 quality:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/qualities/measurement"
-          - type: object
+        normalized:
+            type: object
             required:
-                - data_type
                 - value
                 - quality
             properties:
-                data_type:
-                    const: NORMALIZED
                 value:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/values/normalized"
                 quality:
                     oneOf:
                       - type: "null"
                       - "$ref": "hat-gateway://iec101.yaml#/definitions/qualities/measurement"
-          - type: object
+        scaled:
+            type: object
             required:
-                - data_type
                 - value
                 - quality
             properties:
-                data_type:
-                    const: SCALED
                 value:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/values/scaled"
                 quality:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/qualities/measurement"
-          - type: object
+        floating:
+            type: object
             required:
-                - data_type
                 - value
                 - quality
             properties:
-                data_type:
-                    const: FLOATING
                 value:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/values/floating"
                 quality:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/qualities/measurement"
-          - type: object
+        binary_counter:
+            type: object
             required:
-                - data_type
                 - value
                 - quality
             properties:
-                data_type:
-                    const: BINARY_COUNTER
                 value:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/values/binary_counter"
                 quality:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/qualities/counter"
-          - type: object
+        protection:
+            type: object
             required:
-                - data_type
                 - value
                 - quality
                 - elapsed_time
             properties:
-                data_type:
-                    const: PROTECTION
                 value:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/values/protection"
                 quality:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/qualities/protection"
                 elapsed_time:
                     type: integer
-          - type: object
+        protection_start:
+            type: object
             required:
-                - data_type
                 - value
                 - quality
                 - duration_time
             properties:
-                data_type:
-                    const: PROTECTION_START
                 value:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/values/protection_start"
                 quality:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/qualities/protection"
                 duration_time:
                     type: integer
-          - type: object
+        protection_command:
+            type: object
             required:
-                - data_type
                 - value
                 - quality
+                - operating_time
             properties:
-                data_type:
-                    const: PROTECTION_COMMAND
                 value:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/values/protection_command"
                 quality:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/qualities/protection"
                 operating_time:
                     type: integer
-          - type: object
+        status:
+            type: object
             required:
-                - data_type
                 - value
                 - quality
             properties:
-                data_type:
-                    const: STATUS
                 value:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/values/status"
                 quality:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/qualities/measurement"
     command_types:
-        oneOf:
-          - type: object
+        single:
+            type: object
             required:
-                - command_type
                 - value
                 - select
                 - qualifier
             properties:
-                command_type:
-                    const: SINGLE
                 value:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/values/single"
                 select:
                     type: boolean
                 qualifier:
                     type: integer
-          - type: object
+        double:
+            type: object
             required:
-                - command_type
                 - value
                 - select
                 - qualifier
             properties:
-                command_type:
-                    const: DOUBLE
                 value:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/values/double"
                 select:
                     type: boolean
                 qualifier:
                     type: integer
-          - type: object
+        regulating:
+            type: object
             required:
-                - command_type
                 - value
                 - select
                 - qualifier
             properties:
-                command_type:
-                    const: REGULATING
                 value:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/values/regulating"
                 select:
                     type: boolean
                 qualifier:
                     type: integer
-          - type: object
+        normalized:
+            type: object
             required:
-                - command_type
                 - value
                 - select
             properties:
-                command_type:
-                    const: NORMALIZED
                 value:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/values/normalized"
                 select:
                     type: boolean
-          - type: object
+        scaled:
+            type: object
             required:
-                - command_type
                 - value
                 - select
             properties:
-                command_type:
-                    const: SCALED
                 value:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/values/scaled"
                 select:
                     type: boolean
-          - type: object
+        floating:
+            type: object
             required:
-                - command_type
                 - value
                 - select
             properties:
-                command_type:
-                    const: FLOATING
                 value:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/values/floating"
                 select:
                     type: boolean
-          - type: object
+        bitstring:
+            type: object
             required:
-                - command_type
                 - value
             properties:
-                command_type:
-                    const: BITSTRING
                 value:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/values/bitstring"
     values:
