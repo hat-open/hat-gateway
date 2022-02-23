@@ -48,7 +48,7 @@ async def create(conf: common.DeviceConf,
         hat.event.common.QueryData(
             event_types=remote_enable_evts, unique_type=True))
     for event in remote_enable_events:
-        device._process_enable(event)
+        device._process_event(event)
 
     device._async_group = aio.Group()
     device._async_group.spawn(device._create_link_master_loop)
@@ -65,7 +65,7 @@ class Iec101MasterDevice(common.Device):
     async def _create_link_master_loop(self):
         try:
             while True:
-                self._event_client.register([_status_event('CONNECTING')])
+                self._register_status('CONNECTING')
                 try:
                     self._master = await link.unbalanced.create_master(
                             port=self._conf['port'],
@@ -82,22 +82,21 @@ class Iec101MasterDevice(common.Device):
                 except Exception as e:
                     mlog.error('link master (endpoint) failed to create: %s',
                                e, exc_info=e)
-                    self._event_client.register(
-                        [_status_event('DISCONNECTED')])
+                    self._register_status('DISCONNECTED')
                     await asyncio.sleep(self._conf['reconnect_delay'])
                     continue
-                self._event_client.register([_status_event('CONNECTED')])
+                self._register_status('CONNECTED')
                 for address, enabled in self._remote_enabled.items():
                     if enabled:
                         self._enable_remote(address)
                 await self._master.wait_closed()
-                self._event_client.register([_status_event('DISCONNECTED')])
+                self._register_status('DISCONNECTED')
                 self._master = None
         finally:
             mlog.debug('closing link master loop')
             self.close()
             with contextlib.suppress(ConnectionError):
-                self._event_client.register(_status_event('DISCONNECTED'))
+                self._register_status('DISCONNECTED')
             self._conns = {}
             if self._master:
                 await aio.uncancellable(self._master.async_close())
@@ -107,19 +106,16 @@ class Iec101MasterDevice(common.Device):
                                  lambda i: i['address'] == address)
         try:
             while True:
-                self._event_client.register([
-                    _rmt_status_event(address, 'CONNECTING')])
+                self._register_rmt_status(address, 'CONNECTING')
                 try:
                     master_conn = await self._master.connect(addr=address)
                 except Exception as e:
                     mlog.error('connection error to address %s: %s',
                                address, e, exc_info=e)
-                    self._event_client.register([
-                        _rmt_status_event(address, 'DISCONNECTED')])
+                    self._register_rmt_status(address, 'DISCONNECTED')
                     await asyncio.sleep(remote_conf['reconnect_delay'])
                     continue
-                self._event_client.register([
-                    _rmt_status_event(address, 'CONNECTED')])
+                self._register_rmt_status(address, 'CONNECTED')
                 conn = iec101.Connection(
                     conn=master_conn,
                     cause_size=iec101.CauseSize[self._conf['cause_size']],
@@ -130,14 +126,12 @@ class Iec101MasterDevice(common.Device):
                 self._conns[address] = conn
                 group.spawn(self._receive_loop, conn, address)
                 await conn.wait_closed()
-                self._event_client.register([
-                    _rmt_status_event(address, 'DISCONNECTED')])
+                self._register_rmt_status(address, 'DISCONNECTED')
                 self._conns.pop(address)
         finally:
             group.close()
             with contextlib.suppress(ConnectionError):
-                self._event_client.register([
-                    _rmt_status_event(address, 'DISCONNECTED')])
+                self._register_rmt_status(address, 'DISCONNECTED')
             if address in self._conns:
                 conn = self._conns.pop(address)
                 await aio.uncancellable(conn.async_close())
@@ -195,7 +189,7 @@ class Iec101MasterDevice(common.Device):
         if event.event_type[self._prefix_len + 1] != 'remote_device':
             raise Exception('unexpected event type')
         address = int(event.event_type[self._prefix_len + 2])
-        etype_suffix = event.event_type[self._prefix_len + 2:]
+        etype_suffix = event.event_type[self._prefix_len + 3:]
         if etype_suffix == ('enable', ):
             self._process_enable(event, address)
         elif etype_suffix[0] == 'command':
@@ -287,24 +281,24 @@ class Iec101MasterDevice(common.Device):
             cause=iec101.ActivationReqCause.ACTIVATION)
         self._send_msg_to_address(msg, address, event)
 
+    def _register_status(self, status):
+        event = hat.event.common.RegisterEvent(
+            event_type=(*self._event_type_prefix, 'gateway', 'status'),
+            source_timestamp=None,
+            payload=hat.event.common.EventPayload(
+                type=hat.event.common.EventPayloadType.JSON,
+                data=status))
+        self._event_client.register([event])
 
-def _status_event(self, status):
-    return hat.event.common.RegisterEvent(
-        event_type=(*self._event_type_prefix, 'gateway', 'status'),
-        source_timestamp=None,
-        payload=hat.event.common.EventPayload(
-            type=hat.event.common.EventPayloadType.JSON,
-            data=status))
-
-
-def _rmt_status_event(self, address, status):
-    return hat.event.common.RegisterEvent(
-        event_type=(*self._event_type_prefix,
-                    'gateway', 'remote_device', str(address), 'status'),
-        source_timestamp=None,
-        payload=hat.event.common.EventPayload(
-            type=hat.event.common.EventPayloadType.JSON,
-            data=status))
+    def _register_rmt_status(self, address, status):
+        event = hat.event.common.RegisterEvent(
+            event_type=(*self._event_type_prefix,
+                        'gateway', 'remote_device', str(address), 'status'),
+            source_timestamp=None,
+            payload=hat.event.common.EventPayload(
+                type=hat.event.common.EventPayloadType.JSON,
+                data=status))
+        self._event_client.register([event])
 
 
 def _msg_to_event(msg, event_type_prefix, address):
