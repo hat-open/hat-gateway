@@ -54,6 +54,7 @@ event types have prefix::
         - receiving iec101 messages
         - change of connection state
     * messages with test flag are ignored
+    * time sync loop for each enabled remote device
 
 To enable communication between device and rest of the hat system, following
 event types are used:
@@ -165,18 +166,9 @@ event types are used:
             Payload is specified by
             ``hat-gateway://iec101.yaml#/definitions/events/master/system/counter_interrogation``.
 
-        * ..., 'remote_device', <device_address>, 'time_sync'
-
-            Represents request for time synchronization.
-
-            Source timestamp is ``None``.
-
-            Payload is ``None``.
-
 .. todo::
 
     * what to do when cause is None (discard message or return None cause)
-    * should we add data_type/command_type to event type
 
 
 Configurations and event payloads

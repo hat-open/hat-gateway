@@ -50,6 +50,7 @@ event types have prefix::
         - receiving iec104 asdu messages
         - change of connection state
     * messages with test flag are ignored
+    * time sync loop when device is enabled
 
 To enable communication between device and rest of the hat system, following
 event types are used:
@@ -138,18 +139,9 @@ event types are used:
             Payload is specified by
             ``hat-gateway://iec104.yaml#/definitions/events/master/system/counter_interrogation``.
 
-        * ..., 'time_sync'
-
-            Represents request for time synchronization.
-
-            Source timestamp is ``None``.
-
-            Payload is ``None``.
-
 .. todo::
 
     * what to do when cause is None (discard message or return None cause)
-    * should we add data_type/command_type to event type
 
 
 Slave device
@@ -257,7 +249,6 @@ event types are used:
 .. todo::
 
     * what to do when cause is None (discard message or return None cause)
-    * should we add data_type/command_type to event type
 
 
 Configurations and event payloads

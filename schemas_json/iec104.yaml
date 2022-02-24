@@ -13,6 +13,7 @@ definitions:
             - send_window_size
             - receive_window_size
             - reconnect_delay
+            - time_sync_delay
         properties:
             remote_host:
                 type: string
@@ -30,6 +31,10 @@ definitions:
                 type: integer
             reconnect_delay:
                 type: number
+            time_sync_delay:
+                type:
+                    - "null"
+                    - number
     slave:
         type: object
         required:

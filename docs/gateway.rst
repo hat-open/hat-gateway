@@ -148,8 +148,10 @@ Devices available as part of `hat-gateway` package:
     .. toctree::
        :maxdepth: 1
 
-       devices/iec104
        devices/modbus
+       devices/iec101
+       devices/iec103
+       devices/iec104
 
 
 Implementation

@@ -81,12 +81,33 @@ definitions:
                     type: object
                     required:
                         - address
+                        - response_timeout
+                        - send_retry_count
+                        - poll_class1_delay
+                        - poll_class2_delay
                         - reconnect_delay
+                        - time_sync_delay
                     properties:
                         address:
                             type: integer
+                        response_timeout:
+                            type: number
+                        send_retry_count:
+                            type: number
+                        poll_class1_delay:
+                            type:
+                                - "null"
+                                - number
+                        poll_class2_delay:
+                            type:
+                                - "null"
+                                - number
                         reconnect_delay:
                             type: number
+                        time_sync_delay:
+                            type:
+                                - "null"
+                                - number
     events:
         master:
             gateway:

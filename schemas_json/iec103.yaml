@@ -1,0 +1,155 @@
+---
+"$schema": "http://json-schema.org/schema#"
+id: "hat-gateway://iec103.yaml#"
+definitions:
+    master:
+        type: object
+        required:
+            - port
+            - baudrate
+            - bytesize
+            - parity
+            - stopbits
+            - flow_control
+            - silent_interval
+            - reconnect_delay
+            - remote_devices
+        properties:
+            port:
+                type: string
+            baudrate:
+                type: integer
+            bytesize:
+                enum:
+                    - FIVEBITS
+                    - SIXBITS
+                    - SEVENBITS
+                    - EIGHTBITS
+            parity:
+                enum:
+                    - NONE
+                    - EVEN
+                    - ODD
+                    - MARK
+                    - SPACE
+            stopbits:
+                enum:
+                    - ONE
+                    - ONE_POINT_FIVE
+                    - TWO
+            flow_control:
+                type: object
+                required:
+                    - xonxoff
+                    - rtscts
+                    - dsrdtr
+                properties:
+                    xonxoff:
+                        type: boolean
+                    rtscts:
+                        type: boolean
+                    dsrdtr:
+                        type: boolean
+            silent_interval:
+                type: number
+            reconnect_delay:
+                type: number
+            remote_devices:
+                type: array
+                items:
+                    type: object
+                    required:
+                        - address
+                        - response_timeout
+                        - send_retry_count
+                        - poll_class1_delay
+                        - poll_class2_delay
+                        - reconnect_delay
+                        - time_sync_delay
+                    properties:
+                        address:
+                            type: integer
+                        response_timeout:
+                            type: number
+                        send_retry_count:
+                            type: number
+                        poll_class1_delay:
+                            type:
+                                - "null"
+                                - number
+                        poll_class2_delay:
+                            type:
+                                - "null"
+                                - number
+                        reconnect_delay:
+                            type: number
+                        time_sync_delay:
+                            type:
+                                - "null"
+                                - number
+    events:
+        master:
+            gateway:
+                status:
+                    enum:
+                        - CONNECTING
+                        - CONNECTED
+                        - DISCONNECTED
+                data:
+                    type: object
+                    required:
+                        - cause
+                        - value
+                    properties:
+                        cause:
+                            enum:
+                                - SPONTANEOUS
+                                - CYCLIC
+                                - TEST_MODE
+                                - GENERAL_INTERROGATION
+                                - LOCAL_OPERATION
+                                - REMOTE_OPERATION
+                        value:
+                            oneOf:
+                              - "$ref": "hat-gateway://iec103.yaml#/definitions/values/double"
+                              - "$ref": "hat-gateway://iec103.yaml#/definitions/values/measurand"
+                command:
+                    type: object
+                    required:
+                        - session_id
+                        - success
+                    properties:
+                        success:
+                            type: boolean
+            system:
+                enable:
+                    type: boolean
+                command:
+                    type: object
+                    required:
+                        - session_id
+                        - value
+                    properties:
+                        value:
+                            "$ref": "hat-gateway://iec103.yaml#/definitions/values/double"
+    values:
+        double:
+            enum:
+                - "TRANSIENT"
+                - "OFF"
+                - "ON"
+                - "ERROR"
+        measurand:
+            type: object
+            required:
+                - overflow
+                - invalid
+                - value
+            properties:
+                overflow:
+                    type: boolean
+                invalid:
+                    type: boolean
+                value:
+                    type: number
+...
