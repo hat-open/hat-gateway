@@ -7,7 +7,6 @@ import logging
 
 from hat import aio
 from hat import json
-from hat import util
 from hat.drivers import serial
 from hat.drivers.iec60870 import iec101
 from hat.drivers.iec60870 import link
@@ -32,14 +31,14 @@ async def create(conf: common.DeviceConf,
 
     device._conf = conf
     device._event_type_prefix = event_type_prefix
-    device._prefix_len = len(event_type_prefix)
     device._event_client = event_client
     device._master = None
     device._conns = {}
     device._remote_enabled = {i['address']: False
                               for i in conf['remote_devices']}
+    device._remote_confs = {i['address']: i
+                            for i in conf['remote_devices']}
     device._remote_groups = {}
-    device._send_msg_queue = aio.Queue()
 
     remote_enable_evts = [
         (*event_type_prefix, 'system', 'remote_device', str(i['address']),
@@ -50,9 +49,11 @@ async def create(conf: common.DeviceConf,
     for event in remote_enable_events:
         device._process_event(event)
 
+    device._send_queue = aio.Queue()
     device._async_group = aio.Group()
     device._async_group.spawn(device._create_link_master_loop)
     device._async_group.spawn(device._event_loop)
+    device._async_group.spawn(device._send_loop)
     return device
 
 
@@ -101,14 +102,47 @@ class Iec101MasterDevice(common.Device):
             if self._master:
                 await aio.uncancellable(self._master.async_close())
 
+    async def _event_loop(self):
+        try:
+            while True:
+                events = await self._event_client.receive()
+                for event in events:
+                    try:
+                        self._process_event(event)
+                    except Exception as e:
+                        mlog.warning('event %s ignored due to: %s',
+                                     event, e, exc_info=e)
+        except ConnectionError:
+            mlog.debug('event client connection closed')
+        finally:
+            mlog.debug('closing device, event loop')
+            self.close()
+
+    async def _send_loop(self):
+        while True:
+            msg, address = await self._send_queue.get()
+            conn = self._conns.get(address)
+            if not conn or not conn.is_open:
+                mlog.warning('msg %s not sent, connection to %s closed',
+                             msg, address)
+            try:
+                await conn.send([msg])
+            except ConnectionError:
+                mlog.warning('msg %s not sent, connection to %s closed',
+                             msg, address)
+
     async def _connection_loop(self, group, address):
-        remote_conf = util.first(self._conf['remote_devices'],
-                                 lambda i: i['address'] == address)
+        remote_conf = self._remote_confs[address]
         try:
             while True:
                 self._register_rmt_status(address, 'CONNECTING')
                 try:
-                    master_conn = await self._master.connect(addr=address)
+                    master_conn = await self._master.connect(
+                        addr=address,
+                        response_timeout=remote_conf['response_timeout'],
+                        send_retry_count=remote_conf['send_retry_count'],
+                        poll_class1_delay=remote_conf['poll_class1_delay'],
+                        poll_class2_delay=remote_conf['poll_class2_delay'])
                 except Exception as e:
                     mlog.error('connection error to address %s: %s',
                                address, e, exc_info=e)
@@ -125,31 +159,20 @@ class Iec101MasterDevice(common.Device):
                         self._conf['io_address_size']])
                 self._conns[address] = conn
                 group.spawn(self._receive_loop, conn, address)
+                if remote_conf['time_sync_delay'] is not None:
+                    group.spawn(self._time_sync_loop, conn,
+                                remote_conf['time_sync_delay'])
                 await conn.wait_closed()
                 self._register_rmt_status(address, 'DISCONNECTED')
                 self._conns.pop(address)
         finally:
+            mlog.debug('closing remote device %s', address)
             group.close()
             with contextlib.suppress(ConnectionError):
                 self._register_rmt_status(address, 'DISCONNECTED')
             if address in self._conns:
                 conn = self._conns.pop(address)
                 await aio.uncancellable(conn.async_close())
-
-    async def _event_loop(self):
-        try:
-            while True:
-                events = await self._event_client.receive()
-                for event in events:
-                    try:
-                        self._process_event(event)
-                    except Exception as e:
-                        mlog.warning('event %s processing failed %s',
-                                     event, e, exc_info=e)
-        except ConnectionError:
-            mlog.debug('event client connection closed')
-        finally:
-            self.close()
 
     async def _receive_loop(self, conn, address):
         try:
@@ -158,39 +181,52 @@ class Iec101MasterDevice(common.Device):
                 events = []
                 for msg in msgs:
                     if msg.is_test:
+                        mlog.warning(
+                            'test message received and ignored %s', msg)
                         continue
                     try:
                         event = _msg_to_event(
                             msg, self._event_type_prefix, address)
                     except Exception as e:
-                        mlog.warning(
-                            'message %s error: %s', msg, e, exc_info=e)
+                        mlog.warning('message %s ignored due to:%s',
+                                     msg, e, exc_info=e)
                         continue
                     events.append(event)
                 if events:
                     self._event_client.register(events)
         except ConnectionError:
-            mlog.warning('iec101 connection closed')
+            mlog.debug('connection closed')
         finally:
             conn.close()
 
-    def _send_msg_to_address(self, msg, address, event):
-        conn = self._conns.get(address)
-        if not conn or not conn.is_open:
-            mlog.warning(
-                'event %s is ignored: connection to remote device %s closed',
-                event, address)
-            return
-        group = self._remote_groups.get(address)
-        if group and group.is_open:
-            group.spawn(conn.send, [msg])
+    async def _time_sync_loop(self, conn, delay):
+        try:
+            while True:
+                time_now = datetime.datetime.now(datetime.timezone.utc)
+                time_iec101 = iec101.time_from_datetime(time_now)
+                msg = iec101.ClockSyncMsg(
+                    is_test=False,
+                    originator_address=0,
+                    asdu_address={
+                        'ONE': 0xFF,
+                        'TWO': 0xFFFF}[self._conf['asdu_address_size']],
+                    time=time_iec101,
+                    cause=iec101.ActivationReqCause.ACTIVATION)
+                await conn.send([msg])
+                mlog.debug('time sync sent %s', time_iec101)
+                await asyncio.sleep(delay)
+        except ConnectionError:
+            mlog.debug('connection closed')
+        finally:
+            conn.close()
 
     def _process_event(self, event):
-        if event.event_type[self._prefix_len + 1] != 'remote_device':
+        prefix_len = len(self._event_type_prefix)
+        if event.event_type[prefix_len + 1] != 'remote_device':
             raise Exception('unexpected event type')
-        address = int(event.event_type[self._prefix_len + 2])
-        etype_suffix = event.event_type[self._prefix_len + 3:]
-        if etype_suffix == ('enable', ):
+        address = int(event.event_type[prefix_len + 2])
+        etype_suffix = event.event_type[prefix_len + 3:]
+        if etype_suffix[0] == 'enable':
             self._process_enable(event, address)
         elif etype_suffix[0] == 'command':
             command_type = etype_suffix[1]
@@ -203,8 +239,6 @@ class Iec101MasterDevice(common.Device):
         elif etype_suffix[0] == 'counter_interrogation':
             asdu = int(etype_suffix[1])
             self._process_counter_interrogation(event, address, asdu)
-        elif etype_suffix[0] == 'time_sync':
-            self._process_time_sync(event, address)
         else:
             raise Exception('unexpected event type')
 
@@ -231,14 +265,12 @@ class Iec101MasterDevice(common.Device):
         remote_group.spawn(self._connection_loop, remote_group, address)
 
     def _disable_remote(self, address):
-        remote_group = self._remote_groups.pop(address, None)
-        if remote_group:
+        if address in self._remote_groups:
+            remote_group = self._remote_groups.pop(address)
             remote_group.close()
 
     def _process_command(self, event, address, command_type, asdu, io):
         command = _command_from_event(event, command_type)
-        if not command:
-            return
         msg = iec101.CommandMsg(
             is_test=False,
             originator_address=0,
@@ -247,7 +279,7 @@ class Iec101MasterDevice(common.Device):
             command=command,
             is_negative_confirm=False,
             cause=iec101.CommandReqCause[event.payload.data['cause']])
-        self._send_msg_to_address(msg, address, event)
+        self._send_queue.put_nowait(msg, address)
 
     def _process_interrogation(self, event, address, asdu):
         msg = iec101.InterrogationMsg(
@@ -256,7 +288,7 @@ class Iec101MasterDevice(common.Device):
             asdu_address=asdu,
             request=event.payload.data['request'],
             cause=iec101.CommandReqCause.ACTIVATION)
-        self._send_msg_to_address(msg, address, event)
+        self._send_queue.put_nowait(msg, address)
 
     def _process_counter_interrogation(self, event, address, asdu):
         msg = iec101.CounterInterrogationMsg(
@@ -266,20 +298,7 @@ class Iec101MasterDevice(common.Device):
             request=event.payload.data['request'],
             freeze=iec101.FreezeCode[event.payload.data['freeze']],
             cause=iec101.CommandReqCause.ACTIVATION)
-        self._send_msg_to_address(msg, address, event)
-
-    def _process_time_sync(self, event, address):
-        time_now = datetime.datetime.now(datetime.timezone.utc)
-        time_iec101 = iec101.time_from_datetime(time_now)
-        msg = iec101.ClockSyncMsg(
-            is_test=False,
-            originator_address=0,
-            asdu_address={
-                'ONE': 0xFF,
-                'TWO': 0xFFFF}[self._conf['asdu_address_size']],
-            time=time_iec101,
-            cause=iec101.ActivationReqCause.ACTIVATION)
-        self._send_msg_to_address(msg, address, event)
+        self._send_queue.put_nowait(msg, address)
 
     def _register_status(self, status):
         event = hat.event.common.RegisterEvent(
@@ -324,10 +343,8 @@ def _msg_to_event(msg, event_type_prefix, address):
 
 def _data_msg_to_event(msg, event_type_prefix, address):
     source_timestamp = hat.event.common.timestamp_from_datetime(
-        iec101.timestamp_to_datetime(msg.time)) if msg.time else None
+        iec101.time_to_datetime(msg.time)) if msg.time else None
     data_type, payload = _data_type_payload_from_msg(msg)
-    if not payload:
-        return
     return hat.event.common.RegisterEvent(
         event_type=(*event_type_prefix, 'gateway', 'remote_device',
                     str(address), 'data',
@@ -340,8 +357,6 @@ def _data_msg_to_event(msg, event_type_prefix, address):
 
 def _command_msg_to_event(msg, event_type_prefix, address):
     command_type, payload = _command_type_payload_from_msg(msg)
-    if not payload:
-        return
     return hat.event.common.RegisterEvent(
         event_type=(*event_type_prefix, 'gateway', 'remote_device',
                     str(address), 'command',
@@ -359,7 +374,7 @@ def _interrogation_msg_to_event(msg, event_type_prefix, address):
         source_timestamp=None,
         payload=hat.event.common.EventPayload(
             type=hat.event.common.EventPayloadType.JSON,
-            data=dict(request=msg.request)))
+            data={'request': msg.request}))
 
 
 def _counter_interrogation_msg_to_event(msg, event_type_prefix, address):
@@ -370,8 +385,8 @@ def _counter_interrogation_msg_to_event(msg, event_type_prefix, address):
         source_timestamp=None,
         payload=hat.event.common.EventPayload(
             type=hat.event.common.EventPayloadType.JSON,
-            data=dict(request=msg.request,
-                      freeze=msg.freeze.name)))
+            data={'request': msg.request,
+                  'freeze': msg.freeze.name}))
 
 
 def _data_type_payload_from_msg(msg):
@@ -379,122 +394,118 @@ def _data_type_payload_from_msg(msg):
              else msg.cause.name)
     quality = msg.data.quality._asdict() if msg.data.quality else None
     if isinstance(msg.data, iec101.SingleData):
-        return 'single', dict(
-            value=msg.data.value.name,
-            quality=quality,
-            cause=cause)
+        return 'single', {
+            'value': msg.data.value.name,
+            'quality': quality,
+            'cause': cause}
     elif isinstance(msg.data, iec101.DoubleData):
-        return 'double', dict(
-            value=msg.data.value.name,
-            quality=quality,
-            cause=cause)
+        return 'double', {
+            'value': msg.data.value.name,
+            'quality': quality,
+            'cause': cause}
     elif isinstance(msg.data, iec101.StepPositionData):
-        return 'step_position', dict(
-            value=msg.data.value._asdict(),
-            quality=quality,
-            cause=cause)
+        return 'step_position', {
+            'value': msg.data.value._asdict(),
+            'quality': quality,
+            'cause': cause}
     elif isinstance(msg.data, iec101.BitstringData):
-        return 'bitstring', dict(
-            value=list(msg.data.value.value),
-            quality=quality,
-            cause=cause)
+        return 'bitstring', {
+            'value': list(msg.data.value.value),
+            'quality': quality,
+            'cause': cause}
     elif isinstance(msg.data, iec101.NormalizedData):
-        return 'normalized', dict(
-            value=msg.data.value.value,
-            quality=quality,
-            cause=cause)
+        return 'normalized', {
+            'value': msg.data.value.value,
+            'quality': quality,
+            'cause': cause}
     elif isinstance(msg.data, iec101.ScaledData):
-        return 'scaled', dict(
-            value=msg.data.value.value,
-            quality=quality,
-            cause=cause)
+        return 'scaled', {
+            'value': msg.data.value.value,
+            'quality': quality,
+            'cause': cause}
     elif isinstance(msg.data, iec101.FloatingData):
-        return 'floating', dict(
-            value=msg.data.value.value,
-            quality=quality,
-            cause=cause)
+        return 'floating', {
+            'value': msg.data.value.value,
+            'quality': quality,
+            'cause': cause}
     elif isinstance(msg.data, iec101.BinaryCounterData):
-        return 'binary_counter', dict(
-            value=msg.data.value.value,
-            quality=quality,
-            cause=cause)
+        return 'binary_counter', {
+            'value': msg.data.value.value,
+            'quality': quality,
+            'cause': cause}
     elif isinstance(msg.data, iec101.ProtectionData):
-        return 'protection', dict(
-            value=msg.data.value.name,
-            quality=quality,
-            cause=cause,
-            elapsed_time=msg.data.elapsed_time)
+        return 'protection', {
+            'value': msg.data.value.name,
+            'quality': quality,
+            'cause': cause,
+            'elapsed_time': msg.data.elapsed_time}
     elif isinstance(msg.data, iec101.ProtectionStartData):
-        return 'protection_start', dict(
-            value=msg.data.value._asdict(),
-            quality=quality,
-            cause=cause,
-            duration_time=msg.data.duration_time)
+        return 'protection_start', {
+            'value': msg.data.value._asdict(),
+            'quality': quality,
+            'cause': cause,
+            'duration_time': msg.data.duration_time}
     elif isinstance(msg.data, iec101.ProtectionCommandData):
-        return 'protection_command', dict(
-            value=msg.data.value._asdict(),
-            quality=quality,
-            cause=cause)
+        return 'protection_command', {
+            'value': msg.data.value._asdict(),
+            'quality': quality,
+            'cause': cause}
     elif isinstance(msg.data, iec101.StatusData):
-        return 'status', dict(
-            value=msg.data.value._asdict(),
-            quality=quality,
-            cause=cause)
-
-    mlog.warning('unsupported data message %s', msg)
-    return None, None
+        return 'status', {
+            'value': msg.data.value._asdict(),
+            'quality': quality,
+            'cause': cause}
+    raise Exception('unsupported data message')
 
 
 def _command_type_payload_from_msg(msg):
     cause = msg.cause.name
     success = not msg.is_negative_confirm
     if isinstance(msg.command, iec101.SingleCommand):
-        return 'single', dict(
-                value=msg.command.value.name,
-                select=msg.command.select,
-                qualifier=msg.command.qualifier,
-                cause=cause,
-                success=success)
+        return 'single', {
+                'value': msg.command.value.name,
+                'select': msg.command.select,
+                'qualifier': msg.command.qualifier,
+                'cause': cause,
+                'success': success}
     elif isinstance(msg.command, iec101.DoubleCommand):
-        return 'double', dict(
-                value=msg.command.value.name,
-                select=msg.command.select,
-                qualifier=msg.command.qualifier,
-                cause=cause,
-                success=success)
+        return 'double', {
+                'value': msg.command.value.name,
+                'select': msg.command.select,
+                'qualifier': msg.command.qualifier,
+                'cause': cause,
+                'success': success}
     elif isinstance(msg.command, iec101.RegulatingCommand):
-        return 'regulating', dict(
-                value=msg.command.value.name,
-                select=msg.command.select,
-                qualifier=msg.command.qualifier,
-                cause=cause,
-                success=success)
+        return 'regulating', {
+                'value': msg.command.value.name,
+                'select': msg.command.select,
+                'qualifier': msg.command.qualifier,
+                'cause': cause,
+                'success': success}
     elif isinstance(msg.command, iec101.NormalizedCommand):
-        return 'normalized', dict(
-                value=msg.command.value.value,
-                select=msg.command.select,
-                cause=cause,
-                success=success)
+        return 'normalized', {
+                'value': msg.command.value.value,
+                'select': msg.command.select,
+                'cause': cause,
+                'success': success}
     elif isinstance(msg.command, iec101.ScaledCommand):
-        return 'scaled', dict(
-                value=msg.command.value.value,
-                select=msg.command.select,
-                cause=cause,
-                success=success)
+        return 'scaled', {
+                'value': msg.command.value.value,
+                'select': msg.command.select,
+                'cause': cause,
+                'success': success}
     elif isinstance(msg.command, iec101.FloatingCommand):
-        return 'floating', dict(
-                value=msg.command.value.value,
-                select=msg.command.select,
-                cause=cause,
-                success=success)
+        return 'floating', {
+                'value': msg.command.value.value,
+                'select': msg.command.select,
+                'cause': cause,
+                'success': success}
     elif isinstance(msg.command, iec101.BitstringCommand):
-        return 'bitstring', dict(
-                value=msg.command.value.value,
-                cause=cause,
-                success=success)
-
-    mlog.warning('unsupported command message %s', msg)
-    return None, None
+        return 'bitstring', {
+                'value': msg.command.value.value,
+                'cause': cause,
+                'success': success}
+    raise Exception('unsupported command message')
 
 
 def _command_from_event(event, command_type):
@@ -532,5 +543,4 @@ def _command_from_event(event, command_type):
         return iec101.BitstringCommand(
             value=iec101.BitstringValue(
                 value=bytes(event.payload.data['value'])))
-
-    mlog.warning('command type %s not supported', command_type)
+    raise Exception('command type not supported')
