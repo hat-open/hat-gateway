@@ -47,7 +47,16 @@ async def create(conf: common.DeviceConf,
         hat.event.common.QueryData(
             event_types=remote_enable_evts, unique_type=True))
     for event in remote_enable_events:
-        device._process_event(event)
+        try:
+            address = int(event.event_type[-2])
+            enable = event.payload.data
+            if address not in device._remote_enabled:
+                raise Exception('invalid remote device address')
+            if not isinstance(enable, bool):
+                raise Exception('invalid enable event payload')
+            device._remote_enabled[address] = enable
+        except Exception as e:
+            mlog.warning('error processing enable event: %s', e, exc_info=e)
 
     device._send_queue = aio.Queue()
     device._async_group = aio.Group()
@@ -125,6 +134,7 @@ class Iec101MasterDevice(common.Device):
             if not conn or not conn.is_open:
                 mlog.warning('msg %s not sent, connection to %s closed',
                              msg, address)
+                continue
             try:
                 await conn.send([msg])
             except ConnectionError:
@@ -251,7 +261,8 @@ class Iec101MasterDevice(common.Device):
         if not enable:
             self._disable_remote(address)
         elif not self._master:
-            mlog.warning('enabling remote %s ignored: endpoint not open')
+            mlog.warning('enabling remote %s ignored: endpoint not open',
+                         address)
             return
         else:
             self._enable_remote(address)
@@ -279,7 +290,7 @@ class Iec101MasterDevice(common.Device):
             command=command,
             is_negative_confirm=False,
             cause=iec101.CommandReqCause[event.payload.data['cause']])
-        self._send_queue.put_nowait(msg, address)
+        self._send_queue.put_nowait((msg, address))
 
     def _process_interrogation(self, event, address, asdu):
         msg = iec101.InterrogationMsg(
@@ -288,7 +299,7 @@ class Iec101MasterDevice(common.Device):
             asdu_address=asdu,
             request=event.payload.data['request'],
             cause=iec101.CommandReqCause.ACTIVATION)
-        self._send_queue.put_nowait(msg, address)
+        self._send_queue.put_nowait((msg, address))
 
     def _process_counter_interrogation(self, event, address, asdu):
         msg = iec101.CounterInterrogationMsg(
@@ -298,7 +309,7 @@ class Iec101MasterDevice(common.Device):
             request=event.payload.data['request'],
             freeze=iec101.FreezeCode[event.payload.data['freeze']],
             cause=iec101.CommandReqCause.ACTIVATION)
-        self._send_queue.put_nowait(msg, address)
+        self._send_queue.put_nowait((msg, address))
 
     def _register_status(self, status):
         event = hat.event.common.RegisterEvent(
