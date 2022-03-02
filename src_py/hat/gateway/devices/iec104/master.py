@@ -12,6 +12,7 @@ from hat.drivers.iec60870 import apci
 from hat.drivers.iec60870 import iec104
 from hat.gateway import common
 from hat.gateway.devices.iec104.common import msg_to_event, event_to_msg
+import hat.event.common
 
 
 mlog: logging.Logger = logging.getLogger(__name__)
@@ -144,6 +145,15 @@ class Iec104MasterDevice(common.Device):
             mlog.debug('connection closed')
         finally:
             conn.close()
+
+    def _register_status(self, status):
+        event = hat.event.common.RegisterEvent(
+            event_type=(*self._event_type_prefix, 'gateway', 'status'),
+            source_timestamp=None,
+            payload=hat.event.common.EventPayload(
+                type=hat.event.common.EventPayloadType.JSON,
+                data=status))
+        self._event_client.register([event])
 
 
 def _msg_to_event(msg, event_type_prefix):

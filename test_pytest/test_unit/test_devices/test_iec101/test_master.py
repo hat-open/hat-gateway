@@ -20,6 +20,8 @@ gateway_name = 'gateway_name'
 device_name = 'device_name'
 event_type_prefix = ('gateway', gateway_name, master.device_type, device_name)
 
+default_time = iec101.time_from_datetime(
+    datetime.datetime.now(datetime.timezone.utc))
 default_indication_quality = iec101.IndicationQuality(False, True, False, True)
 default_measurement_quality = iec101.MeasurementQuality(False, True, False,
                                                         True, False)
@@ -128,6 +130,31 @@ async def create_slave(conf, connection_cb):
         keep_alive_timeout=10)
 
 
+def time_to_event_timestamp(time):
+    if time is None:
+        return None
+    return hat.event.common.timestamp_from_datetime(
+        iec101.time_to_datetime(time))
+
+
+def time_from_event_timestamp(timestamp):
+    if timestamp is None:
+        return None
+    return iec101.time_from_datetime(
+        hat.event.common.timestamp_to_datetime(timestamp))
+
+
+def assert_float_equal(value1, value2):
+    assert math.isclose(value1, value2, rel_tol=1e-3)
+
+
+def assert_time_equal(time1, time2):
+    if time1 is None and time2 is None:
+        return
+    dt = abs(iec101.time_to_datetime(time1) - iec101.time_to_datetime(time2))
+    assert dt < datetime.timedelta(seconds=1)
+
+
 def assert_status_event(event, status, address=None):
     if address is None:
         assert event.event_type == (*event_type_prefix, 'gateway', 'status')
@@ -139,18 +166,12 @@ def assert_status_event(event, status, address=None):
 
 
 def assert_data_event(event, address, data_type, asdu_address, io_address,
-                      cause, time, payload):
+                      time, cause, payload):
     assert event.event_type == (*event_type_prefix, 'gateway', 'remote_device',
                                 str(address), 'data', data_type,
                                 str(asdu_address), str(io_address))
 
-    if time is None:
-        assert event.source_timestamp is None
-    else:
-        source_time = hat.event.common.timestamp_to_datetime(
-            event.source_timestamp)
-        dt = abs(source_time - time)
-        assert dt < datetime.timedelta(seconds=1)
+    assert_time_equal(time, time_from_event_timestamp(event.source_timestamp))
 
     payload = {'cause': ('INTERROGATED'
                          if cause.name.startswith('INTERROGATED_')
@@ -159,9 +180,7 @@ def assert_data_event(event, address, data_type, asdu_address, io_address,
 
     for key in {*payload.keys(), *event.payload.data.keys()}:
         if data_type in ('normalized', 'floating') and key == 'value':
-            assert math.isclose(payload[key],
-                                event.payload.data[key],
-                                rel_tol=1e-3)
+            assert_float_equal(payload[key], event.payload.data[key])
         else:
             assert payload[key] == event.payload.data[key]
 
@@ -179,9 +198,7 @@ def assert_command_event(event, address, command_type, asdu_address,
 
     for key in {*payload.keys(), *event.payload.data.keys()}:
         if command_type in ('normalized', 'floating') and key == 'value':
-            assert math.isclose(payload[key],
-                                event.payload.data[key],
-                                rel_tol=1e-3)
+            assert_float_equal(payload[key], event.payload.data[key])
         else:
             assert payload[key] == event.payload.data[key]
 
@@ -205,7 +222,7 @@ def assert_counter_interrogation_event(event, address, asdu_address, cause,
                                   'freeze': freeze.name}
 
 
-def assert_msg_equals(msg1, msg2):
+def assert_msg_equal(msg1, msg2):
     assert type(msg1) == type(msg2)
     assert msg1.is_test == msg2.is_test
     assert msg1.originator_address == msg2.originator_address
@@ -219,16 +236,15 @@ def assert_msg_equals(msg1, msg2):
 
         if (isinstance(msg1.command, iec101.NormalizedCommand) or
                 isinstance(msg1.command, iec101.FloatingCommand)):
-            assert math.isclose(msg1.command.value.value,
-                                msg2.command.value.value,
-                                rel_tol=1e-3)
+            assert_float_equal(msg1.command.value.value,
+                               msg2.command.value.value)
         else:
             assert msg1.command.value == msg2.command.value
 
-        if hasattr(msg1, 'select'):
+        if hasattr(msg1.command, 'select'):
             assert msg1.command.select == msg2.command.select
 
-        if hasattr(msg1, 'qualifier'):
+        if hasattr(msg1.command, 'qualifier'):
             assert msg1.command.select == msg2.command.select
 
     elif isinstance(msg1, iec101.InterrogationMsg):
@@ -555,7 +571,7 @@ async def test_enable_remote_device(serial_conns, create_enable_event,
 ])
 async def test_time_sync(serial_conns, create_enable_event, address,
                          asdu_address_size, asdu_address):
-    last_time = datetime.datetime.now(datetime.timezone.utc)
+    last_datetime = datetime.datetime.now(datetime.timezone.utc)
 
     query_result = [create_enable_event(address, True)]
     event_client = EventClient(query_result)
@@ -579,9 +595,9 @@ async def test_time_sync(serial_conns, create_enable_event, address,
         assert msg.asdu_address == asdu_address
         assert msg.cause == iec101.ActivationReqCause.ACTIVATION
 
-        time = iec101.time_to_datetime(msg.time)
-        assert time >= last_time
-        last_time = time
+        new_datetime = iec101.time_to_datetime(msg.time)
+        assert new_datetime >= last_datetime
+        last_datetime = new_datetime
 
     await device.async_close()
     await slave.async_close()
@@ -655,13 +671,13 @@ async def test_command_request(create_event_client_connection_pair,
         msgs = await conn.receive()
         assert len(msgs) == 1
         msg = msgs[0]
-        assert_msg_equals(msg, iec101.CommandMsg(is_test=False,
-                                                 originator_address=0,
-                                                 asdu_address=asdu_address,
-                                                 io_address=io_address,
-                                                 command=command,
-                                                 is_negative_confirm=False,
-                                                 cause=cause))
+        assert_msg_equal(msg, iec101.CommandMsg(is_test=False,
+                                                originator_address=0,
+                                                asdu_address=asdu_address,
+                                                io_address=io_address,
+                                                command=command,
+                                                is_negative_confirm=False,
+                                                cause=cause))
 
 
 @pytest.mark.parametrize("address", [0])
@@ -682,7 +698,7 @@ async def test_interrogation_request(create_event_client_connection_pair,
         msgs = await conn.receive()
         assert len(msgs) == 1
         msg = msgs[0]
-        assert_msg_equals(msg, iec101.InterrogationMsg(
+        assert_msg_equal(msg, iec101.InterrogationMsg(
             is_test=False,
             originator_address=0,
             asdu_address=asdu_address,
@@ -709,7 +725,7 @@ async def test_counter_interrogation_request(
         msgs = await conn.receive()
         assert len(msgs) == 1
         msg = msgs[0]
-        assert_msg_equals(msg, iec101.CounterInterrogationMsg(
+        assert_msg_equal(msg, iec101.CounterInterrogationMsg(
             is_test=False,
             originator_address=0,
             asdu_address=asdu_address,
@@ -721,14 +737,11 @@ async def test_counter_interrogation_request(
 @pytest.mark.parametrize("address", [0])
 @pytest.mark.parametrize("asdu_address", [123])
 @pytest.mark.parametrize("io_address", [321])
+@pytest.mark.parametrize("time", [None, default_time])
 @pytest.mark.parametrize("cause", [
     i for i in iec101.DataResCause
     if not (i.name.startswith('INTERROGATED_GROUP') or
             i.name.startswith('INTERROGATED_COUNTER0'))
-])
-@pytest.mark.parametrize("time", [
-    None,
-    datetime.datetime.now(datetime.timezone.utc)
 ])
 @pytest.mark.parametrize("data, data_type, payload", [
     (iec101.SingleData(value=iec101.SingleValue.ON,
@@ -826,7 +839,7 @@ async def test_counter_interrogation_request(
       'quality': default_measurement_quality._asdict()}),
 ])
 async def test_data_response(create_event_client_connection_pair, address,
-                             asdu_address, io_address, cause, time, data,
+                             asdu_address, io_address, time, cause, data,
                              data_type, payload):
     if data_type in ('protection', 'protection_start', 'protection_command'):
         if time is None:
@@ -844,14 +857,13 @@ async def test_data_response(create_event_client_connection_pair, address,
                              asdu_address=asdu_address,
                              io_address=io_address,
                              data=data,
-                             time=(iec101.time_from_datetime(time)
-                                   if time else None),
+                             time=time,
                              cause=cause)
         await conn.send([msg])
 
         event = await event_client.register_queue.get()
         assert_data_event(event, address, data_type, asdu_address, io_address,
-                          cause, time, payload)
+                          time, cause, payload)
 
 
 @pytest.mark.parametrize("address", [0])
