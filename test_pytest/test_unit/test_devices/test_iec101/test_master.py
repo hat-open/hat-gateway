@@ -524,7 +524,7 @@ async def test_time_sync(serial_conns, create_enable_event, address,
 
     (iec101.NormalizedCommand(value=iec101.NormalizedValue(0.5),
                               select=True),
-     'regulating',
+     'normalized',
      {'value': 0.5,
       'select': True}),
 
@@ -553,9 +553,16 @@ async def test_command_request(serial_conns, create_enable_event,
     conf = get_conf([address])
     conn_queue = aio.Queue()
     slave = await create_slave(conf, conn_queue.put_nowait)
+
     device = await aio.call(master.create, conf, event_client,
                             event_type_prefix)
     conn = await conn_queue.get()
+
+    await aio.first(
+        event_client.register_queue,
+        lambda e: e.event_type == (*event_type_prefix, 'gateway',
+                                   'remote_device', str(address), 'status') and
+        e.payload.data == 'CONNECTED')
 
     event = create_command_event(address, command_type, asdu_address,
                                  io_address,
@@ -595,6 +602,12 @@ async def test_interrogation_request(serial_conns, create_enable_event,
                             event_type_prefix)
     conn = await conn_queue.get()
 
+    await aio.first(
+        event_client.register_queue,
+        lambda e: e.event_type == (*event_type_prefix, 'gateway',
+                                   'remote_device', str(address), 'status') and
+        e.payload.data == 'CONNECTED')
+
     event = create_interrogation_event(address, asdu_address,
                                        interrogation_request)
     event_client.receive_queue.put_nowait([event])
@@ -629,6 +642,12 @@ async def test_counter_interrogation_request(
     device = await aio.call(master.create, conf, event_client,
                             event_type_prefix)
     conn = await conn_queue.get()
+
+    await aio.first(
+        event_client.register_queue,
+        lambda e: e.event_type == (*event_type_prefix, 'gateway',
+                                   'remote_device', str(address), 'status') and
+        e.payload.data == 'CONNECTED')
 
     event = create_counter_interrogation_event(
         address, asdu_address, interrogation_request, freeze.name)
@@ -690,7 +709,7 @@ async def test_data_response(serial_conns, create_enable_event, address,
                          time=(iec101.time_from_datetime(time)
                                if time else None),
                          cause=cause)
-    await conn.send(msg)
+    await conn.send([msg])
 
     event = await event_client.register_queue.get()
     assert_data_event(event, address, data_type, asdu_address, io_address,
@@ -737,7 +756,7 @@ async def test_command_response(serial_conns, create_enable_event, address,
                             command=command,
                             is_negative_confirm=not success,
                             cause=cause)
-    await conn.send(msg)
+    await conn.send([msg])
 
     event = await event_client.register_queue.get()
     assert_command_event(event, address, command_type, asdu_address,
@@ -779,7 +798,7 @@ async def test_interrogation_response(serial_conns, create_enable_event,
                                   asdu_address=asdu_address,
                                   request=interrogation_request,
                                   cause=cause)
-    await conn.send(msg)
+    await conn.send([msg])
 
     event = await event_client.register_queue.get()
     assert_interrogation_event(event, address, asdu_address, cause,
@@ -824,7 +843,7 @@ async def test_counter_interrogation_response(serial_conns,
                                          request=interrogation_request,
                                          freeze=freeze,
                                          cause=cause)
-    await conn.send(msg)
+    await conn.send([msg])
 
     event = await event_client.register_queue.get()
     assert_counter_interrogation_event(event, address, asdu_address, cause,
