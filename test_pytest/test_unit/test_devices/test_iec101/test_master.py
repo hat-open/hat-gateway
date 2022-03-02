@@ -1,4 +1,5 @@
 import collections
+import datetime
 import itertools
 
 import pytest
@@ -61,6 +62,7 @@ class EventClient(common.DeviceEventClient):
 
 
 def get_conf(remote_addresses=[],
+             asdu_address_size='TWO',
              reconnect_delay=0.01,
              response_timeout=0.1,
              send_retry_count=1,
@@ -78,7 +80,7 @@ def get_conf(remote_addresses=[],
             'silent_interval': 0.001,
             'device_address_size': 'ONE',
             'cause_size': 'TWO',
-            'asdu_address_size': 'TWO',
+            'asdu_address_size': asdu_address_size,
             'io_address_size': 'THREE',
             'reconnect_delay': reconnect_delay,
             'remote_devices': [{'address': address,
@@ -125,6 +127,59 @@ def assert_status_event(event, status, address=None):
                                     'remote_device', str(address), 'status')
     assert event.source_timestamp is None
     assert event.payload.data == status
+
+
+def assert_data_event(event, address, data_type, asdu_address, io_address,
+                      cause, time, payload):
+    assert event.event_type == (*event_type_prefix, 'gateway', 'remote_device',
+                                str(address), 'data', data_type,
+                                str(asdu_address), str(io_address))
+
+    if time is None:
+        assert event.source_timestamp is None
+    else:
+        source_time = hat.event.common.timestamp_to_datetime(
+            event.source_timestamp)
+        dt = abs(source_time - time)
+        assert dt < datetime.timedelta(seconds=1)
+
+    payload = {'cause': ('INTERROGATED'
+                         if cause.name.startswith('INTERROGATED_')
+                         else cause.name),
+               **payload}
+    assert event.payload.data == payload
+
+
+def assert_command_event(event, address, command_type, asdu_address,
+                         io_address, cause, success, payload):
+    assert event.event_type == (*event_type_prefix, 'gateway', 'remote_device',
+                                str(address), 'command', command_type,
+                                str(asdu_address), str(io_address))
+    assert event.source_timestamp is None
+
+    payload = {'cause': cause.name,
+               'success': success,
+               **payload}
+    assert event.payload.data == payload
+
+
+def assert_interrogation_event(event, address, asdu_address, cause,
+                               interrogation_request):
+    assert event.event_type == (*event_type_prefix, 'gateway', 'remote_device',
+                                str(address), 'interrogation',
+                                str(asdu_address))
+    assert event.source_timestamp is None
+    assert event.payload.data == {'request': interrogation_request}
+
+
+def assert_counter_interrogation_event(event, address, asdu_address, cause,
+                                       interrogation_request, freeze):
+    assert event.event_type == (*event_type_prefix, 'gateway', 'remote_device',
+                                str(address), 'counter_interrogation',
+                                str(asdu_address))
+    assert event.source_timestamp is None
+    assert event.payload.data == {'request': interrogation_request,
+                                  'freeze': freeze.name}
 
 
 @pytest.fixture
@@ -184,10 +239,11 @@ def create_counter_interrogation_event(create_event):
 @pytest.fixture
 def create_command_event(create_event):
 
-    def create_command_event(address, asdu_addr, io_address, payload):
+    def create_command_event(address, command_type, asdu_addr, io_address,
+                             payload):
         return create_event((*event_type_prefix, 'system', 'remote_device',
-                             str(address), 'counter_interrogation',
-                             str(asdu_addr)),
+                             str(address), 'command', command_type,
+                             str(asdu_addr), str(io_address)),
                             payload)
 
     return create_command_event
@@ -398,15 +454,138 @@ async def test_enable_remote_device(serial_conns, create_enable_event,
 
 
 @pytest.mark.parametrize("address", [0])
+@pytest.mark.parametrize("asdu_address_size, asdu_address", [
+    ('ONE', 0xFF),
+    ('TWO', 0xFFFF)
+])
+async def test_time_sync(serial_conns, create_enable_event, address,
+                         asdu_address_size, asdu_address):
+    last_time = datetime.datetime.now(datetime.timezone.utc)
+
+    query_result = [create_enable_event(address, True)]
+    event_client = EventClient(query_result)
+    conf = get_conf([address],
+                    asdu_address_size=asdu_address_size,
+                    time_sync_delay=0.001)
+    conn_queue = aio.Queue()
+    slave = await create_slave(conf, conn_queue.put_nowait)
+    device = await aio.call(master.create, conf, event_client,
+                            event_type_prefix)
+    conn = await conn_queue.get()
+
+    for _ in range(10):
+        msgs = await conn.receive()
+        assert len(msgs) == 1
+        msg = msgs[0]
+
+        assert isinstance(msg, iec101.ClockSyncMsg)
+        assert msg.is_test is False
+        assert msg.originator_address == 0
+        assert msg.asdu_address == asdu_address
+        assert msg.cause == iec101.ActivationReqCause.ACTIVATION
+
+        time = iec101.time_to_datetime(msg.time)
+        assert time >= last_time
+        last_time = time
+
+    await device.async_close()
+    await slave.async_close()
+    await event_client.async_close()
+
+
+@pytest.mark.parametrize("address", [0])
+@pytest.mark.parametrize("asdu_address", [123])
+@pytest.mark.parametrize("io_address", [321])
+@pytest.mark.parametrize("cause", list(iec101.CommandReqCause))
+@pytest.mark.parametrize("command, command_type, payload", [
+    (iec101.SingleCommand(value=iec101.SingleValue.ON,
+                          select=False,
+                          qualifier=0),
+     'single',
+     {'value': 'ON',
+      'select': False,
+      'qualifier': 0}),
+
+    (iec101.DoubleCommand(value=iec101.DoubleValue.OFF,
+                          select=True,
+                          qualifier=1),
+     'double',
+     {'value': 'OFF',
+      'select': True,
+      'qualifier': 1}),
+
+    (iec101.RegulatingCommand(value=iec101.RegulatingValue.HIGHER,
+                              select=False,
+                              qualifier=2),
+     'regulating',
+     {'value': 'HIGHER',
+      'select': False,
+      'qualifier': 2}),
+
+    (iec101.NormalizedCommand(value=iec101.NormalizedValue(0.5),
+                              select=True),
+     'regulating',
+     {'value': 0.5,
+      'select': True}),
+
+    (iec101.ScaledCommand(value=iec101.ScaledValue(42),
+                          select=False),
+     'scaled',
+     {'value': 42,
+      'select': False}),
+
+    (iec101.FloatingCommand(value=iec101.FloatingValue(42.5),
+                            select=True),
+     'floating',
+     {'value': 42.5,
+      'select': True}),
+
+    (iec101.BitstringCommand(value=iec101.BitstringValue(b'\x01\x02\x03\x04')),
+     'bitstring',
+     {'value': [1, 2, 3, 4]}),
+])
+async def test_command_request(serial_conns, create_enable_event,
+                               create_command_event, address, asdu_address,
+                               io_address, cause, command, command_type,
+                               payload):
+    query_result = [create_enable_event(address, True)]
+    event_client = EventClient(query_result)
+    conf = get_conf([address])
+    conn_queue = aio.Queue()
+    slave = await create_slave(conf, conn_queue.put_nowait)
+    device = await aio.call(master.create, conf, event_client,
+                            event_type_prefix)
+    conn = await conn_queue.get()
+
+    event = create_command_event(address, command_type, asdu_address,
+                                 io_address,
+                                 {'cause': cause.name, **payload})
+    event_client.receive_queue.put_nowait([event])
+
+    msgs = await conn.receive()
+    assert len(msgs) == 1
+    msg = msgs[0]
+    assert msg == iec101.CommandMsg(
+        is_test=False,
+        originator_address=0,
+        asdu_address=asdu_address,
+        io_address=io_address,
+        command=command,
+        is_negative_confirm=False,
+        cause=cause)
+
+    await device.async_close()
+    await slave.async_close()
+    await event_client.async_close()
+
+
+@pytest.mark.parametrize("address", [0])
 @pytest.mark.parametrize("asdu_address", [123])
 @pytest.mark.parametrize("interrogation_request", [42])
-@pytest.mark.parametrize("freeze", list(iec101.FreezeCode))
 async def test_interrogation_request(serial_conns, create_enable_event,
                                      create_interrogation_event,
-                                     create_counter_interrogation_event,
                                      address, asdu_address,
-                                     interrogation_request,
-                                     freeze):
+                                     interrogation_request):
     query_result = [create_enable_event(address, True)]
     event_client = EventClient(query_result)
     conf = get_conf([address])
@@ -429,6 +608,27 @@ async def test_interrogation_request(serial_conns, create_enable_event,
         asdu_address=asdu_address,
         request=interrogation_request,
         cause=iec101.CommandReqCause.ACTIVATION)
+
+    await device.async_close()
+    await slave.async_close()
+    await event_client.async_close()
+
+
+@pytest.mark.parametrize("address", [0])
+@pytest.mark.parametrize("asdu_address", [123])
+@pytest.mark.parametrize("interrogation_request", [42])
+@pytest.mark.parametrize("freeze", list(iec101.FreezeCode))
+async def test_counter_interrogation_request(
+        serial_conns, create_enable_event, create_counter_interrogation_event,
+        address, asdu_address, interrogation_request, freeze):
+    query_result = [create_enable_event(address, True)]
+    event_client = EventClient(query_result)
+    conf = get_conf([address])
+    conn_queue = aio.Queue()
+    slave = await create_slave(conf, conn_queue.put_nowait)
+    device = await aio.call(master.create, conf, event_client,
+                            event_type_prefix)
+    conn = await conn_queue.get()
 
     event = create_counter_interrogation_event(
         address, asdu_address, interrogation_request, freeze.name)
@@ -453,12 +653,16 @@ async def test_interrogation_request(serial_conns, create_enable_event,
 @pytest.mark.parametrize("address", [0])
 @pytest.mark.parametrize("asdu_address", [123])
 @pytest.mark.parametrize("io_address", [321])
-@pytest.mark.parametrize("cause", list(iec101.CommandReqCause))
-@pytest.mark.parametrize("command, payload", [
+@pytest.mark.parametrize("cause", list(iec101.DataResCause))
+@pytest.mark.parametrize("time", [
+    None,
+    datetime.datetime.now(datetime.timezone.utc)
 ])
-async def test_command_request(serial_conns, create_enable_event,
-                               create_command_event, address, asdu_address,
-                               io_address, cause, command, payload):
+@pytest.mark.parametrize("data, data_type, payload", [
+])
+async def test_data_response(serial_conns, create_enable_event, address,
+                             asdu_address, io_address, cause, time, data,
+                             data_type, payload):
     query_result = [create_enable_event(address, True)]
     event_client = EventClient(query_result)
     conf = get_conf([address])
@@ -466,23 +670,165 @@ async def test_command_request(serial_conns, create_enable_event,
     slave = await create_slave(conf, conn_queue.put_nowait)
     device = await aio.call(master.create, conf, event_client,
                             event_type_prefix)
+
+    event = await event_client.register_queue.get()
+    assert_status_event(event, 'CONNECTING')
+    event = await event_client.register_queue.get()
+    assert_status_event(event, 'CONNECTED')
+    event = await event_client.register_queue.get()
+    assert_status_event(event, 'CONNECTING', address)
+    event = await event_client.register_queue.get()
+    assert_status_event(event, 'CONNECTED', address)
+
     conn = await conn_queue.get()
 
-    event = create_command_event(address, asdu_address, io_address,
-                                 {'cause': cause.name, **payload})
-    event_client.receive_queue.put_nowait([event])
+    msg = iec101.DataMsg(is_test=False,
+                         originator_address=0,
+                         asdu_address=asdu_address,
+                         io_address=io_address,
+                         data=data,
+                         time=(iec101.time_from_datetime(time)
+                               if time else None),
+                         cause=cause)
+    await conn.send(msg)
 
-    msgs = await conn.receive()
-    assert len(msgs) == 1
-    msg = msgs[0]
-    assert msg == iec101.CommandMsg(
-        is_test=False,
-        originator_address=0,
-        asdu_address=asdu_address,
-        io_address=io_address,
-        command=command,
-        is_negative_confirm=False,
-        cause=cause)
+    event = await event_client.register_queue.get()
+    assert_data_event(event, address, data_type, asdu_address, io_address,
+                      cause, time, payload)
+
+    await device.async_close()
+    await slave.async_close()
+    await event_client.async_close()
+
+
+@pytest.mark.parametrize("address", [0])
+@pytest.mark.parametrize("asdu_address", [123])
+@pytest.mark.parametrize("io_address", [321])
+@pytest.mark.parametrize("cause", list(iec101.CommandResCause))
+@pytest.mark.parametrize("success", [True, False])
+@pytest.mark.parametrize("command, command_type, payload", [
+])
+async def test_command_response(serial_conns, create_enable_event, address,
+                                asdu_address, io_address, cause, success,
+                                command, command_type, payload):
+    query_result = [create_enable_event(address, True)]
+    event_client = EventClient(query_result)
+    conf = get_conf([address])
+    conn_queue = aio.Queue()
+    slave = await create_slave(conf, conn_queue.put_nowait)
+    device = await aio.call(master.create, conf, event_client,
+                            event_type_prefix)
+
+    event = await event_client.register_queue.get()
+    assert_status_event(event, 'CONNECTING')
+    event = await event_client.register_queue.get()
+    assert_status_event(event, 'CONNECTED')
+    event = await event_client.register_queue.get()
+    assert_status_event(event, 'CONNECTING', address)
+    event = await event_client.register_queue.get()
+    assert_status_event(event, 'CONNECTED', address)
+
+    conn = await conn_queue.get()
+
+    msg = iec101.CommandMsg(is_test=False,
+                            originator_address=0,
+                            asdu_address=asdu_address,
+                            io_address=io_address,
+                            command=command,
+                            is_negative_confirm=not success,
+                            cause=cause)
+    await conn.send(msg)
+
+    event = await event_client.register_queue.get()
+    assert_command_event(event, address, command_type, asdu_address,
+                         io_address, cause, success, payload)
+
+    await device.async_close()
+    await slave.async_close()
+    await event_client.async_close()
+
+
+@pytest.mark.parametrize("address", [0])
+@pytest.mark.parametrize("asdu_address", [123])
+@pytest.mark.parametrize("cause", list(iec101.CommandResCause))
+@pytest.mark.parametrize("interrogation_request", [42])
+async def test_interrogation_response(serial_conns, create_enable_event,
+                                      address, asdu_address, cause,
+                                      interrogation_request):
+    query_result = [create_enable_event(address, True)]
+    event_client = EventClient(query_result)
+    conf = get_conf([address])
+    conn_queue = aio.Queue()
+    slave = await create_slave(conf, conn_queue.put_nowait)
+    device = await aio.call(master.create, conf, event_client,
+                            event_type_prefix)
+
+    event = await event_client.register_queue.get()
+    assert_status_event(event, 'CONNECTING')
+    event = await event_client.register_queue.get()
+    assert_status_event(event, 'CONNECTED')
+    event = await event_client.register_queue.get()
+    assert_status_event(event, 'CONNECTING', address)
+    event = await event_client.register_queue.get()
+    assert_status_event(event, 'CONNECTED', address)
+
+    conn = await conn_queue.get()
+
+    msg = iec101.InterrogationMsg(is_test=False,
+                                  originator_address=0,
+                                  asdu_address=asdu_address,
+                                  request=interrogation_request,
+                                  cause=cause)
+    await conn.send(msg)
+
+    event = await event_client.register_queue.get()
+    assert_interrogation_event(event, address, asdu_address, cause,
+                               interrogation_request)
+
+    await device.async_close()
+    await slave.async_close()
+    await event_client.async_close()
+
+
+@pytest.mark.parametrize("address", [0])
+@pytest.mark.parametrize("asdu_address", [123])
+@pytest.mark.parametrize("cause", list(iec101.CommandResCause))
+@pytest.mark.parametrize("interrogation_request", [42])
+@pytest.mark.parametrize("freeze", list(iec101.FreezeCode))
+async def test_counter_interrogation_response(serial_conns,
+                                              create_enable_event,
+                                              address, asdu_address, cause,
+                                              interrogation_request, freeze):
+    query_result = [create_enable_event(address, True)]
+    event_client = EventClient(query_result)
+    conf = get_conf([address])
+    conn_queue = aio.Queue()
+    slave = await create_slave(conf, conn_queue.put_nowait)
+    device = await aio.call(master.create, conf, event_client,
+                            event_type_prefix)
+
+    event = await event_client.register_queue.get()
+    assert_status_event(event, 'CONNECTING')
+    event = await event_client.register_queue.get()
+    assert_status_event(event, 'CONNECTED')
+    event = await event_client.register_queue.get()
+    assert_status_event(event, 'CONNECTING', address)
+    event = await event_client.register_queue.get()
+    assert_status_event(event, 'CONNECTED', address)
+
+    conn = await conn_queue.get()
+
+    msg = iec101.CounterInterrogationMsg(is_test=False,
+                                         originator_address=0,
+                                         asdu_address=asdu_address,
+                                         request=interrogation_request,
+                                         freeze=freeze,
+                                         cause=cause)
+    await conn.send(msg)
+
+    event = await event_client.register_queue.get()
+    assert_counter_interrogation_event(event, address, asdu_address, cause,
+                                       interrogation_request, freeze)
 
     await device.async_close()
     await slave.async_close()
