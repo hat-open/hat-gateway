@@ -460,7 +460,8 @@ def _data_type_payload_from_msg(msg):
         return 'protection_command', {
             'value': msg.data.value._asdict(),
             'quality': quality,
-            'cause': cause}
+            'cause': cause,
+            'operating_time': msg.data.operating_time}
     elif isinstance(msg.data, iec101.StatusData):
         return 'status', {
             'value': msg.data.value._asdict(),
@@ -513,7 +514,7 @@ def _command_type_payload_from_msg(msg):
                 'success': success}
     elif isinstance(msg.command, iec101.BitstringCommand):
         return 'bitstring', {
-                'value': msg.command.value.value,
+                'value': list(msg.command.value.value),
                 'cause': cause,
                 'success': success}
     raise Exception('unsupported command message')
