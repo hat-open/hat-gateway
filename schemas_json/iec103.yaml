@@ -72,7 +72,7 @@ definitions:
                         response_timeout:
                             type: number
                         send_retry_count:
-                            type: number
+                            type: integer
                         poll_class1_delay:
                             type:
                                 - "null"
