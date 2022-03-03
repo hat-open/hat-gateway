@@ -33,10 +33,11 @@ def event_to_msg(event, event_type_prefix, cmd_cause_class,
             event, command_type, asdu, io, cmd_cause_class)
     elif etype_suffix[:2] == ('system', 'interrogation'):
         asdu = int(etype_suffix[2])
-        _event_to_interrogation_msg(event, asdu, cmd_cause_class)
+        return _event_to_interrogation_msg(event, asdu, cmd_cause_class)
     elif etype_suffix[:2] == ('system', 'counter_interrogation'):
         asdu = int(etype_suffix[2])
-        _event_to_counter_interrogation_msg(event, asdu, cmd_cause_class)
+        return _event_to_counter_interrogation_msg(
+            event, asdu, cmd_cause_class)
     else:
         raise Exception('event type not supported')
 
@@ -92,29 +93,29 @@ def _counter_interrogation_msg_to_event(msg, event_type_prefix):
 
 def _msg_to_data_type(msg):
     if isinstance(msg.data, iec104.SingleData):
-        return 'single',
+        return 'single'
     elif isinstance(msg.data, iec104.DoubleData):
-        return 'double',
+        return 'double'
     elif isinstance(msg.data, iec104.StepPositionData):
-        return 'step_position',
+        return 'step_position'
     elif isinstance(msg.data, iec104.BitstringData):
-        return 'bitstring',
+        return 'bitstring'
     elif isinstance(msg.data, iec104.NormalizedData):
-        return 'normalized',
+        return 'normalized'
     elif isinstance(msg.data, iec104.ScaledData):
-        return 'scaled',
+        return 'scaled'
     elif isinstance(msg.data, iec104.FloatingData):
-        return 'floating',
+        return 'floating'
     elif isinstance(msg.data, iec104.BinaryCounterData):
-        return 'binary_counter',
+        return 'binary_counter'
     elif isinstance(msg.data, iec104.ProtectionData):
-        return 'protection',
+        return 'protection'
     elif isinstance(msg.data, iec104.ProtectionStartData):
-        return 'protection_start',
+        return 'protection_start'
     elif isinstance(msg.data, iec104.ProtectionCommandData):
-        return 'protection_command',
+        return 'protection_command'
     elif isinstance(msg.data, iec104.StatusData):
-        return 'status',
+        return 'status'
     raise Exception('data message not supported')
 
 
@@ -129,6 +130,8 @@ def _msg_to_data_payload(msg):
         payload['elapsed_time'] = msg.data.elapsed_time
     if isinstance(msg.data, iec104.ProtectionStartData):
         payload['duration_time'] = msg.data.duration_time
+    if isinstance(msg.data, iec104.ProtectionCommandData):
+        payload['operating_time'] = msg.data.operating_time
     return payload
 
 
@@ -153,19 +156,19 @@ def _msg_to_data_value(msg):
 
 
 def _msg_to_command_type(msg):
-    if isinstance(msg, iec104.SingleCommand):
-        return 'single',
-    elif isinstance(msg, iec104.DoubleCommand):
-        return 'double',
-    elif isinstance(msg, iec104.RegulatingCommand):
-        return 'regulating',
-    elif isinstance(msg, iec104.NormalizedCommand):
-        return 'normalized',
-    elif isinstance(msg, iec104.ScaledCommand):
-        return 'scaled',
-    elif isinstance(msg, iec104.FloatingCommand):
-        return 'floating',
-    elif isinstance(msg, iec104.BitstringCommand):
+    if isinstance(msg.command, iec104.SingleCommand):
+        return 'single'
+    elif isinstance(msg.command, iec104.DoubleCommand):
+        return 'double'
+    elif isinstance(msg.command, iec104.RegulatingCommand):
+        return 'regulating'
+    elif isinstance(msg.command, iec104.NormalizedCommand):
+        return 'normalized'
+    elif isinstance(msg.command, iec104.ScaledCommand):
+        return 'scaled'
+    elif isinstance(msg.command, iec104.FloatingCommand):
+        return 'floating'
+    elif isinstance(msg.command, iec104.BitstringCommand):
         return 'bitstring'
     raise Exception('command message not supported')
 
@@ -176,9 +179,9 @@ def _msg_to_command_payload(msg):
     if isinstance(msg.cause, iec104.CommandResCause):
         payload['success'] = not msg.is_negative_confirm
     if hasattr(msg.command, 'select'):
-        payload['select'] = msg.command.select,
+        payload['select'] = msg.command.select
     if hasattr(msg.command, 'qualifier'):
-        payload['qualifier'] = msg.command.qualifier,
+        payload['qualifier'] = msg.command.qualifier
     return payload
 
 
@@ -187,6 +190,8 @@ def _msg_to_command_value(msg):
                                 iec104.DoubleCommand,
                                 iec104.RegulatingCommand)):
         return msg.command.value.name
+    elif isinstance(msg.command, iec104.BitstringCommand):
+        return list(msg.command.value.value)
     return msg.command.value.value
 
 
