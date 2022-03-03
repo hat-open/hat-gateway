@@ -655,7 +655,7 @@ async def test_data_response(event_client_connection_pair, asdu_address,
                          data=data,
                          time=time,
                          cause=cause)
-    await conn.send([msg])
+    conn.send([msg])
 
     event = await event_client.register_queue.get()
     assert_data_event(event, data_type, asdu_address, io_address, time, cause,
@@ -728,7 +728,7 @@ async def test_command_response(event_client_connection_pair, asdu_address,
                             is_negative_confirm=not success,
                             time=time,
                             cause=cause)
-    await conn.send([msg])
+    conn.send([msg])
 
     event = await event_client.register_queue.get()
     assert_command_event(event, command_type, asdu_address, io_address, time,
@@ -749,7 +749,7 @@ async def test_interrogation_response(event_client_connection_pair,
                                   asdu_address=asdu_address,
                                   request=interrogation_request,
                                   cause=cause)
-    await conn.send([msg])
+    conn.send([msg])
 
     event = await event_client.register_queue.get()
     assert_interrogation_event(event, asdu_address, cause,
@@ -772,7 +772,7 @@ async def test_counter_interrogation_response(event_client_connection_pair,
                                          request=interrogation_request,
                                          freeze=freeze,
                                          cause=cause)
-    await conn.send([msg])
+    conn.send([msg])
 
     event = await event_client.register_queue.get()
     assert_counter_interrogation_event(event, asdu_address, cause,
