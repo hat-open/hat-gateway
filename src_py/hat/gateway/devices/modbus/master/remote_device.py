@@ -250,13 +250,12 @@ class _Reader(aio.Resource):
                          quantity, is_connected_key):
         try:
             mlog.debug('starting read loop')
-            last_read_time = None
+            last_read_time = time.monotonic() - interval
 
             while True:
-                dt = (time.monotonic() - last_read_time
-                      if last_read_time is not None else 0)
-                if dt > 0:
-                    await asyncio.sleep(dt)
+                dt = time.monotonic() - last_read_time
+                if dt < interval:
+                    await asyncio.sleep(interval - dt)
 
                 mlog.debug('reading data')
                 last_read_time = time.monotonic()
