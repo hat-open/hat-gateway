@@ -9,9 +9,6 @@ from hat.gateway.devices.modbus import master
 import hat.event.common
 
 
-pytestmark = pytest.mark.asyncio
-
-
 gateway_name = 'gateway_name'
 device_name = 'device_name'
 event_type_prefix = ('gateway', gateway_name, master.device_type, device_name)

@@ -11,8 +11,7 @@ from hat.gateway.devices.modbus.master.event_client import (RemoteDeviceEnableRe
                                                             RemoteDeviceStatusRes,  # NOQA
                                                             RemoteDeviceWriteRes,  # NOQA
                                                             EventClientProxy)
-from hat.gateway.devices.modbus.master.remote_device import (RemoteDevice,
-                                                             RemoteDeviceReader)  # NOQA
+from hat.gateway.devices.modbus.master.remote_device import RemoteDevice
 import hat.event.common
 
 
@@ -31,7 +30,7 @@ async def create(conf: common.DeviceConf,
     device._status = None
     device._conn = None
     device._devices = {}
-    device._device_readers = {}
+    device._readers = {}
     device._async_group = aio.Group()
 
     device._async_group.spawn(aio.call_on_cancel,
@@ -102,7 +101,7 @@ class ModbusMasterDevice(aio.Resource):
 
                 self._set_status('CONNECTED')
                 self._devices = {}
-                self._device_readers = {}
+                self._readers = {}
 
                 mlog.debug('creating remote devices')
                 for device_conf in self._conf['remote_devices']:
@@ -153,25 +152,25 @@ class ModbusMasterDevice(aio.Resource):
             mlog.debug('connection is not available')
             return
 
-        device_reader = self._device_readers.get(device_id)
-        if device_reader and device_reader.is_open:
-            mlog.debug('device reader %s is already running', device_id)
+        reader = self._readers.get(device_id)
+        if reader and reader.is_open:
+            mlog.debug('reader %s is already running', device_id)
             return
 
         mlog.debug('creating reader for device %s', device_id)
-        self._device_readers[device.device_id] = \
-            RemoteDeviceReader(device, self._notify_response)
+        reader = device.create_reader(self._notify_response)
+        self._readers[device.device_id] = reader
 
     async def _disable_remote_device(self, device_id):
         mlog.debug('disabling device %s', device_id)
         self._enabled_devices.discard(device_id)
 
-        device_reader = self._device_readers.pop(device_id, None)
-        if not device_reader:
+        reader = self._readers.pop(device_id, None)
+        if not reader:
             mlog.debug('device reader %s is not available', device_id)
             return
 
-        await device_reader.async_close()
+        await reader.async_close()
 
     async def _write(self, device_id, data_name, request_id, value):
         mlog.debug('writing (device_id: %s; data_name: %s; value: %s)',
@@ -182,18 +181,10 @@ class ModbusMasterDevice(aio.Resource):
             mlog.debug('device %s is not available', device_id)
             return
 
-        data = device.data.get(data_name)
-        if not data:
-            mlog.debug('data %s is not available', data_name)
-            return
-
-        result = await data.write(value)
-        result = result.name if result else 'SUCCESS'
-        mlog.debug('writing result: %s', result)
-        self._notify_response(RemoteDeviceWriteRes(device_id=device_id,
-                                                   data_name=data_name,
-                                                   request_id=request_id,
-                                                   result=result))
+        response = await device.write(data_name, request_id, value)
+        if response:
+            mlog.debug('writing result: %s', response.result)
+            self._notify_response(response)
 
 
 async def _query_enabled_devices(event_client, event_type_prefix):
