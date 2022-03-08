@@ -198,7 +198,7 @@ class Iec103MasterDevice(common.Device):
             asdu = int(etype_suffix[1])
             io = iec103.IoAddress(
                 function_type=int(etype_suffix[2]),
-                io_information=int(etype_suffix[3]))
+                information_number=int(etype_suffix[3]))
             self._process_command(event, address, asdu, io)
         elif etype_suffix[0] == 'interrogation':
             asdu = int(etype_suffix[1])
@@ -241,7 +241,7 @@ class Iec103MasterDevice(common.Device):
         value = iec103.DoubleValue[event.payload.data['value']]
         session_id = event.payload.data['session_id']
         self._remote_groups[address].spawn(
-            self._cmd_req_res, address, asdu, io, value, session_id)
+            self._cmd_req_res, conn, address, asdu, io, value, session_id)
 
     async def _cmd_req_res(self, conn, address, asdu, io, value, session_id):
         try:

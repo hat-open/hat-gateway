@@ -86,7 +86,7 @@ event types are used:
 
             Represents received IEC103 data message.
 
-            Source timestamp is represents IEC103 data time.
+            Source timestamp represents IEC103 data time.
 
             Payload is specified by
             ``hat-gateway://iec103.yaml#/definitions/events/master/gateway/data``.
