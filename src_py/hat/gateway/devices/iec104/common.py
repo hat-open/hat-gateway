@@ -195,8 +195,13 @@ def _msg_to_command_value(msg):
     return msg.command.value.value
 
 
-def _event_to_data_msg(self, event, data_type, asdu, io,
-                       data_without_timestamp):
+def _event_to_data_msg(event, data_type, asdu, io, data_without_timestamp):
+    if event.payload.data['cause'] != 'INTERROGATED':
+        cause = iec104.DataResCause[event.payload.data['cause']]
+    elif data_type == 'binary_counter':
+        cause = iec104.DataResCause.INTERROGATED_COUNTER
+    else:
+        cause = iec104.DataResCause.INTERROGATED_STATION
     return iec104.DataMsg(
         is_test=False,
         originator_address=0,
@@ -205,7 +210,7 @@ def _event_to_data_msg(self, event, data_type, asdu, io,
         data=_event_to_data(event, data_type),
         time=(None if (data_type, asdu, io) in data_without_timestamp else
               _source_timestamp_to_time_iec104(event.source_timestamp)),
-        cause=iec104.DataResCause[event.payload.data['cause']])
+        cause=cause)
 
 
 def _event_to_command_msg(event, command_type, asdu, io, cmd_cause_class):
@@ -303,7 +308,7 @@ def _event_to_data(event, data_type):
     if data_type == 'bitstring':
         return iec104.BitstringData(
             value=iec104.BitstringValue(
-                value=bytes(event.payload.data['value']['value'])),
+                value=bytes(event.payload.data['value'])),
             quality=_event_to_quality(event, data_type))
     if data_type == 'normalized':
         return iec104.NormalizedData(

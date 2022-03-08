@@ -37,7 +37,7 @@ async def create(conf: common.DeviceConf,
     device._conns = {}
 
     device._async_group = aio.Group()
-    srv = apci.listen(
+    srv = await apci.listen(
         connection_cb=device._on_connection,
         addr=tcp.Address(host=conf['local_host'],
                          port=conf['local_port']),

@@ -1,3 +1,4 @@
+import collections
 import datetime
 import itertools
 import math
@@ -10,13 +11,13 @@ from hat.drivers import tcp
 from hat.drivers.iec60870 import apci
 from hat.drivers.iec60870 import iec104
 from hat.gateway import common
-from hat.gateway.devices.iec104 import master
+from hat.gateway.devices.iec104 import slave
 import hat.event.common
 
 
 gateway_name = 'gateway_name'
 device_name = 'device_name'
-event_type_prefix = ('gateway', gateway_name, master.device_type, device_name)
+event_type_prefix = ('gateway', gateway_name, slave.device_type, device_name)
 
 default_time = iec104.time_from_datetime(
     datetime.datetime.now(datetime.timezone.utc))
@@ -95,33 +96,20 @@ def assert_time_equal(time1, time2):
     assert dt < datetime.timedelta(seconds=1)
 
 
-def assert_status_event(event, status):
-    assert event.event_type == (*event_type_prefix, 'gateway', 'status')
+def assert_connection_event(event, conn_count):
+    assert event.event_type == (*event_type_prefix, 'gateway', 'connections')
     assert event.source_timestamp is None
-    assert event.payload.data == status
-
-
-def assert_data_event(event, data_type, asdu_address, io_address, time, cause,
-                      payload):
-    assert event.event_type == (*event_type_prefix, 'gateway', 'data',
-                                data_type, str(asdu_address), str(io_address))
-
-    assert_time_equal(time, time_from_event_timestamp(event.source_timestamp))
-
-    payload = {'cause': ('INTERROGATED'
-                         if cause.name.startswith('INTERROGATED_')
-                         else cause.name),
-               **payload}
-
-    for key in {*payload.keys(), *event.payload.data.keys()}:
-        if data_type in ('normalized', 'floating') and key == 'value':
-            assert_float_equal(payload[key], event.payload.data[key])
-        else:
-            assert payload[key] == event.payload.data[key]
+    assert len(event.payload.data) == conn_count
+    for connection in event.payload.data:
+        assert 'local' in connection
+        assert 'remote' in connection
+        for value in connection.values():
+            assert 'host' in value
+            assert 'port' in value
 
 
 def assert_command_event(event, command_type, asdu_address, io_address, time,
-                         cause, success, payload):
+                         cause, payload):
     assert event.event_type == (*event_type_prefix, 'gateway', 'command',
                                 command_type, str(asdu_address),
                                 str(io_address))
@@ -129,7 +117,6 @@ def assert_command_event(event, command_type, asdu_address, io_address, time,
     assert_time_equal(time, time_from_event_timestamp(event.source_timestamp))
 
     payload = {'cause': cause.name,
-               'success': success,
                **payload}
 
     for key in {*payload.keys(), *event.payload.data.keys()}:
@@ -162,7 +149,30 @@ def assert_msg_equal(msg1, msg2):
     assert msg1.asdu_address == msg2.asdu_address
     assert msg1.cause == msg2.cause
 
-    if isinstance(msg1, iec104.CommandMsg):
+    if isinstance(msg1, iec104.DataMsg):
+        assert msg1.io_address == msg2.io_address
+        assert type(msg1.data) == type(msg2.data)  # NOQA
+        assert_time_equal(msg1.time, msg2.time)
+
+        if (isinstance(msg1.data, iec104.NormalizedData) or
+                isinstance(msg1.data, iec104.FloatingData)):
+            assert_float_equal(msg1.data.value.value,
+                               msg2.data.value.value)
+        else:
+            assert msg1.data.value == msg2.data.value
+
+        assert msg1.data.quality == msg2.data.quality
+
+        if hasattr(msg1.data, 'elapsed_time'):
+            assert msg1.data.elapsed_time == msg2.data.elapsed_time
+
+        if hasattr(msg1.data, 'duration_time'):
+            assert msg1.data.duration_time == msg2.data.duration_time
+
+        if hasattr(msg1.data, 'operating_time'):
+            assert msg1.data.operating_time == msg2.data.operating_time
+
+    elif isinstance(msg1, iec104.CommandMsg):
         assert msg1.io_address == msg2.io_address
         assert msg1.is_negative_confirm == msg2.is_negative_confirm
         assert type(msg1.command) == type(msg2.command)  # NOQA
@@ -192,12 +202,12 @@ def assert_msg_equal(msg1, msg2):
         raise ValueError('message type not supported')
 
 
-async def wait_connected_event(event_client):
+async def wait_connections_event(event_client, conn_count):
 
     def check(event):
         return (event.event_type == (*event_type_prefix, 'gateway',
-                                     'status') and
-                event.payload.data == 'CONNECTED')
+                                     'connections') and
+                len(event.payload.data) == conn_count)
 
     await aio.first(event_client.register_queue, check)
 
@@ -257,6 +267,18 @@ def create_command_event(create_event):
 
 
 @pytest.fixture
+def create_data_event(create_event):
+
+    def create_data_event(data_type, asdu_addr, io_address, time, payload):
+        return create_event((*event_type_prefix, 'system', 'data',
+                             data_type, str(asdu_addr), str(io_address)),
+                            payload,
+                            time_to_event_timestamp(time))
+
+    return create_data_event
+
+
+@pytest.fixture
 def port():
     return util.get_unused_tcp_port()
 
@@ -264,67 +286,60 @@ def port():
 @pytest.fixture
 def create_conf(port):
 
-    def create_conf(response_timeout=0.1,
+    def create_conf(remote_hosts=None,
+                    response_timeout=0.1,
                     supervisory_timeout=10,
                     test_timeout=20,
                     send_window_size=12,
                     receive_window_size=8,
-                    reconnect_delay=0.01,
-                    time_sync_delay=None):
-        return {'remote_host': '127.0.0.1',
-                'remote_port': port,
+                    data_without_timestamp=[]):
+        return {'local_host': '127.0.0.1',
+                'local_port': port,
+                'remote_hosts': remote_hosts,
                 'response_timeout': response_timeout,
                 'supervisory_timeout': supervisory_timeout,
                 'test_timeout': test_timeout,
                 'send_window_size': send_window_size,
                 'receive_window_size': receive_window_size,
-                'reconnect_delay': reconnect_delay,
-                'time_sync_delay': time_sync_delay}
+                'data_without_timestamp': data_without_timestamp}
 
     return create_conf
 
 
 @pytest.fixture
-def create_server(port):
+def create_connection(port):
 
-    async def create_server(connection_cb):
+    async def create_connection():
+        conn = await apci.connect(tcp.Address('127.0.0.1', port))
+        return iec104.Connection(conn)
 
-        async def on_connection(conn):
-            conn = iec104.Connection(conn)
-            await aio.call(connection_cb, conn)
-
-        return await apci.listen(connection_cb=on_connection,
-                                 addr=tcp.Address('127.0.0.1', port))
-
-    return create_server
+    return create_connection
 
 
 @pytest.fixture
-async def event_client_connection_pair(create_server, create_conf):
+async def event_client_connection_pair(create_conf, create_connection):
     event_client = EventClient()
-    conn_queue = aio.Queue()
-    server = await create_server(conn_queue.put_nowait)
     conf = create_conf()
-    device = await aio.call(master.create, conf, event_client,
+    device = await aio.call(slave.create, conf, event_client,
                             event_type_prefix)
-    conn = await conn_queue.get()
+    conn = await create_connection()
 
     yield event_client, conn
 
+    await conn.async_close()
     await device.async_close()
-    await server.async_close()
     await event_client.async_close()
 
 
 def test_conf(create_conf):
     conf = create_conf()
-    master.json_schema_repo.validate(master.json_schema_id, conf)
+    slave.json_schema_repo.validate(slave.json_schema_id, conf)
 
 
 async def test_create(create_conf):
     event_client = EventClient()
     conf = create_conf()
-    device = await aio.call(master.create, conf, event_client,
+    device = await aio.call(slave.create, conf, event_client,
                             event_type_prefix)
 
     assert device.is_open
@@ -333,78 +348,37 @@ async def test_create(create_conf):
     await event_client.async_close()
 
 
-async def test_status(create_conf, create_server):
+@pytest.mark.parametrize("conn_count", [0, 1, 5])
+async def test_connections(create_conf, create_connection, conn_count):
     event_client = EventClient()
-    conn_queue = aio.Queue()
-    server = await create_server(conn_queue.put_nowait)
     conf = create_conf()
-    device = await aio.call(master.create, conf, event_client,
+    device = await aio.call(slave.create, conf, event_client,
                             event_type_prefix)
+    conns = collections.deque()
 
     event = await event_client.register_queue.get()
-    assert_status_event(event, 'CONNECTING')
-
-    event = await event_client.register_queue.get()
-    assert_status_event(event, 'CONNECTED')
+    assert_connection_event(event, len(conns))
 
     assert event_client.register_queue.empty()
 
-    conn = await conn_queue.get()
-    assert conn.is_open
+    for _ in range(conn_count):
+        conn = await create_connection()
+        assert conn.is_open
+        conns.append(conn)
 
-    await conn.async_close()
+        event = await event_client.register_queue.get()
+        assert_connection_event(event, len(conns))
 
-    event = await event_client.register_queue.get()
-    assert_status_event(event, 'DISCONNECTED')
+    while conns:
+        conn = conns.pop()
+        await conn.async_close()
 
-    event = await event_client.register_queue.get()
-    assert_status_event(event, 'CONNECTING')
-
-    event = await event_client.register_queue.get()
-    assert_status_event(event, 'CONNECTED')
-
-    conn = await conn_queue.get()
-    assert conn.is_open
-
-    await device.async_close()
-
-    event = await event_client.register_queue.get()
-    assert_status_event(event, 'DISCONNECTED')
+        event = await event_client.register_queue.get()
+        assert_connection_event(event, len(conns))
 
     assert event_client.register_queue.empty()
 
-    await server.async_close()
-    await event_client.async_close()
-
-
-async def test_time_sync(create_server, create_conf):
-    last_datetime = datetime.datetime.now(datetime.timezone.utc)
-
-    event_client = EventClient()
-    conn_queue = aio.Queue()
-    server = await create_server(conn_queue.put_nowait)
-    conf = create_conf(time_sync_delay=0.01)
-    device = await aio.call(master.create, conf, event_client,
-                            event_type_prefix)
-    conn = await conn_queue.get()
-
-    for _ in range(10):
-        msgs = await conn.receive()
-        assert len(msgs) == 1
-        msg = msgs[0]
-
-        assert isinstance(msg, iec104.ClockSyncMsg)
-        assert msg.is_test is False
-        assert msg.originator_address == 0
-        assert msg.asdu_address == 0xFFFF
-        assert msg.cause == iec104.ActivationReqCause.ACTIVATION
-
-        new_datetime = iec104.time_to_datetime(msg.time)
-        assert new_datetime >= last_datetime
-        last_datetime = new_datetime
-
     await device.async_close()
-    await server.async_close()
     await event_client.async_close()
 
 
@@ -459,76 +433,68 @@ async def test_time_sync(create_server, create_conf):
      'bitstring',
      {'value': [1, 2, 3, 4]}),
 ])
-async def test_command_request(event_client_connection_pair,
-                               create_command_event, asdu_address,
+async def test_command_request(event_client_connection_pair, asdu_address,
                                io_address, time, cause, command, command_type,
                                payload):
     event_client, conn = event_client_connection_pair
-    await wait_connected_event(event_client)
+    await wait_connections_event(event_client, 1)
 
-    event = create_command_event(command_type, asdu_address, io_address, time,
-                                 {'cause': cause.name, **payload})
-    event_client.receive_queue.put_nowait([event])
+    msg = iec104.CommandMsg(is_test=False,
+                            originator_address=0,
+                            asdu_address=asdu_address,
+                            io_address=io_address,
+                            command=command,
+                            is_negative_confirm=False,
+                            time=time,
+                            cause=cause)
+    conn.send([msg])
 
-    msgs = await conn.receive()
-    assert len(msgs) == 1
-    msg = msgs[0]
-    assert_msg_equal(msg, iec104.CommandMsg(is_test=False,
-                                            originator_address=0,
-                                            asdu_address=asdu_address,
-                                            io_address=io_address,
-                                            command=command,
-                                            is_negative_confirm=False,
-                                            time=time,
-                                            cause=cause))
+    event = await event_client.register_queue.get()
+    assert_command_event(event, command_type, asdu_address, io_address, time,
+                         cause, payload)
 
 
 @pytest.mark.parametrize("asdu_address", [123])
+@pytest.mark.parametrize("cause", list(iec104.CommandReqCause))
 @pytest.mark.parametrize("interrogation_request", [42])
 async def test_interrogation_request(event_client_connection_pair,
-                                     create_interrogation_event,
-                                     asdu_address, interrogation_request):
+                                     asdu_address, cause,
+                                     interrogation_request):
     event_client, conn = event_client_connection_pair
-    await wait_connected_event(event_client)
+    await wait_connections_event(event_client, 1)
 
-    event = create_interrogation_event(asdu_address, interrogation_request)
-    event_client.receive_queue.put_nowait([event])
+    msg = iec104.InterrogationMsg(is_test=False,
+                                  originator_address=0,
+                                  asdu_address=asdu_address,
+                                  request=interrogation_request,
+                                  cause=cause)
+    conn.send([msg])
 
-    msgs = await conn.receive()
-    assert len(msgs) == 1
-    msg = msgs[0]
-    assert_msg_equal(msg, iec104.InterrogationMsg(
-        is_test=False,
-        originator_address=0,
-        asdu_address=asdu_address,
-        request=interrogation_request,
-        cause=iec104.CommandReqCause.ACTIVATION))
+    event = await event_client.register_queue.get()
+    assert_interrogation_event(event, asdu_address, interrogation_request)
 
 
 @pytest.mark.parametrize("asdu_address", [123])
+@pytest.mark.parametrize("cause", list(iec104.CommandReqCause))
 @pytest.mark.parametrize("interrogation_request", [42])
 @pytest.mark.parametrize("freeze", list(iec104.FreezeCode))
-async def test_counter_interrogation_request(
-        event_client_connection_pair,
-        create_counter_interrogation_event,
-        asdu_address, interrogation_request, freeze):
+async def test_counter_interrogation_request(event_client_connection_pair,
+                                             asdu_address, cause,
+                                             interrogation_request, freeze):
     event_client, conn = event_client_connection_pair
-    await wait_connected_event(event_client)
+    await wait_connections_event(event_client, 1)
 
-    event = create_counter_interrogation_event(
-        asdu_address, interrogation_request, freeze.name)
-    event_client.receive_queue.put_nowait([event])
+    msg = iec104.CounterInterrogationMsg(is_test=False,
+                                         originator_address=0,
+                                         asdu_address=asdu_address,
+                                         request=interrogation_request,
+                                         freeze=freeze,
+                                         cause=cause)
+    conn.send([msg])
 
-    msgs = await conn.receive()
-    assert len(msgs) == 1
-    msg = msgs[0]
-    assert_msg_equal(msg, iec104.CounterInterrogationMsg(
-        is_test=False,
-        originator_address=0,
-        asdu_address=asdu_address,
-        request=interrogation_request,
-        freeze=freeze,
-        cause=iec104.CommandReqCause.ACTIVATION))
+    event = await event_client.register_queue.get()
+    assert_counter_interrogation_event(event, asdu_address,
+                                       interrogation_request, freeze)
 
 
 @pytest.mark.parametrize("asdu_address", [123])
@@ -634,9 +600,9 @@ async def test_counter_interrogation_request(
                 'change': [False, True] * 8},
       'quality': default_measurement_quality._asdict()}),
 ])
-async def test_data_response(event_client_connection_pair, asdu_address,
-                             io_address, time, cause, data, data_type,
-                             payload):
+async def test_data_response(event_client_connection_pair, create_data_event,
+                             asdu_address, io_address, time, cause, data,
+                             data_type, payload):
     if data_type in ('protection', 'protection_start', 'protection_command'):
         if time is None:
             return
@@ -644,28 +610,41 @@ async def test_data_response(event_client_connection_pair, asdu_address,
         if time is not None:
             return
 
+    if data_type == 'binary_counter':
+        if cause == iec104.DataResCause.INTERROGATED_STATION:
+            return
+    else:
+        if cause == iec104.DataResCause.INTERROGATED_COUNTER:
+            return
+
     event_client, conn = event_client_connection_pair
-    await wait_connected_event(event_client)
+    await wait_connections_event(event_client, 1)
 
-    msg = iec104.DataMsg(is_test=False,
-                         originator_address=0,
-                         asdu_address=asdu_address,
-                         io_address=io_address,
-                         data=data,
-                         time=time,
-                         cause=cause)
-    conn.send([msg])
+    payload = {'cause': ('INTERROGATED'
+                         if cause.name.startswith('INTERROGATED_')
+                         else cause.name),
+               **payload}
+    event = create_data_event(data_type, asdu_address, io_address, time,
+                              payload)
+    event_client.receive_queue.put_nowait([event])
 
-    event = await event_client.register_queue.get()
-    assert_data_event(event, data_type, asdu_address, io_address, time, cause,
-                      payload)
+    msgs = await conn.receive()
+    assert len(msgs) == 1
+    msg = msgs[0]
+    assert_msg_equal(msg, iec104.DataMsg(
+        is_test=False,
+        originator_address=0,
+        asdu_address=asdu_address,
+        io_address=io_address,
+        data=data,
+        time=time,
+        cause=cause))
 
 
 @pytest.mark.parametrize("asdu_address", [123])
 @pytest.mark.parametrize("io_address", [321])
 @pytest.mark.parametrize("time", [None, default_time])
 @pytest.mark.parametrize("cause", list(iec104.CommandResCause))
-@pytest.mark.parametrize("success", [True, False])
 @pytest.mark.parametrize("command, command_type, payload", [
     (iec104.SingleCommand(value=iec104.SingleValue.ON,
                           select=False,
@@ -677,19 +656,19 @@ async def test_data_response(event_client_connection_pair, asdu_address,
 
     (iec104.DoubleCommand(value=iec104.DoubleValue.OFF,
                           select=True,
-                          qualifier=0),
+                          qualifier=1),
      'double',
      {'value': 'OFF',
       'select': True,
-      'qualifier': 0}),
+      'qualifier': 1}),
 
-    (iec104.RegulatingCommand(value=iec104.RegulatingValue.LOWER,
+    (iec104.RegulatingCommand(value=iec104.RegulatingValue.HIGHER,
                               select=False,
-                              qualifier=0),
+                              qualifier=2),
      'regulating',
-     {'value': 'LOWER',
+     {'value': 'HIGHER',
       'select': False,
-      'qualifier': 0}),
+      'qualifier': 2}),
 
     (iec104.NormalizedCommand(value=iec104.NormalizedValue(0.5),
                               select=True),
@@ -709,69 +688,77 @@ async def test_data_response(event_client_connection_pair, asdu_address,
      {'value': 42.5,
       'select': True}),
 
-    (iec104.BitstringCommand(value=iec104.BitstringValue(b'\x04\x03\x02\x01')),
+    (iec104.BitstringCommand(value=iec104.BitstringValue(b'\x01\x02\x03\x04')),
      'bitstring',
-     {'value': [4, 3, 2, 1]}),
+     {'value': [1, 2, 3, 4]}),
 ])
-async def test_command_response(event_client_connection_pair, asdu_address,
-                                io_address, time, cause, success, command,
-                                command_type, payload):
+async def test_command_response(event_client_connection_pair,
+                                create_command_event, asdu_address,
+                                io_address, time, cause, command, command_type,
+                                payload):
     event_client, conn = event_client_connection_pair
-    await wait_connected_event(event_client)
+    await wait_connections_event(event_client, 1)
 
-    msg = iec104.CommandMsg(is_test=False,
-                            originator_address=0,
-                            asdu_address=asdu_address,
-                            io_address=io_address,
-                            command=command,
-                            is_negative_confirm=not success,
-                            time=time,
-                            cause=cause)
-    conn.send([msg])
+    event = create_command_event(command_type, asdu_address, io_address, time,
+                                 {'cause': cause.name, **payload})
+    event_client.receive_queue.put_nowait([event])
 
-    event = await event_client.register_queue.get()
-    assert_command_event(event, command_type, asdu_address, io_address, time,
-                         cause, success, payload)
+    msgs = await conn.receive()
+    assert len(msgs) == 1
+    msg = msgs[0]
+    assert_msg_equal(msg, iec104.CommandMsg(is_test=False,
+                                            originator_address=0,
+                                            asdu_address=asdu_address,
+                                            io_address=io_address,
+                                            command=command,
+                                            is_negative_confirm=False,
+                                            time=time,
+                                            cause=cause))
 
 
 @pytest.mark.parametrize("asdu_address", [123])
-@pytest.mark.parametrize("cause", list(iec104.CommandResCause))
 @pytest.mark.parametrize("interrogation_request", [42])
 async def test_interrogation_response(event_client_connection_pair,
-                                      asdu_address, cause,
-                                      interrogation_request):
+                                      create_interrogation_event,
+                                      asdu_address, interrogation_request):
     event_client, conn = event_client_connection_pair
-    await wait_connected_event(event_client)
+    await wait_connections_event(event_client, 1)
 
-    msg = iec104.InterrogationMsg(is_test=False,
-                                  originator_address=0,
-                                  asdu_address=asdu_address,
-                                  request=interrogation_request,
-                                  cause=cause)
-    conn.send([msg])
+    event = create_interrogation_event(asdu_address, interrogation_request)
+    event_client.receive_queue.put_nowait([event])
 
-    event = await event_client.register_queue.get()
-    assert_interrogation_event(event, asdu_address, interrogation_request)
+    msgs = await conn.receive()
+    assert len(msgs) == 1
+    msg = msgs[0]
+    assert_msg_equal(msg, iec104.InterrogationMsg(
+        is_test=False,
+        originator_address=0,
+        asdu_address=asdu_address,
+        request=interrogation_request,
+        cause=iec104.CommandResCause.ACTIVATION_CONFIRMATION))
 
 
 @pytest.mark.parametrize("asdu_address", [123])
-@pytest.mark.parametrize("cause", list(iec104.CommandResCause))
 @pytest.mark.parametrize("interrogation_request", [42])
 @pytest.mark.parametrize("freeze", list(iec104.FreezeCode))
-async def test_counter_interrogation_response(event_client_connection_pair,
-                                              asdu_address, cause,
-                                              interrogation_request, freeze):
+async def test_counter_interrogation_response(
+        event_client_connection_pair,
+        create_counter_interrogation_event,
+        asdu_address, interrogation_request, freeze):
     event_client, conn = event_client_connection_pair
-    await wait_connected_event(event_client)
+    await wait_connections_event(event_client, 1)
 
-    msg = iec104.CounterInterrogationMsg(is_test=False,
-                                         originator_address=0,
-                                         asdu_address=asdu_address,
-                                         request=interrogation_request,
-                                         freeze=freeze,
-                                         cause=cause)
-    conn.send([msg])
+    event = create_counter_interrogation_event(
+        asdu_address, interrogation_request, freeze.name)
+    event_client.receive_queue.put_nowait([event])
 
-    event = await event_client.register_queue.get()
-    assert_counter_interrogation_event(event, asdu_address,
-                                       interrogation_request, freeze)
+    msgs = await conn.receive()
+    assert len(msgs) == 1
+    msg = msgs[0]
+    assert_msg_equal(msg, iec104.CounterInterrogationMsg(
+        is_test=False,
+        originator_address=0,
+        asdu_address=asdu_address,
+        request=interrogation_request,
+        freeze=freeze,
+        cause=iec104.CommandResCause.ACTIVATION_CONFIRMATION))
