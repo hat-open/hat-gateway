@@ -174,15 +174,14 @@ class Iec103MasterDevice(common.Device):
         finally:
             conn.close()
 
-    def _on_data(self, address, data_list):
+    def _on_data(self, address, data):
         events = []
-        for data in data_list:
-            try:
-                for event in _events_from_data(data, address,
-                                               self._event_type_prefix):
-                    events.append(event)
-            except Exception as e:
-                mlog.warning('data %s ignored due to: %s', data, e, exc_info=e)
+        try:
+            for event in _events_from_data(data, address,
+                                           self._event_type_prefix):
+                events.append(event)
+        except Exception as e:
+            mlog.warning('data %s ignored due to: %s', data, e, exc_info=e)
         if events:
             self._event_client.register(events)
 
@@ -360,7 +359,7 @@ def _time_iec103_to_source_ts(time_four):
                       t_now,
                       t_now + datetime.timedelta(hours=12)]
     candidates_103 = [_upgrade_time_four_to_seven(
-                        time_four, common.time_from_datetime(t))
+                        time_four, iec103.time_from_datetime(t))
                       for t in candidates_now]
     candidates_dt = [iec103.time_to_datetime(t)
                      for t in candidates_103 if t]
