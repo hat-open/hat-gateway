@@ -318,28 +318,13 @@ def _events_from_data(data, address, event_type_prefix):
             data, address, data_type, event_type_prefix)
         yield _create_event(event_type, payload, source_ts)
     elif isinstance(data.value, iec103.MeasurandValues):
-        for meas_type, meas_value in data.value.items():
+        for meas_type, meas_value in data.value.values.items():
             payload = {'cause': cause,
                        'value': meas_value._asdict()}
-            if isinstance(meas_type, (iec103.MeasurandType.M1_I_L2,
-                                      iec103.MeasurandType.M1_U_L12,
-                                      iec103.MeasurandType.M1_P,
-                                      iec103.MeasurandType.M1_Q,
-                                      iec103.MeasurandType.M2_I_L1,
-                                      iec103.MeasurandType.M2_I_L2,
-                                      iec103.MeasurandType.M2_I_L3,
-                                      iec103.MeasurandType.M2_U_L1E,
-                                      iec103.MeasurandType.M2_U_L2E,
-                                      iec103.MeasurandType.M2_U_L3E,
-                                      iec103.MeasurandType.M2_P,
-                                      iec103.MeasurandType.M2_Q,
-                                      iec103.MeasurandType.M2_F)):
-                data_type = meas_type.name.lower()
-                event_type = _data_event_type(
-                    data, address, data_type, event_type_prefix)
-                yield _create_event(event_type, payload)
-            else:
-                raise Exception('unsupported measurand type')
+            data_type = meas_type.name.lower()
+            event_type = _data_event_type(
+                data, address, data_type, event_type_prefix)
+            yield _create_event(event_type, payload)
     else:
         raise Exception('unsupported data value')
 

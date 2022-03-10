@@ -193,18 +193,16 @@ def assert_data_event(event, address, data_type, asdu_address, io_function,
     else:
         assert event.payload.data['value']['overflow'] == value['overflow']
         assert event.payload.data['value']['invalid'] == value['invalid']
-        assert assert_float_equal(event.payload.data['value']['value'],
-                                  value['value'])
+        assert_float_equal(event.payload.data['value']['value'],
+                           value['value'])
 
 
 def assert_command_event(event, address, asdu_address, io_function,
-                         io_information, time, cause, session_id, success):
+                         io_information, cause, session_id, success):
     assert event.event_type == (*event_type_prefix, 'gateway', 'remote_device',
                                 str(address), 'command', str(asdu_address),
                                 str(io_function), str(io_information))
-
-    assert_time_equal(time, time_from_event_timestamp(event.source_timestamp))
-
+    assert event.source_timestamp is None
     assert event.payload.data == {'session_id': session_id,
                                   'success': success}
 
@@ -384,7 +382,8 @@ async def create_event_client_connection_pair(serial_conns,
     async def create_event_client_connection_pair(address):
         query_result = [create_enable_event(address, True)]
         event_client = EventClient(query_result)
-        conf = get_conf([address])
+        conf = get_conf([address],
+                        poll_class1_delay=0.01)
         conn_queue = aio.Queue()
         slave = await create_slave(conf, conn_queue.put_nowait)
         device = await aio.call(master.create, conf, event_client,
@@ -586,10 +585,12 @@ async def test_time_sync(serial_conns, create_enable_event, address):
 @pytest.mark.parametrize("io_function", [42])
 @pytest.mark.parametrize("io_information", [24])
 @pytest.mark.parametrize("session_id", [1])
+@pytest.mark.parametrize("success", [True, False])
 @pytest.mark.parametrize("value", list(app.iec103.common.DoubleValue))
-async def test_command_request(create_event_client_connection_pair,
-                               create_command_event, address, asdu_address,
-                               io_function, io_information, session_id, value):
+async def test_command(create_event_client_connection_pair,
+                       create_command_event, address, asdu_address,
+                       io_function, io_information, session_id, success,
+                       value):
     async with create_event_client_connection_pair(address) as pair:
         event_client, conn = pair
         await wait_remote_device_connected_event(event_client, address)
@@ -614,12 +615,33 @@ async def test_command_request(create_event_client_connection_pair,
                     value=value,
                     return_identifier=return_identifier)])]))
 
+        cause = (app.iec103.common.Cause.GENERAL_COMMAND if success
+                 else app.iec103.common.Cause.GENERAL_COMMAND_NACK)
+        asdu = app.iec103.common.ASDU(
+            type=app.iec103.common.AsduType.TIME_TAGGED_MESSAGE,
+            cause=cause,
+            address=asdu_address,
+            ios=[app.iec103.common.IO(
+                address=app.iec103.common.IoAddress(
+                    io_function,
+                    io_information),
+                elements=[app.iec103.common.IoElement_TIME_TAGGED_MESSAGE(
+                    app.iec103.common.DoubleWithTimeValue(
+                        value=value,
+                        time=default_time,
+                        supplementary=return_identifier))])])
+        await conn.send(asdu)
+
+        event = await event_client.register_queue.get()
+        assert_command_event(event, address, asdu_address, io_function,
+                             io_information, cause, session_id, success)
+
 
 @pytest.mark.parametrize("address", [0])
 @pytest.mark.parametrize("asdu_address", [123])
-async def test_interrogation_request(create_event_client_connection_pair,
-                                     create_interrogation_event,
-                                     address, asdu_address):
+async def test_interrogation(create_event_client_connection_pair,
+                             create_interrogation_event,
+                             address, asdu_address):
     async with create_event_client_connection_pair(address) as pair:
         event_client, conn = pair
         await wait_remote_device_connected_event(event_client, address)
@@ -639,6 +661,19 @@ async def test_interrogation_request(create_event_client_connection_pair,
                 elements=[app.iec103.common.IoElement_GENERAL_INTERROGATION(
                     scan_number=scan_number)])]))
 
+        asdu = app.iec103.common.ASDU(
+            type=app.iec103.common.AsduType.GENERAL_INTERROGATION_TERMINATION,
+            cause=app.iec103.common.Cause.TERMINATION_OF_GENERAL_INTERROGATION,
+            address=asdu_address,
+            ios=[app.iec103.common.IO(
+                address=app.iec103.common.IoAddress(255, 0),
+                elements=[app.iec103.common.IoElement_GENERAL_INTERROGATION_TERMINATION(  # NOQA
+                    scan_number=scan_number)])])
+        await conn.send(asdu)
+
+        event = await event_client.register_queue.get()
+        assert_interrogation_event(event, address, asdu_address)
+
 
 @pytest.mark.parametrize("address", [0])
 @pytest.mark.parametrize("asdu_address", [123])
@@ -647,9 +682,9 @@ async def test_interrogation_request(create_event_client_connection_pair,
 @pytest.mark.parametrize("time", [default_time])
 @pytest.mark.parametrize("cause", list(iec103.DataCause))
 @pytest.mark.parametrize("value", list(app.iec103.common.DoubleValue))
-async def test_double_data_response(create_event_client_connection_pair,
-                                    address, asdu_address, io_function,
-                                    io_information, time, cause, value):
+async def test_double_data(create_event_client_connection_pair, address,
+                           asdu_address, io_function, io_information, time,
+                           cause, value):
     async with create_event_client_connection_pair(address) as pair:
         event_client, conn = pair
         await wait_remote_device_connected_event(event_client, address)
@@ -671,3 +706,152 @@ async def test_double_data_response(create_event_client_connection_pair,
         event = await event_client.register_queue.get()
         assert_data_event(event, address, 'double', asdu_address, io_function,
                           io_information, time, cause, value.name)
+
+        asdu = app.iec103.common.ASDU(
+            type=app.iec103.common.AsduType.TIME_TAGGED_MESSAGE_WITH_RELATIVE_TIME,  # NOQA
+            cause=app.iec103.common.Cause(cause.value),
+            address=asdu_address,
+            ios=[app.iec103.common.IO(
+                address=app.iec103.common.IoAddress(io_function,
+                                                    io_information),
+                elements=[app.iec103.common.IoElement_TIME_TAGGED_MESSAGE_WITH_RELATIVE_TIME(  # NOQA
+                    app.iec103.common.DoubleWithRelativeTimeValue(
+                        value=value,
+                        relative_time=123,
+                        fault_number=321,
+                        time=time,
+                        supplementary=0))])])
+        await conn.send(asdu)
+
+        event = await event_client.register_queue.get()
+        assert_data_event(event, address, 'double', asdu_address, io_function,
+                          io_information, time, cause, value.name)
+
+
+@pytest.mark.parametrize("address", [0])
+@pytest.mark.parametrize("asdu_address", [123])
+@pytest.mark.parametrize("io_function", [42])
+@pytest.mark.parametrize("io_information", [24])
+@pytest.mark.parametrize("cause", list(iec103.DataCause))
+@pytest.mark.parametrize("data_types, values, overflows, invalids", [
+    (['m1_i_l2'],
+     [0],
+     [False],
+     [False]),
+
+    (['m1_i_l2', 'm1_u_l12'],
+     [0, 0.5],
+     [False, True],
+     [True, False]),
+
+    (['m1_i_l2', 'm1_u_l12', 'm1_p', 'm1_q'],
+     [0, 0.5, -1, -0.5],
+     [False, True] * 2,
+     [True, False] * 2),
+])
+async def test_m1_data(create_event_client_connection_pair, address,
+                       asdu_address, io_function, io_information, cause,
+                       data_types, values, overflows, invalids):
+    async with create_event_client_connection_pair(address) as pair:
+        event_client, conn = pair
+        await wait_remote_device_connected_event(event_client, address)
+
+        elements = [
+            app.iec103.common.IoElement_MEASURANDS_1(
+                app.iec103.common.MeasurandValue(overflow=overflow,
+                                                 invalid=invalid,
+                                                 value=value))
+            for overflow, invalid, value in zip(overflows, invalids, values)]
+        asdu = app.iec103.common.ASDU(
+            type=app.iec103.common.AsduType.MEASURANDS_1,
+            cause=app.iec103.common.Cause(cause.value),
+            address=asdu_address,
+            ios=[app.iec103.common.IO(
+                address=app.iec103.common.IoAddress(io_function,
+                                                    io_information),
+                elements=elements)])
+        await conn.send(asdu)
+
+        events = collections.deque()
+        for _ in data_types:
+            event = await event_client.register_queue.get()
+            events.append(event)
+
+        for data_type, overflow, invalid, value in zip(data_types, overflows,
+                                                       invalids, values):
+            event = util.first(events, lambda i: i.event_type[-4] == data_type)
+            assert_data_event(event, address, data_type, asdu_address,
+                              io_function, io_information, None, cause,
+                              {'overflow': overflow,
+                               'invalid': invalid,
+                               'value': value})
+
+
+@pytest.mark.parametrize("address", [0])
+@pytest.mark.parametrize("asdu_address", [123])
+@pytest.mark.parametrize("io_function", [42])
+@pytest.mark.parametrize("io_information", [24])
+@pytest.mark.parametrize("cause", list(iec103.DataCause))
+@pytest.mark.parametrize("data_types, values, overflows, invalids", [
+    (['m2_i_l1'],
+     [0],
+     [False],
+     [False]),
+
+    (['m2_i_l1', 'm2_i_l2'],
+     [0, 0.5],
+     [False, True],
+     [True, False]),
+
+    (['m2_i_l1', 'm2_i_l2', 'm2_i_l3'],
+     [0, 0.5, -1],
+     [False, True, False],
+     [True, False, True]),
+
+    (['m2_i_l1', 'm2_i_l2', 'm2_i_l3', 'm2_u_l1e', 'm2_u_l2e', 'm2_u_l3e'],
+     [0, 0.5, -1, -0.5, 0.25, -0.25],
+     [False, True, False] * 2,
+     [True, False, True] * 2),
+
+    (['m2_i_l1', 'm2_i_l2', 'm2_i_l3', 'm2_u_l1e', 'm2_u_l2e', 'm2_u_l3e',
+      'm2_p', 'm2_q', 'm2_f'],
+     [0, 0.5, -1, -0.5, 0.25, -0.25, 0.75, -0.75, 0.125],
+     [False, True, False] * 3,
+     [True, False, True] * 3),
+])
+async def test_m2_data(create_event_client_connection_pair, address,
+                       asdu_address, io_function, io_information, cause,
+                       data_types, values, overflows, invalids):
+    async with create_event_client_connection_pair(address) as pair:
+        event_client, conn = pair
+        await wait_remote_device_connected_event(event_client, address)
+
+        elements = [
+            app.iec103.common.IoElement_MEASURANDS_2(
+                app.iec103.common.MeasurandValue(overflow=overflow,
+                                                 invalid=invalid,
+                                                 value=value))
+            for overflow, invalid, value in zip(overflows, invalids, values)]
+        asdu = app.iec103.common.ASDU(
+            type=app.iec103.common.AsduType.MEASURANDS_2,
+            cause=app.iec103.common.Cause(cause.value),
+            address=asdu_address,
+            ios=[app.iec103.common.IO(
+                address=app.iec103.common.IoAddress(io_function,
+                                                    io_information),
+                elements=elements)])
+        await conn.send(asdu)
+
+        events = collections.deque()
+        for _ in data_types:
+            event = await event_client.register_queue.get()
+            events.append(event)
+
+        for data_type, overflow, invalid, value in zip(data_types, overflows,
+                                                       invalids, values):
+            event = util.first(events, lambda i: i.event_type[-4] == data_type)
+            assert_data_event(event, address, data_type, asdu_address,
+                              io_function, io_information, None, cause,
+                              {'overflow': overflow,
+                               'invalid': invalid,
+                               'value': value})
