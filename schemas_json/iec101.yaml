@@ -213,6 +213,8 @@ definitions:
                 properties:
                     request:
                         type: integer
+                        description: |
+                            request in range [0, 255]
             res:
                 type: object
                 required:
@@ -220,6 +222,8 @@ definitions:
                 properties:
                     request:
                         type: integer
+                        description: |
+                            request in range [0, 255]
         counter_interrogation:
             req:
                 type: object
@@ -229,6 +233,8 @@ definitions:
                 properties:
                     request:
                         type: integer
+                        description: |
+                            request in range [0, 255]
                     freeze:
                         enum:
                             - READ
@@ -243,6 +249,8 @@ definitions:
                 properties:
                     request:
                         type: integer
+                        description: |
+                            request in range [0, 255]
                     freeze:
                         enum:
                             - READ
@@ -345,6 +353,8 @@ definitions:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/qualities/protection"
                 elapsed_time:
                     type: integer
+                    description: |
+                        elapsed_time in range [0, 65535]
         protection_start:
             type: object
             required:
@@ -358,6 +368,8 @@ definitions:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/qualities/protection"
                 duration_time:
                     type: integer
+                    description: |
+                        duration_time in range [0, 65535]
         protection_command:
             type: object
             required:
@@ -371,6 +383,8 @@ definitions:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/qualities/protection"
                 operating_time:
                     type: integer
+                    description: |
+                        operating_time in range [0, 65535]
         status:
             type: object
             required:
@@ -395,6 +409,8 @@ definitions:
                     type: boolean
                 qualifier:
                     type: integer
+                    description: |
+                        qualifier in range [0, 31]
         double:
             type: object
             required:
@@ -408,6 +424,8 @@ definitions:
                     type: boolean
                 qualifier:
                     type: integer
+                    description: |
+                        qualifier in range [0, 31]
         regulating:
             type: object
             required:
@@ -421,6 +439,8 @@ definitions:
                     type: boolean
                 qualifier:
                     type: integer
+                    description: |
+                        qualifier in range [0, 31]
         normalized:
             type: object
             required:
@@ -481,20 +501,30 @@ definitions:
             properties:
                 value:
                     type: integer
+                    description: |
+                        value in range [-64, 63]
                 transient:
                     type: boolean
         bitstring:
             type: array
+            description: |
+                bitstring encoded as 4 bytes
             items:
                 type: integer
         normalized:
             type: number
+            description: |
+                value in range [-1.0, 1.0)
         scaled:
             type: integer
+            description: |
+                value in range [-2^15, 2^15-1]
         floating:
             type: number
         binary_counter:
             type: integer
+            description: |
+                value in range [-2^31, 2^31-1]
         protection:
             enum:
                 - "OFF"
@@ -545,10 +575,14 @@ definitions:
             properties:
                 value:
                     type: array
+                    description: |
+                        value length is 16
                     items:
                         type: boolean
                 change:
                     type: array
+                    description: |
+                        change length is 16
                     items:
                         type: boolean
     qualities:
