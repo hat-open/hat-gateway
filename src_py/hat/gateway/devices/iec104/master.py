@@ -94,6 +94,7 @@ class Iec104MasterDevice(common.Device):
                     except Exception as e:
                         mlog.warning('event %s ignored due to: %s',
                                      event, e, exc_info=e)
+                        continue
                     if self._conn and self._conn.is_open:
                         self._conn.send([msg])
                         mlog.debug('msg sent %s', msg)

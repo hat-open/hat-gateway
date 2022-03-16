@@ -72,6 +72,7 @@ class Iec104SlaveDevice(common.Device):
                     except Exception as e:
                         mlog.warning('event %s ignored: %s',
                                      event, e, exc_info=e)
+                        continue
                     if not self._conns:
                         mlog.warning('event %s ignored: no connection', event)
                     for conn, conn_info in self._conns.items():
