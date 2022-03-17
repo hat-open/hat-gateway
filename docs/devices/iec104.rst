@@ -93,7 +93,8 @@ event types are used:
 
         * ..., 'interrogation', <asdu_address>
 
-            Represents received IEC104 end of interrogation message.
+            Represents received IEC104 interrogation message
+            (confirmation/termination).
 
             Source timestamp is ``None``.
 
@@ -102,7 +103,8 @@ event types are used:
 
         * ..., 'counter_interrogation', <asdu_address>
 
-            Represents received IEC104 end of counter interrogation message.
+            Represents received IEC104 counter interrogation message
+            (confirmation/termination).
 
             Source timestamp is ``None``.
 
@@ -123,7 +125,7 @@ event types are used:
 
         * ..., 'interrogation', <asdu_address>
 
-            Represents request for interrogation.
+            Represents request for interrogation (activation/deactivation).
 
             Source timestamp is ``None``.
 
@@ -132,7 +134,8 @@ event types are used:
 
         * ..., 'counter_interrogation', <asdu_address>
 
-            Represents request for counter interrogation.
+            Represents request for counter interrogation
+            (activation/deactivation).
 
             Source timestamp is ``None``.
 
@@ -190,7 +193,8 @@ event types are used:
 
         * ..., 'interrogation', <asdu_address>
 
-            Represents received IEC104 interrogation message.
+            Represents received IEC104 interrogation message
+            (activation/deactivation).
 
             Source timestamp is ``None``.
 
@@ -199,7 +203,8 @@ event types are used:
 
         * ..., 'counter_interrogation', <asdu_address>
 
-            Represents received IEC104 counter interrogation message.
+            Represents received IEC104 counter interrogation message
+            (activation/deactivation).
 
             Source timestamp is ``None``.
 
@@ -230,7 +235,7 @@ event types are used:
 
         * ..., 'interrogation', <asdu_address>
 
-            Represents end of interrogation.
+            Represents interrogation message (confirmation/termination).
 
             Source timestamp is ``None``.
 
@@ -239,7 +244,7 @@ event types are used:
 
         * ..., 'counter_interrogation', <asdu_address>
 
-            Represents end of counter interrogation.
+            Represents counter interrogation (confirmation/termination).
 
             Source timestamp is ``None``.
 

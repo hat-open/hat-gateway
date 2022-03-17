@@ -243,8 +243,13 @@ definitions:
             req:
                 type: object
                 required:
+                    - cause
                     - request
                 properties:
+                    cause:
+                        enum:
+                            - ACTIVATION
+                            - DEACTIVATION
                     request:
                         type: integer
                         description: |
@@ -252,8 +257,18 @@ definitions:
             res:
                 type: object
                 required:
+                    - cause
                     - request
                 properties:
+                    cause:
+                        enum:
+                            - ACTIVATION_CONFIRMATION
+                            - DEACTIVATION_CONFIRMATION
+                            - ACTIVATION_TERMINATION
+                            - UNKNOWN_TYPE
+                            - UNKNOWN_CAUSE
+                            - UNKNOWN_ASDU_ADDRESS
+                            - UNKNOWN_IO_ADDRESS
                     request:
                         type: integer
                         description: |
@@ -262,9 +277,14 @@ definitions:
             req:
                 type: object
                 required:
+                    - cause
                     - request
                     - freeze
                 properties:
+                    cause:
+                        enum:
+                            - ACTIVATION
+                            - DEACTIVATION
                     request:
                         type: integer
                         description: |
@@ -278,9 +298,19 @@ definitions:
             res:
                 type: object
                 required:
+                    - cause
                     - request
                     - freeze
                 properties:
+                    cause:
+                        enum:
+                            - ACTIVATION_CONFIRMATION
+                            - DEACTIVATION_CONFIRMATION
+                            - ACTIVATION_TERMINATION
+                            - UNKNOWN_TYPE
+                            - UNKNOWN_CAUSE
+                            - UNKNOWN_ASDU_ADDRESS
+                            - UNKNOWN_IO_ADDRESS
                     request:
                         type: integer
                         description: |
