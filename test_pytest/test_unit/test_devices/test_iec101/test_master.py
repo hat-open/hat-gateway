@@ -209,7 +209,8 @@ def assert_interrogation_event(event, address, asdu_address, cause,
                                 str(address), 'interrogation',
                                 str(asdu_address))
     assert event.source_timestamp is None
-    assert event.payload.data == {'request': interrogation_request}
+    assert event.payload.data == {'cause': cause.name,
+                                  'request': interrogation_request}
 
 
 def assert_counter_interrogation_event(event, address, asdu_address, cause,
@@ -218,7 +219,8 @@ def assert_counter_interrogation_event(event, address, asdu_address, cause,
                                 str(address), 'counter_interrogation',
                                 str(asdu_address))
     assert event.source_timestamp is None
-    assert event.payload.data == {'request': interrogation_request,
+    assert event.payload.data == {'cause': cause.name,
+                                  'request': interrogation_request,
                                   'freeze': freeze.name}
 
 
@@ -248,9 +250,11 @@ def assert_msg_equal(msg1, msg2):
             assert msg1.command.select == msg2.command.select
 
     elif isinstance(msg1, iec101.InterrogationMsg):
+        assert msg1.cause == msg2.cause
         assert msg1.request == msg2.request
 
     elif isinstance(msg1, iec101.CounterInterrogationMsg):
+        assert msg1.cause == msg2.cause
         assert msg1.request == msg2.request
         assert msg1.freeze == msg2.freeze
 
@@ -301,10 +305,11 @@ def create_enable_event(create_event):
 @pytest.fixture
 def create_interrogation_event(create_event):
 
-    def create_interrogation_event(address, asdu_addr, request):
+    def create_interrogation_event(address, asdu_addr, cause, request):
         return create_event((*event_type_prefix, 'system', 'remote_device',
                              str(address), 'interrogation', str(asdu_addr)),
-                            {'request': request})
+                            {'cause': cause,
+                             'request': request})
 
     return create_interrogation_event
 
@@ -312,12 +317,13 @@ def create_interrogation_event(create_event):
 @pytest.fixture
 def create_counter_interrogation_event(create_event):
 
-    def create_counter_interrogation_event(address, asdu_addr, request,
+    def create_counter_interrogation_event(address, asdu_addr, cause, request,
                                            freeze):
         return create_event((*event_type_prefix, 'system', 'remote_device',
                              str(address), 'counter_interrogation',
                              str(asdu_addr)),
-                            {'request': request,
+                            {'cause': cause,
+                             'request': request,
                              'freeze': freeze})
 
     return create_counter_interrogation_event
@@ -682,16 +688,17 @@ async def test_command_request(create_event_client_connection_pair,
 
 @pytest.mark.parametrize("address", [0])
 @pytest.mark.parametrize("asdu_address", [123])
+@pytest.mark.parametrize("cause", list(iec101.CommandReqCause))
 @pytest.mark.parametrize("interrogation_request", [42])
 async def test_interrogation_request(create_event_client_connection_pair,
                                      create_interrogation_event,
-                                     address, asdu_address,
+                                     address, asdu_address, cause,
                                      interrogation_request):
     async with create_event_client_connection_pair(address) as pair:
         event_client, conn = pair
         await wait_remote_device_connected_event(event_client, address)
 
-        event = create_interrogation_event(address, asdu_address,
+        event = create_interrogation_event(address, asdu_address, cause.name,
                                            interrogation_request)
         event_client.receive_queue.put_nowait([event])
 
@@ -703,23 +710,25 @@ async def test_interrogation_request(create_event_client_connection_pair,
             originator_address=0,
             asdu_address=asdu_address,
             request=interrogation_request,
-            cause=iec101.CommandReqCause.ACTIVATION))
+            cause=cause))
 
 
 @pytest.mark.parametrize("address", [0])
 @pytest.mark.parametrize("asdu_address", [123])
+@pytest.mark.parametrize("cause", list(iec101.CommandReqCause))
 @pytest.mark.parametrize("interrogation_request", [42])
 @pytest.mark.parametrize("freeze", list(iec101.FreezeCode))
 async def test_counter_interrogation_request(
         create_event_client_connection_pair,
         create_counter_interrogation_event,
-        address, asdu_address, interrogation_request, freeze):
+        address, asdu_address, cause, interrogation_request, freeze):
     async with create_event_client_connection_pair(address) as pair:
         event_client, conn = pair
         await wait_remote_device_connected_event(event_client, address)
 
         event = create_counter_interrogation_event(
-            address, asdu_address, interrogation_request, freeze.name)
+            address, asdu_address, cause.name, interrogation_request,
+            freeze.name)
         event_client.receive_queue.put_nowait([event])
 
         msgs = await conn.receive()
@@ -731,7 +740,7 @@ async def test_counter_interrogation_request(
             asdu_address=asdu_address,
             request=interrogation_request,
             freeze=freeze,
-            cause=iec101.CommandReqCause.ACTIVATION))
+            cause=cause))
 
 
 @pytest.mark.parametrize("address", [0])
