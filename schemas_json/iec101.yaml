@@ -209,13 +209,8 @@ definitions:
             req:
                 type: object
                 required:
-                    - cause
                     - request
                 properties:
-                    cause:
-                        enum:
-                            - ACTIVATION
-                            - DEACTIVATION
                     request:
                         type: integer
                         description: |
@@ -223,18 +218,14 @@ definitions:
             res:
                 type: object
                 required:
-                    - cause
+                    - status
                     - request
                 properties:
-                    cause:
+                    status:
                         enum:
-                            - ACTIVATION_CONFIRMATION
-                            - DEACTIVATION_CONFIRMATION
-                            - ACTIVATION_TERMINATION
-                            - UNKNOWN_TYPE
-                            - UNKNOWN_CAUSE
-                            - UNKNOWN_ASDU_ADDRESS
-                            - UNKNOWN_IO_ADDRESS
+                            - START
+                            - STOP
+                            - ERROR
                     request:
                         type: integer
                         description: |

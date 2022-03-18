@@ -112,8 +112,7 @@ event types are used:
 
         * ..., 'remote_device', <device_address>, 'interrogation', <asdu_address>
 
-            Represents received IEC101 interrogation message
-            (confirmation/termination).
+            Represents received IEC101 interrogation activation message.
 
             Source timestamp is ``None``.
 
@@ -122,8 +121,7 @@ event types are used:
 
         * ..., 'remote_device', <device_address>, 'counter_interrogation', <asdu_address>
 
-            Represents received IEC101 counter interrogation message
-            (confirmation/termination).
+            Represents received IEC101 counter interrogation activation message.
 
             Source timestamp is ``None``.
 
@@ -152,7 +150,7 @@ event types are used:
 
         * ..., 'remote_device', <device_address>, 'interrogation', <asdu_address>
 
-            Represents request for interrogation (activation/deactivation).
+            Represents interrogation response message.
 
             Source timestamp is ``None``.
 
@@ -161,8 +159,7 @@ event types are used:
 
         * ..., 'remote_device', <device_address>, 'counter_interrogation', <asdu_address>
 
-            Represents request for counter interrogation
-            (activation/deactivation).
+            Represents counter interrogation response message.
 
             Source timestamp is ``None``.
 
