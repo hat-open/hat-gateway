@@ -139,21 +139,21 @@ def assert_command_event(event, command_type, asdu_address, io_address, time,
             assert payload[key] == event.payload.data[key]
 
 
-def assert_interrogation_event(event, asdu_address, cause,
+def assert_interrogation_event(event, asdu_address, status,
                                interrogation_request):
     assert event.event_type == (*event_type_prefix, 'gateway', 'interrogation',
                                 str(asdu_address))
     assert event.source_timestamp is None
-    assert event.payload.data == {'cause': cause.name,
+    assert event.payload.data == {'status': status,
                                   'request': interrogation_request}
 
 
-def assert_counter_interrogation_event(event, asdu_address, cause,
+def assert_counter_interrogation_event(event, asdu_address, status,
                                        interrogation_request, freeze):
     assert event.event_type == (*event_type_prefix, 'gateway',
                                 'counter_interrogation', str(asdu_address))
     assert event.source_timestamp is None
-    assert event.payload.data == {'cause': cause.name,
+    assert event.payload.data == {'status': status,
                                   'request': interrogation_request,
                                   'freeze': freeze.name}
 
@@ -186,10 +186,12 @@ def assert_msg_equal(msg1, msg2):
 
     elif isinstance(msg1, iec104.InterrogationMsg):
         assert msg1.cause == msg2.cause
+        assert msg1.is_negative_confirm == msg2.is_negative_confirm
         assert msg1.request == msg2.request
 
     elif isinstance(msg1, iec104.CounterInterrogationMsg):
         assert msg1.cause == msg2.cause
+        assert msg1.is_negative_confirm == msg2.is_negative_confirm
         assert msg1.request == msg2.request
         assert msg1.freeze == msg2.freeze
 
@@ -228,11 +230,10 @@ def create_event():
 @pytest.fixture
 def create_interrogation_event(create_event):
 
-    def create_interrogation_event(asdu_addr, cause, request):
+    def create_interrogation_event(asdu_addr, request):
         return create_event((*event_type_prefix, 'system', 'interrogation',
                              str(asdu_addr)),
-                            {'cause': cause,
-                             'request': request})
+                            {'request': request})
 
     return create_interrogation_event
 
@@ -240,11 +241,10 @@ def create_interrogation_event(create_event):
 @pytest.fixture
 def create_counter_interrogation_event(create_event):
 
-    def create_counter_interrogation_event(asdu_addr, cause, request, freeze):
+    def create_counter_interrogation_event(asdu_addr, request, freeze):
         return create_event((*event_type_prefix, 'system',
                              'counter_interrogation', str(asdu_addr)),
-                            {'cause': cause,
-                             'request': request,
+                            {'request': request,
                              'freeze': freeze})
 
     return create_counter_interrogation_event
@@ -491,7 +491,6 @@ async def test_command_request(event_client_connection_pair,
 
 
 @pytest.mark.parametrize("asdu_address", [123])
-@pytest.mark.parametrize("cause", list(iec104.CommandReqCause))
 @pytest.mark.parametrize("interrogation_request", [42])
 async def test_interrogation_request(event_client_connection_pair,
                                      create_interrogation_event,
@@ -500,8 +499,7 @@ async def test_interrogation_request(event_client_connection_pair,
     event_client, conn = event_client_connection_pair
     await wait_connected_event(event_client)
 
-    event = create_interrogation_event(asdu_address, cause.name,
-                                       interrogation_request)
+    event = create_interrogation_event(asdu_address, interrogation_request)
     event_client.receive_queue.put_nowait([event])
 
     msgs = await conn.receive()
@@ -512,11 +510,11 @@ async def test_interrogation_request(event_client_connection_pair,
         originator_address=0,
         asdu_address=asdu_address,
         request=interrogation_request,
-        cause=cause))
+        is_negative_confirm=False,
+        cause=iec104.CommandReqCause.ACTIVATION))
 
 
 @pytest.mark.parametrize("asdu_address", [123])
-@pytest.mark.parametrize("cause", list(iec104.CommandReqCause))
 @pytest.mark.parametrize("interrogation_request", [42])
 @pytest.mark.parametrize("freeze", list(iec104.FreezeCode))
 async def test_counter_interrogation_request(
@@ -527,7 +525,7 @@ async def test_counter_interrogation_request(
     await wait_connected_event(event_client)
 
     event = create_counter_interrogation_event(
-        asdu_address, cause.name, interrogation_request, freeze.name)
+        asdu_address, interrogation_request, freeze.name)
     event_client.receive_queue.put_nowait([event])
 
     msgs = await conn.receive()
@@ -539,7 +537,8 @@ async def test_counter_interrogation_request(
         asdu_address=asdu_address,
         request=interrogation_request,
         freeze=freeze,
-        cause=cause))
+        is_negative_confirm=False,
+        cause=iec104.CommandReqCause.ACTIVATION))
 
 
 @pytest.mark.parametrize("asdu_address", [123])
@@ -746,11 +745,15 @@ async def test_command_response(event_client_connection_pair, asdu_address,
 
 
 @pytest.mark.parametrize("asdu_address", [123])
-@pytest.mark.parametrize("cause", list(iec104.CommandResCause))
 @pytest.mark.parametrize("interrogation_request", [42])
+@pytest.mark.parametrize("is_negative_confirm, cause, status", [
+    (False, iec104.CommandResCause.ACTIVATION_CONFIRMATION, 'START'),
+    (False, iec104.CommandResCause.ACTIVATION_TERMINATION, 'STOP'),
+    (True, iec104.CommandResCause.ACTIVATION_CONFIRMATION, 'ERROR')
+])
 async def test_interrogation_response(event_client_connection_pair,
-                                      asdu_address, cause,
-                                      interrogation_request):
+                                      asdu_address, interrogation_request,
+                                      is_negative_confirm, cause, status):
     event_client, conn = event_client_connection_pair
     await wait_connected_event(event_client)
 
@@ -758,32 +761,41 @@ async def test_interrogation_response(event_client_connection_pair,
                                   originator_address=0,
                                   asdu_address=asdu_address,
                                   request=interrogation_request,
+                                  is_negative_confirm=is_negative_confirm,
                                   cause=cause)
     conn.send([msg])
 
     event = await event_client.register_queue.get()
-    assert_interrogation_event(event, asdu_address, cause,
+    assert_interrogation_event(event, asdu_address, status,
                                interrogation_request)
 
 
 @pytest.mark.parametrize("asdu_address", [123])
-@pytest.mark.parametrize("cause", list(iec104.CommandResCause))
 @pytest.mark.parametrize("interrogation_request", [42])
 @pytest.mark.parametrize("freeze", list(iec104.FreezeCode))
+@pytest.mark.parametrize("is_negative_confirm, cause, status", [
+    (False, iec104.CommandResCause.ACTIVATION_CONFIRMATION, 'START'),
+    (False, iec104.CommandResCause.ACTIVATION_TERMINATION, 'STOP'),
+    (True, iec104.CommandResCause.ACTIVATION_CONFIRMATION, 'ERROR')
+])
 async def test_counter_interrogation_response(event_client_connection_pair,
-                                              asdu_address, cause,
-                                              interrogation_request, freeze):
+                                              asdu_address,
+                                              interrogation_request, freeze,
+                                              is_negative_confirm, cause,
+                                              status):
     event_client, conn = event_client_connection_pair
     await wait_connected_event(event_client)
 
-    msg = iec104.CounterInterrogationMsg(is_test=False,
-                                         originator_address=0,
-                                         asdu_address=asdu_address,
-                                         request=interrogation_request,
-                                         freeze=freeze,
-                                         cause=cause)
+    msg = iec104.CounterInterrogationMsg(
+        is_test=False,
+        originator_address=0,
+        asdu_address=asdu_address,
+        request=interrogation_request,
+        freeze=freeze,
+        is_negative_confirm=is_negative_confirm,
+        cause=cause)
     conn.send([msg])
 
     event = await event_client.register_queue.get()
-    assert_counter_interrogation_event(event, asdu_address, cause,
+    assert_counter_interrogation_event(event, asdu_address, status,
                                        interrogation_request, freeze)

@@ -298,6 +298,7 @@ class Iec101MasterDevice(common.Device):
             originator_address=0,
             asdu_address=asdu,
             request=event.payload.data['request'],
+            is_negative_confirm=False,
             cause=iec101.CommandReqCause.ACTIVATION)
         self._send_queue.put_nowait((msg, address))
 
@@ -308,6 +309,7 @@ class Iec101MasterDevice(common.Device):
             asdu_address=asdu,
             request=event.payload.data['request'],
             freeze=iec101.FreezeCode[event.payload.data['freeze']],
+            is_negative_confirm=False,
             cause=iec101.CommandReqCause.ACTIVATION)
         self._send_queue.put_nowait((msg, address))
 

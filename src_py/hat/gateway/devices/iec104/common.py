@@ -231,6 +231,7 @@ def _event_to_interrogation_msg(event, asdu, cmd_cause_class):
         originator_address=0,
         asdu_address=asdu,
         request=event.payload.data['request'],
+        is_negative_confirm=False,
         cause=(iec104.CommandReqCause.ACTIVATION
                if cmd_cause_class is iec104.CommandReqCause else
                iec104.CommandResCause.ACTIVATION_CONFIRMATION))
@@ -243,6 +244,7 @@ def _event_to_counter_interrogation_msg(event, asdu, cmd_cause_class):
         asdu_address=asdu,
         request=event.payload.data['request'],
         freeze=iec104.FreezeCode[event.payload.data['freeze']],
+        is_negative_confirm=False,
         cause=(iec104.CommandReqCause.ACTIVATION
                if cmd_cause_class is iec104.CommandReqCause else
                iec104.CommandResCause.ACTIVATION_CONFIRMATION))
