@@ -93,8 +93,7 @@ event types are used:
 
         * ..., 'interrogation', <asdu_address>
 
-            Represents received IEC104 interrogation message
-            (confirmation/termination).
+            Represents received IEC104 interrogation message.
 
             Source timestamp is ``None``.
 
@@ -103,8 +102,7 @@ event types are used:
 
         * ..., 'counter_interrogation', <asdu_address>
 
-            Represents received IEC104 counter interrogation message
-            (confirmation/termination).
+            Represents received IEC104 counter interrogation message.
 
             Source timestamp is ``None``.
 
@@ -125,7 +123,7 @@ event types are used:
 
         * ..., 'interrogation', <asdu_address>
 
-            Represents request for interrogation (activation/deactivation).
+            Represents request for interrogation (interrogation activation).
 
             Source timestamp is ``None``.
 
@@ -134,8 +132,8 @@ event types are used:
 
         * ..., 'counter_interrogation', <asdu_address>
 
-            Represents request for counter interrogation
-            (activation/deactivation).
+            Represents request for counter interrogation (interrogation
+            activation).
 
             Source timestamp is ``None``.
 
@@ -163,6 +161,7 @@ event types have prefix::
     * all events are mapped to/from iec104 messages (only `connections` is
       exception)
     * messages with test flag are ignored
+    * interrogation deactivation is rejected with UNKNOWN_CAUSE
 
 To enable communication between device and rest of the hat system, following
 event types are used:
@@ -193,8 +192,7 @@ event types are used:
 
         * ..., 'interrogation', <asdu_address>
 
-            Represents received IEC104 interrogation message
-            (activation/deactivation).
+            Represents received IEC104 interrogation activation message.
 
             Source timestamp is ``None``.
 
@@ -203,8 +201,7 @@ event types are used:
 
         * ..., 'counter_interrogation', <asdu_address>
 
-            Represents received IEC104 counter interrogation message
-            (activation/deactivation).
+            Represents received IEC104 counter interrogation activation message.
 
             Source timestamp is ``None``.
 
@@ -235,7 +232,7 @@ event types are used:
 
         * ..., 'interrogation', <asdu_address>
 
-            Represents interrogation message (confirmation/termination).
+            Represents interrogation response message.
 
             Source timestamp is ``None``.
 
@@ -244,7 +241,7 @@ event types are used:
 
         * ..., 'counter_interrogation', <asdu_address>
 
-            Represents counter interrogation (confirmation/termination).
+            Represents counter interrogation response message.
 
             Source timestamp is ``None``.
 
