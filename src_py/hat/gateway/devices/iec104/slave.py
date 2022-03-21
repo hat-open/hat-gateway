@@ -67,7 +67,7 @@ class Iec104SlaveDevice(common.Device):
                     try:
                         msg = event_to_msg(event,
                                            self._event_type_prefix,
-                                           iec104.CommandResCause,
+                                           'slave',
                                            self._data_without_timestamp)
                     except Exception as e:
                         mlog.warning('event %s ignored: %s',
@@ -92,13 +92,21 @@ class Iec104SlaveDevice(common.Device):
                 msgs = await conn.receive()
                 events = []
                 for msg in msgs:
+                    if (isinstance(msg, (iec104.InterrogationMsg,
+                                         iec104.CounterInterrogationMsg)) and
+                            msg.cause == iec104.CommandReqCause.DEACTIVATION):
+                        conn.send([msg._replace(
+                            cause=iec104.CommandResCause.UNKNOWN_CAUSE)])
+                        continue
                     try:
-                        event = _msg_to_event(msg, self._event_type_prefix)
+                        event = _msg_to_event(
+                            msg, self._event_type_prefix)
                     except Exception as e:
-                        mlog.warning('message %s ignored:%s',
+                        mlog.warning('message %s ignored: %s',
                                      msg, e, exc_info=e)
                         continue
-                    events.append(event)
+                    if event:
+                        events.append(event)
                 if events:
                     self._event_client.register(events)
         except ConnectionError:
@@ -144,5 +152,5 @@ def _msg_to_event(msg, event_type_prefix):
             isinstance(msg.cause, iec104.CommandReqCause)) or (
         isinstance(msg, iec104.CounterInterrogationMsg) and
             isinstance(msg.cause, iec104.CommandReqCause)):
-        return msg_to_event(msg, event_type_prefix)
+        return msg_to_event(msg, event_type_prefix, 'slave')
     raise Exception('message not supported')

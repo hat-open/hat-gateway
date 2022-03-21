@@ -494,7 +494,7 @@ async def test_command_request(event_client_connection_pair,
 @pytest.mark.parametrize("interrogation_request", [42])
 async def test_interrogation_request(event_client_connection_pair,
                                      create_interrogation_event,
-                                     asdu_address, cause,
+                                     asdu_address,
                                      interrogation_request):
     event_client, conn = event_client_connection_pair
     await wait_connected_event(event_client)
@@ -520,7 +520,7 @@ async def test_interrogation_request(event_client_connection_pair,
 async def test_counter_interrogation_request(
         event_client_connection_pair,
         create_counter_interrogation_event,
-        asdu_address, cause, interrogation_request, freeze):
+        asdu_address, interrogation_request, freeze):
     event_client, conn = event_client_connection_pair
     await wait_connected_event(event_client)
 

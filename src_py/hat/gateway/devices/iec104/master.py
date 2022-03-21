@@ -88,9 +88,8 @@ class Iec104MasterDevice(common.Device):
                 events = await self._event_client.receive()
                 for event in events:
                     try:
-                        msg = event_to_msg(event,
-                                           self._event_type_prefix,
-                                           iec104.CommandReqCause)
+                        msg = event_to_msg(
+                            event, self._event_type_prefix, 'master')
                     except Exception as e:
                         mlog.warning('event %s ignored due to: %s',
                                      event, e, exc_info=e)
@@ -119,7 +118,8 @@ class Iec104MasterDevice(common.Device):
                         mlog.warning('message %s ignored:%s',
                                      msg, e, exc_info=e)
                         continue
-                    events.append(event)
+                    if event:
+                        events.append(event)
                 if events:
                     self._event_client.register(events)
         except ConnectionError:
@@ -166,5 +166,5 @@ def _msg_to_event(msg, event_type_prefix):
             isinstance(msg.cause, iec104.CommandResCause)) or (
         isinstance(msg, iec104.CounterInterrogationMsg) and
             isinstance(msg.cause, iec104.CommandResCause)):
-        return msg_to_event(msg, event_type_prefix)
+        return msg_to_event(msg, event_type_prefix, 'master')
     raise Exception('message not supported')

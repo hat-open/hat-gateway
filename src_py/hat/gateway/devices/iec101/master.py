@@ -48,13 +48,7 @@ async def create(conf: common.DeviceConf,
             event_types=remote_enable_evts, unique_type=True))
     for event in remote_enable_events:
         try:
-            address = int(event.event_type[-2])
-            enable = event.payload.data
-            if address not in device._remote_enabled:
-                raise Exception('invalid remote device address')
-            if not isinstance(enable, bool):
-                raise Exception('invalid enable event payload')
-            device._remote_enabled[address] = enable
+            device._process_event(event)
         except Exception as e:
             mlog.warning('error processing enable event: %s', e, exc_info=e)
 
@@ -245,15 +239,19 @@ class Iec101MasterDevice(common.Device):
             self._process_command(event, address, command_type, asdu, io)
         elif etype_suffix[0] == 'interrogation':
             asdu = int(etype_suffix[1])
-            self._process_interrogation(event, address, asdu)
+            self._process_interrogation(event, address, asdu, is_counter=False)
         elif etype_suffix[0] == 'counter_interrogation':
             asdu = int(etype_suffix[1])
-            self._process_counter_interrogation(event, address, asdu)
+            self._process_interrogation(event, address, asdu, is_counter=True)
         else:
             raise Exception('unexpected event type')
 
     def _process_enable(self, event, address):
+        if address not in self._remote_enabled:
+            raise Exception('invalid remote device address')
         enable = event.payload.data
+        if not isinstance(enable, bool):
+            raise Exception('invalid enable event payload')
         if address not in self._remote_enabled:
             mlog.warning('received enable for unexpected remote device')
             return
@@ -261,8 +259,6 @@ class Iec101MasterDevice(common.Device):
         if not enable:
             self._disable_remote(address)
         elif not self._master:
-            mlog.warning('enabling remote %s ignored: endpoint not open',
-                         address)
             return
         else:
             self._enable_remote(address)
@@ -292,25 +288,26 @@ class Iec101MasterDevice(common.Device):
             cause=iec101.CommandReqCause[event.payload.data['cause']])
         self._send_queue.put_nowait((msg, address))
 
-    def _process_interrogation(self, event, address, asdu):
-        msg = iec101.InterrogationMsg(
-            is_test=False,
-            originator_address=0,
-            asdu_address=asdu,
-            request=event.payload.data['request'],
-            is_negative_confirm=False,
-            cause=iec101.CommandReqCause.ACTIVATION)
-        self._send_queue.put_nowait((msg, address))
-
-    def _process_counter_interrogation(self, event, address, asdu):
-        msg = iec101.CounterInterrogationMsg(
-            is_test=False,
-            originator_address=0,
-            asdu_address=asdu,
-            request=event.payload.data['request'],
-            freeze=iec101.FreezeCode[event.payload.data['freeze']],
-            is_negative_confirm=False,
-            cause=iec101.CommandReqCause.ACTIVATION)
+    def _process_interrogation(self, event, address, asdu, is_counter):
+        cause = iec101.CommandReqCause.ACTIVATION
+        request = event.payload.data['request']
+        if is_counter:
+            msg = iec101.CounterInterrogationMsg(
+                is_test=False,
+                originator_address=0,
+                asdu_address=asdu,
+                request=request,
+                freeze=iec101.FreezeCode[event.payload.data['freeze']],
+                is_negative_confirm=False,
+                cause=cause)
+        else:
+            msg = iec101.InterrogationMsg(
+                is_test=False,
+                originator_address=0,
+                asdu_address=asdu,
+                request=request,
+                is_negative_confirm=False,
+                cause=cause)
         self._send_queue.put_nowait((msg, address))
 
     def _register_status(self, status):
@@ -345,12 +342,13 @@ def _msg_to_event(msg, event_type_prefix, address):
     elif isinstance(msg, iec101.InterrogationMsg):
         if not isinstance(msg.cause, iec101.CommandResCause):
             raise Exception('interrogation with unexpected cause')
-        return _interrogation_msg_to_event(msg, event_type_prefix, address)
+        return _interrogation_msg_to_event(
+            msg, event_type_prefix, address, is_counter=False)
     elif isinstance(msg, iec101.CounterInterrogationMsg):
         if not isinstance(msg.cause, iec101.CommandResCause):
             raise Exception('counter interrogation with unexpected cause')
-        return _counter_interrogation_msg_to_event(
-            msg, event_type_prefix, address)
+        return _interrogation_msg_to_event(
+            msg, event_type_prefix, address, is_counter=True)
     raise Exception('unexpected message')
 
 
@@ -380,26 +378,28 @@ def _command_msg_to_event(msg, event_type_prefix, address):
             data=payload))
 
 
-def _interrogation_msg_to_event(msg, event_type_prefix, address):
+def _interrogation_msg_to_event(msg, event_type_prefix, address, is_counter):
+    if msg.is_negative_confirm:
+        status = 'ERROR'
+    elif msg.cause == iec101.CommandResCause.ACTIVATION_CONFIRMATION:
+        status = 'START'
+    elif msg.cause == iec101.CommandResCause.ACTIVATION_TERMINATION:
+        status = 'STOP'
+    else:
+        status = 'ERROR'
+    payload = {'status': status,
+               'request': msg.request}
+    if is_counter:
+        payload['freeze'] = msg.freeze.name
     return hat.event.common.RegisterEvent(
         event_type=(*event_type_prefix, 'gateway', 'remote_device',
-                    str(address), 'interrogation', str(msg.asdu_address)),
-        source_timestamp=None,
-        payload=hat.event.common.EventPayload(
-            type=hat.event.common.EventPayloadType.JSON,
-            data={'request': msg.request}))
-
-
-def _counter_interrogation_msg_to_event(msg, event_type_prefix, address):
-    return hat.event.common.RegisterEvent(
-        event_type=(*event_type_prefix, 'gateway', 'remote_device',
-                    str(address), 'counter_interrogation',
+                    str(address),
+                    'counter_interrogation' if is_counter else 'interrogation',
                     str(msg.asdu_address)),
         source_timestamp=None,
         payload=hat.event.common.EventPayload(
             type=hat.event.common.EventPayloadType.JSON,
-            data={'request': msg.request,
-                  'freeze': msg.freeze.name}))
+            data=payload))
 
 
 def _data_type_payload_from_msg(msg):

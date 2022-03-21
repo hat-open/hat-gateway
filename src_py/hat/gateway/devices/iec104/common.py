@@ -2,7 +2,7 @@ import hat.event.common
 from hat.drivers.iec60870 import iec104
 
 
-def msg_to_event(msg, event_type_prefix):
+def msg_to_event(msg, event_type_prefix, device):
     if msg.is_test:
         raise Exception('test message')
     if isinstance(msg, iec104.DataMsg):
@@ -10,13 +10,15 @@ def msg_to_event(msg, event_type_prefix):
     if isinstance(msg, iec104.CommandMsg):
         return _command_msg_to_event(msg, event_type_prefix)
     elif isinstance(msg, iec104.InterrogationMsg):
-        return _interrogation_msg_to_event(msg, event_type_prefix)
+        return _interrogation_msg_to_event(
+            msg, event_type_prefix, device, is_counter=False)
     elif isinstance(msg, iec104.CounterInterrogationMsg):
-        return _counter_interrogation_msg_to_event(msg, event_type_prefix)
+        return _interrogation_msg_to_event(
+            msg, event_type_prefix, device, is_counter=True)
     raise Exception('message not supported')
 
 
-def event_to_msg(event, event_type_prefix, cmd_cause_class,
+def event_to_msg(event, event_type_prefix, device,
                  data_without_timestamp=[]):
     etype_suffix = event.event_type[len(event_type_prefix):]
     if etype_suffix[:2] == ('system', 'data'):
@@ -30,14 +32,15 @@ def event_to_msg(event, event_type_prefix, cmd_cause_class,
         asdu = int(etype_suffix[3])
         io = int(etype_suffix[4])
         return _event_to_command_msg(
-            event, command_type, asdu, io, cmd_cause_class)
+            event, command_type, asdu, io, device)
     elif etype_suffix[:2] == ('system', 'interrogation'):
         asdu = int(etype_suffix[2])
-        return _event_to_interrogation_msg(event, asdu, cmd_cause_class)
+        return _event_to_interrogation_msg(
+            event, asdu, device, is_counter=False)
     elif etype_suffix[:2] == ('system', 'counter_interrogation'):
         asdu = int(etype_suffix[2])
-        return _event_to_counter_interrogation_msg(
-            event, asdu, cmd_cause_class)
+        return _event_to_interrogation_msg(
+            event, asdu, device, is_counter=True)
     else:
         raise Exception('event type not supported')
 
@@ -70,25 +73,32 @@ def _command_msg_to_event(msg, event_type_prefix):
             data=payload))
 
 
-def _interrogation_msg_to_event(msg, event_type_prefix):
+def _interrogation_msg_to_event(msg, event_type_prefix, device, is_counter):
+    if device == 'master':
+        if msg.is_negative_confirm:
+            status = 'ERROR'
+        elif msg.cause == iec104.CommandResCause.ACTIVATION_CONFIRMATION:
+            status = 'START'
+        elif msg.cause == iec104.CommandResCause.ACTIVATION_TERMINATION:
+            status = 'STOP'
+        else:
+            status = 'ERROR'
+        payload = {'status': status,
+                   'request': msg.request}
+    else:
+        if msg.cause == iec104.CommandReqCause.DEACTIVATION:
+            return
+        payload = {'request': msg.request}
+    if is_counter:
+        payload['freeze'] = msg.freeze.name
     return hat.event.common.RegisterEvent(
-        event_type=(*event_type_prefix, 'gateway', 'interrogation',
+        event_type=(*event_type_prefix, 'gateway',
+                    'counter_interrogation' if is_counter else 'interrogation',
                     str(msg.asdu_address)),
         source_timestamp=None,
         payload=hat.event.common.EventPayload(
             type=hat.event.common.EventPayloadType.JSON,
-            data=dict(request=msg.request)))
-
-
-def _counter_interrogation_msg_to_event(msg, event_type_prefix):
-    return hat.event.common.RegisterEvent(
-        event_type=(*event_type_prefix, 'gateway', 'counter_interrogation',
-                    str(msg.asdu_address)),
-        source_timestamp=None,
-        payload=hat.event.common.EventPayload(
-            type=hat.event.common.EventPayloadType.JSON,
-            data=dict(request=msg.request,
-                      freeze=msg.freeze.name)))
+            data=payload))
 
 
 def _msg_to_data_type(msg):
@@ -213,7 +223,9 @@ def _event_to_data_msg(event, data_type, asdu, io, data_without_timestamp):
         cause=cause)
 
 
-def _event_to_command_msg(event, command_type, asdu, io, cmd_cause_class):
+def _event_to_command_msg(event, command_type, asdu, io, device):
+    cmd_cause_class = {'master': iec104.CommandReqCause,
+                       'slave': iec104.CommandResCause}[device]
     return iec104.CommandMsg(
         is_test=False,
         originator_address=0,
@@ -225,29 +237,37 @@ def _event_to_command_msg(event, command_type, asdu, io, cmd_cause_class):
         cause=cmd_cause_class[event.payload.data['cause']])
 
 
-def _event_to_interrogation_msg(event, asdu, cmd_cause_class):
-    return iec104.InterrogationMsg(
-        is_test=False,
-        originator_address=0,
-        asdu_address=asdu,
-        request=event.payload.data['request'],
-        is_negative_confirm=False,
-        cause=(iec104.CommandReqCause.ACTIVATION
-               if cmd_cause_class is iec104.CommandReqCause else
-               iec104.CommandResCause.ACTIVATION_CONFIRMATION))
-
-
-def _event_to_counter_interrogation_msg(event, asdu, cmd_cause_class):
-    return iec104.CounterInterrogationMsg(
-        is_test=False,
-        originator_address=0,
-        asdu_address=asdu,
-        request=event.payload.data['request'],
-        freeze=iec104.FreezeCode[event.payload.data['freeze']],
-        is_negative_confirm=False,
-        cause=(iec104.CommandReqCause.ACTIVATION
-               if cmd_cause_class is iec104.CommandReqCause else
-               iec104.CommandResCause.ACTIVATION_CONFIRMATION))
+def _event_to_interrogation_msg(event, asdu, device, is_counter):
+    if device == 'master':
+        cause = iec104.CommandReqCause.ACTIVATION
+        is_negative_confirm = False
+    else:
+        if event.payload.data['status'] == 'START':
+            cause = iec104.CommandResCause.ACTIVATION_CONFIRMATION
+            is_negative_confirm = False
+        elif event.payload.data['status'] == 'STOP':
+            cause = iec104.CommandResCause.ACTIVATION_TERMINATION
+            is_negative_confirm = False
+        else:
+            cause = iec104.CommandResCause.ACTIVATION_CONFIRMATION
+            is_negative_confirm = True
+    if is_counter:
+        return iec104.CounterInterrogationMsg(
+            is_test=False,
+            originator_address=0,
+            asdu_address=asdu,
+            request=event.payload.data['request'],
+            freeze=iec104.FreezeCode[event.payload.data['freeze']],
+            is_negative_confirm=is_negative_confirm,
+            cause=cause)
+    else:
+        return iec104.InterrogationMsg(
+            is_test=False,
+            originator_address=0,
+            asdu_address=asdu,
+            request=event.payload.data['request'],
+            is_negative_confirm=is_negative_confirm,
+            cause=cause)
 
 
 def _source_timestamp_to_time_iec104(source_timestamp):
