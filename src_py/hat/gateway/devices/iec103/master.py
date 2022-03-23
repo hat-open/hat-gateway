@@ -87,8 +87,8 @@ class Iec103MasterDevice(common.Device):
                             silent_interval=self._conf['silent_interval'],
                             address_size=link.AddressSize.ONE)
                 except Exception as e:
-                    mlog.error('link master (endpoint) failed to create: %s',
-                               e, exc_info=e)
+                    mlog.warning('link master (endpoint) failed to create: %s',
+                                 e, exc_info=e)
                     self._register_status('DISCONNECTED')
                     await asyncio.sleep(self._conf['reconnect_delay'])
                     continue

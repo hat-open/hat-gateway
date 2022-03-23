@@ -84,8 +84,8 @@ class Iec101MasterDevice(common.Device):
                             address_size=link.AddressSize[
                                 self._conf['device_address_size']])
                 except Exception as e:
-                    mlog.error('link master (endpoint) failed to create: %s',
-                               e, exc_info=e)
+                    mlog.warning('link master (endpoint) failed to create: %s',
+                                 e, exc_info=e)
                     self._register_status('DISCONNECTED')
                     await asyncio.sleep(self._conf['reconnect_delay'])
                     continue

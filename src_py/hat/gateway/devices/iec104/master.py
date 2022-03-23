@@ -62,7 +62,7 @@ class Iec104MasterDevice(common.Device):
                         send_window_size=self._conf['send_window_size'],
                         receive_window_size=self._conf['receive_window_size'])
                 except Exception as e:
-                    mlog.error('connection failed %s', e, exc_info=e)
+                    mlog.warning('connection failed %s', e, exc_info=e)
                     self._register_status('DISCONNECTED')
                     await asyncio.sleep(self._conf['reconnect_delay'])
                     continue
