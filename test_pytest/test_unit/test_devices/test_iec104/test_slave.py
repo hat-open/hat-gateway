@@ -651,6 +651,7 @@ async def test_data_response(event_client_connection_pair, create_data_event,
 @pytest.mark.parametrize("io_address", [321])
 @pytest.mark.parametrize("time", [None, default_time])
 @pytest.mark.parametrize("cause", list(iec104.CommandResCause))
+@pytest.mark.parametrize("success", [True, False])
 @pytest.mark.parametrize("command, command_type, payload", [
     (iec104.SingleCommand(value=iec104.SingleValue.ON,
                           select=False,
@@ -700,13 +701,15 @@ async def test_data_response(event_client_connection_pair, create_data_event,
 ])
 async def test_command_response(event_client_connection_pair,
                                 create_command_event, asdu_address,
-                                io_address, time, cause, command, command_type,
-                                payload):
+                                io_address, time, cause, success, command,
+                                command_type, payload):
     event_client, conn = event_client_connection_pair
     await wait_connections_event(event_client, 1)
 
     event = create_command_event(command_type, asdu_address, io_address, time,
-                                 {'cause': cause.name, **payload})
+                                 {'cause': cause.name,
+                                  'success': success,
+                                  **payload})
     event_client.receive_queue.put_nowait([event])
 
     msgs = await conn.receive()
@@ -717,7 +720,7 @@ async def test_command_response(event_client_connection_pair,
                                             asdu_address=asdu_address,
                                             io_address=io_address,
                                             command=command,
-                                            is_negative_confirm=False,
+                                            is_negative_confirm=not success,
                                             time=time,
                                             cause=cause))
 

@@ -226,13 +226,17 @@ def _event_to_data_msg(event, data_type, asdu, io, data_without_timestamp):
 def _event_to_command_msg(event, command_type, asdu, io, device):
     cmd_cause_class = {'master': iec104.CommandReqCause,
                        'slave': iec104.CommandResCause}[device]
+    if device == 'slave':
+        is_negative_confirm = not event.payload.data['success']
+    else:
+        is_negative_confirm = False
     return iec104.CommandMsg(
         is_test=False,
         originator_address=0,
         asdu_address=asdu,
         io_address=io,
         command=_event_to_command(event, command_type),
-        is_negative_confirm=False,
+        is_negative_confirm=is_negative_confirm,
         time=_source_timestamp_to_time_iec104(event.source_timestamp),
         cause=cmd_cause_class[event.payload.data['cause']])
 
