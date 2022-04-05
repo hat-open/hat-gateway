@@ -10,7 +10,7 @@ def msg_to_event(msg, event_type_prefix, device):
     if isinstance(msg, iec104.DataMsg):
         return _data_msg_to_event(msg, event_type_prefix)
     if isinstance(msg, iec104.CommandMsg):
-        return _command_msg_to_event(msg, event_type_prefix)
+        return _command_msg_to_event(msg, event_type_prefix, device)
     elif isinstance(msg, iec104.InterrogationMsg):
         return _interrogation_msg_to_event(
             msg, event_type_prefix, device, is_counter=False)
@@ -61,9 +61,9 @@ def _data_msg_to_event(msg, event_type_prefix):
                 data=payload))
 
 
-def _command_msg_to_event(msg, event_type_prefix):
+def _command_msg_to_event(msg, event_type_prefix, device):
     command_type = _msg_to_command_type(msg)
-    payload = _msg_to_command_payload(msg)
+    payload = _msg_to_command_payload(msg, device)
     source_timestamp = hat.event.common.timestamp_from_datetime(
         iec104.time_to_datetime(msg.time)) if msg.time else None
     return hat.event.common.RegisterEvent(
@@ -189,12 +189,11 @@ def _msg_to_command_type(msg):
     raise Exception('command message not supported')
 
 
-def _msg_to_command_payload(msg):
+def _msg_to_command_payload(msg, device):
     cause = msg.cause.name if isinstance(msg.cause, enum.Enum) else msg.cause
     payload = {'value': _msg_to_command_value(msg),
                'cause': cause}
-    # TODO in case of master with other cause, add success
-    if isinstance(msg.cause, iec104.CommandResCause):
+    if device == 'master':
         payload['success'] = not msg.is_negative_confirm
     if hasattr(msg.command, 'select'):
         payload['select'] = msg.command.select
