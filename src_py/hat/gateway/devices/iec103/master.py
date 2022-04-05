@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import datetime
+import enum
 import functools
 import logging
 
@@ -305,9 +306,8 @@ class Iec103MasterDevice(common.Device):
 
 
 def _events_from_data(data, address, event_type_prefix):
-    if data.cause is None:
-        raise Exception('cause is None')
-    cause = data.cause.name
+    cause = (data.cause.name if isinstance(data.cause, enum.Enum)
+             else data.cause)
     if isinstance(data.value, (iec103.DoubleWithTimeValue,
                                iec103.DoubleWithRelativeTimeValue)):
         data_type = 'double'

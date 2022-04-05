@@ -1,3 +1,5 @@
+import enum
+
 import hat.event.common
 from hat.drivers.iec60870 import iec104
 
@@ -86,7 +88,7 @@ def _interrogation_msg_to_event(msg, event_type_prefix, device, is_counter):
         payload = {'status': status,
                    'request': msg.request}
     else:
-        if msg.cause == iec104.CommandReqCause.DEACTIVATION:
+        if msg.cause != iec104.CommandReqCause.ACTIVATION:
             return
         payload = {'request': msg.request}
     if is_counter:
@@ -130,11 +132,15 @@ def _msg_to_data_type(msg):
 
 
 def _msg_to_data_payload(msg):
+    if isinstance(msg.cause, enum.Enum):
+        cause = ('INTERROGATED' if msg.cause.name.startswith('INTERROGATED')
+                 else msg.cause.name)
+    else:
+        cause = msg.cause
     payload = {
         'value': _msg_to_data_value(msg),
         'quality': msg.data.quality._asdict() if msg.data.quality else None,
-        'cause': ('INTERROGATED' if msg.cause.name.startswith('INTERROGATED')
-                  else msg.cause.name)
+        'cause': cause
     }
     if isinstance(msg.data, iec104.ProtectionData):
         payload['elapsed_time'] = msg.data.elapsed_time
@@ -184,8 +190,10 @@ def _msg_to_command_type(msg):
 
 
 def _msg_to_command_payload(msg):
+    cause = msg.cause.name if isinstance(msg.cause, enum.Enum) else msg.cause
     payload = {'value': _msg_to_command_value(msg),
-               'cause': msg.cause.name}
+               'cause': cause}
+    # TODO in case of master with other cause, add success
     if isinstance(msg.cause, iec104.CommandResCause):
         payload['success'] = not msg.is_negative_confirm
     if hasattr(msg.command, 'select'):
@@ -206,7 +214,9 @@ def _msg_to_command_value(msg):
 
 
 def _event_to_data_msg(event, data_type, asdu, io, data_without_timestamp):
-    if event.payload.data['cause'] != 'INTERROGATED':
+    if not isinstance(event.payload.data['cause'], str):
+        cause = event.payload.data['cause']
+    elif event.payload.data['cause'] != 'INTERROGATED':
         cause = iec104.DataResCause[event.payload.data['cause']]
     elif data_type == 'binary_counter':
         cause = iec104.DataResCause.INTERROGATED_COUNTER
@@ -224,8 +234,14 @@ def _event_to_data_msg(event, data_type, asdu, io, data_without_timestamp):
 
 
 def _event_to_command_msg(event, command_type, asdu, io, device):
-    cmd_cause_class = {'master': iec104.CommandReqCause,
-                       'slave': iec104.CommandResCause}[device]
+    if not isinstance(event.payload.data['cause'], str):
+        cause = event.payload.data['cause']
+    elif device == 'master':
+        cause = iec104.CommandReqCause[event.payload.data['cause']]
+    elif device == 'slave':
+        cause = iec104.CommandResCause[event.payload.data['cause']]
+    else:
+        raise ValueError('unsupported device/cause')
     if device == 'slave':
         is_negative_confirm = not event.payload.data['success']
     else:
@@ -238,7 +254,7 @@ def _event_to_command_msg(event, command_type, asdu, io, device):
         command=_event_to_command(event, command_type),
         is_negative_confirm=is_negative_confirm,
         time=_source_timestamp_to_time_iec104(event.source_timestamp),
-        cause=cmd_cause_class[event.payload.data['cause']])
+        cause=cause)
 
 
 def _event_to_interrogation_msg(event, asdu, device, is_counter):

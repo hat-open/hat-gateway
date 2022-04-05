@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import datetime
+import enum
 import logging
 
 from hat import aio
@@ -278,6 +279,9 @@ class Iec101MasterDevice(common.Device):
 
     def _process_command(self, event, address, command_type, asdu, io):
         command = _command_from_event(event, command_type)
+        cause = (iec101.CommandReqCause[event.payload.data['cause']]
+                 if isinstance(event.payload.data['cause'], str)
+                 else event.payload.data['cause'])
         msg = iec101.CommandMsg(
             is_test=False,
             originator_address=0,
@@ -285,7 +289,7 @@ class Iec101MasterDevice(common.Device):
             io_address=io,
             command=command,
             is_negative_confirm=False,
-            cause=iec101.CommandReqCause[event.payload.data['cause']])
+            cause=cause)
         self._send_queue.put_nowait((msg, address))
 
     def _process_interrogation(self, event, address, asdu, is_counter):
@@ -332,21 +336,13 @@ class Iec101MasterDevice(common.Device):
 
 def _msg_to_event(msg, event_type_prefix, address):
     if isinstance(msg, iec101.DataMsg):
-        if not isinstance(msg.cause, iec101.DataResCause):
-            raise Exception('data with unexpected cause')
         return _data_msg_to_event(msg, event_type_prefix, address)
     elif isinstance(msg, iec101.CommandMsg):
-        if not isinstance(msg.cause, iec101.CommandResCause):
-            raise Exception('command with unexpected cause')
         return _command_msg_to_event(msg, event_type_prefix, address)
     elif isinstance(msg, iec101.InterrogationMsg):
-        if not isinstance(msg.cause, iec101.CommandResCause):
-            raise Exception('interrogation with unexpected cause')
         return _interrogation_msg_to_event(
             msg, event_type_prefix, address, is_counter=False)
     elif isinstance(msg, iec101.CounterInterrogationMsg):
-        if not isinstance(msg.cause, iec101.CommandResCause):
-            raise Exception('counter interrogation with unexpected cause')
         return _interrogation_msg_to_event(
             msg, event_type_prefix, address, is_counter=True)
     raise Exception('unexpected message')
@@ -403,8 +399,11 @@ def _interrogation_msg_to_event(msg, event_type_prefix, address, is_counter):
 
 
 def _data_type_payload_from_msg(msg):
-    cause = ('INTERROGATED' if msg.cause.name.startswith('INTERROGATED')
-             else msg.cause.name)
+    if isinstance(msg.cause, enum.Enum):
+        cause = ('INTERROGATED' if msg.cause.name.startswith('INTERROGATED')
+                 else msg.cause.name)
+    else:
+        cause = msg.cause
     quality = msg.data.quality._asdict() if msg.data.quality else None
     if isinstance(msg.data, iec101.SingleData):
         return 'single', {
@@ -473,7 +472,7 @@ def _data_type_payload_from_msg(msg):
 
 
 def _command_type_payload_from_msg(msg):
-    cause = msg.cause.name
+    cause = msg.cause.name if isinstance(msg.cause, enum.Enum) else msg.cause
     success = not msg.is_negative_confirm
     if isinstance(msg.command, iec101.SingleCommand):
         return 'single', {

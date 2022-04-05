@@ -136,10 +136,6 @@ event types are used:
 
             Payload is ``None``.
 
-.. todo::
-
-    * what to do when cause is None (discard message or return None cause)
-
 
 Configurations and event payloads
 ---------------------------------

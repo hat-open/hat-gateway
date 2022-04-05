@@ -102,13 +102,17 @@ definitions:
                         - value
                     properties:
                         cause:
-                            enum:
-                                - SPONTANEOUS
-                                - CYCLIC
-                                - TEST_MODE
-                                - GENERAL_INTERROGATION
-                                - LOCAL_OPERATION
-                                - REMOTE_OPERATION
+                            oneOf:
+                              - enum:
+                                    - SPONTANEOUS
+                                    - CYCLIC
+                                    - TEST_MODE
+                                    - GENERAL_INTERROGATION
+                                    - LOCAL_OPERATION
+                                    - REMOTE_OPERATION
+                              - type: integer
+                                description: |
+                                    other cause in range [0, 255]
                         value:
                             oneOf:
                               - "$ref": "hat-gateway://iec103.yaml#/definitions/values/double"

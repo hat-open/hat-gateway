@@ -94,7 +94,7 @@ class Iec104SlaveDevice(common.Device):
                 for msg in msgs:
                     if (isinstance(msg, (iec104.InterrogationMsg,
                                          iec104.CounterInterrogationMsg)) and
-                            msg.cause == iec104.CommandReqCause.DEACTIVATION):
+                            msg.cause != iec104.CommandReqCause.ACTIVATION):
                         conn.send([msg._replace(
                             cause=iec104.CommandResCause.UNKNOWN_CAUSE)])
                         continue
@@ -146,11 +146,8 @@ class Iec104SlaveDevice(common.Device):
 
 
 def _msg_to_event(msg, event_type_prefix):
-    if (isinstance(msg, iec104.CommandMsg) and
-            isinstance(msg.cause, iec104.CommandReqCause)) or (
-        isinstance(msg, iec104.InterrogationMsg) and
-            isinstance(msg.cause, iec104.CommandReqCause)) or (
-        isinstance(msg, iec104.CounterInterrogationMsg) and
-            isinstance(msg.cause, iec104.CommandReqCause)):
+    if isinstance(msg, (iec104.CommandMsg,
+                        iec104.InterrogationMsg,
+                        iec104.CounterInterrogationMsg)):
         return msg_to_event(msg, event_type_prefix, 'slave')
     raise Exception('message not supported')

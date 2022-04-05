@@ -141,14 +141,18 @@ definitions:
                     - cause
                 properties:
                     cause:
-                        enum:
-                            - PERIODIC
-                            - BACKGROUND_SCAN
-                            - SPONTANEOUS
-                            - REQUEST
-                            - REMOTE_COMMAND
-                            - LOCAL_COMMAND
-                            - INTERROGATED
+                        oneOf:
+                          - enum:
+                                - PERIODIC
+                                - BACKGROUND_SCAN
+                                - SPONTANEOUS
+                                - REQUEST
+                                - REMOTE_COMMAND
+                                - LOCAL_COMMAND
+                                - INTERROGATED
+                          - type: integer
+                            description: |
+                                other cause in range [0, 63]
                 oneOf:
                     - "$ref": "hat-gateway://iec101.yaml#/definitions/data_types/single"
                     - "$ref": "hat-gateway://iec101.yaml#/definitions/data_types/double"
@@ -169,9 +173,13 @@ definitions:
                     - cause
                 properties:
                     cause:
-                        enum:
-                            - ACTIVATION
-                            - DEACTIVATION
+                        oneOf:
+                          - enum:
+                                - ACTIVATION
+                                - DEACTIVATION
+                          - type: integer
+                            description: |
+                                other cause in range [0, 63]
                 oneOf:
                     - "$ref": "hat-gateway://iec101.yaml#/definitions/command_types/single"
                     - "$ref": "hat-gateway://iec101.yaml#/definitions/command_types/double"
@@ -187,14 +195,18 @@ definitions:
                     - success
                 properties:
                     cause:
-                        enum:
-                            - ACTIVATION_CONFIRMATION
-                            - DEACTIVATION_CONFIRMATION
-                            - ACTIVATION_TERMINATION
-                            - UNKNOWN_TYPE
-                            - UNKNOWN_CAUSE
-                            - UNKNOWN_ASDU_ADDRESS
-                            - UNKNOWN_IO_ADDRESS
+                        oneOf:
+                          - enum:
+                                - ACTIVATION_CONFIRMATION
+                                - DEACTIVATION_CONFIRMATION
+                                - ACTIVATION_TERMINATION
+                                - UNKNOWN_TYPE
+                                - UNKNOWN_CAUSE
+                                - UNKNOWN_ASDU_ADDRESS
+                                - UNKNOWN_IO_ADDRESS
+                          - type: integer
+                            description: |
+                                other cause in range [0, 63]
                     success:
                         type: boolean
                 oneOf:
