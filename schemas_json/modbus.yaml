@@ -197,4 +197,65 @@ definitions:
                                             Number of bits used for
                                             encoding/decoding value (not
                                             including offset bits)
+    events:
+        master:
+            gateway:
+                status:
+                    enum:
+                        - DISCONNECTED
+                        - CONNECTING
+                        - CONNECTED
+                remote_device_status:
+                    enum:
+                        - DISABLED
+                        - CONNECTING
+                        - CONNECTED
+                read:
+                    type: object
+                    required:
+                        - result
+                    properties:
+                        result:
+                            enum:
+                                - SUCCESS
+                                - INVALID_FUNCTION_CODE
+                                - INVALID_DATA_ADDRESS
+                                - INVALID_DATA_VALUE
+                                - FUNCTION_ERROR
+                                - TIMEOUT
+                        value:
+                            type: integer
+                        cause:
+                            enum:
+                                - INTERROGATE
+                                - CHANGE
+                write:
+                    type: object
+                    required:
+                        - request_id
+                        - result
+                    properties:
+                        request_id:
+                            type: string
+                        result:
+                            enum:
+                                - SUCCESS
+                                - INVALID_FUNCTION_CODE
+                                - INVALID_DATA_ADDRESS
+                                - INVALID_DATA_VALUE
+                                - FUNCTION_ERROR
+                                - TIMEOUT
+            system:
+                enable:
+                    type: boolean
+                write:
+                    type: object
+                    required:
+                        - request_id
+                        - value
+                    properties:
+                        request_id:
+                            type: string
+                        value:
+                            type: integer
 ...

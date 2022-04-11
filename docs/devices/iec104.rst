@@ -52,93 +52,107 @@ event types have prefix::
     * messages with test flag are ignored
     * time sync loop when device is enabled
 
-To enable communication between device and rest of the hat system, following
-event types are used:
 
-    * 'gateway', <gateway_name>, 'iec104_master', <device_name>, 'gateway', ...
+Gateway events
+''''''''''''''
 
-        * ..., 'status'
+Events registered by gateway have event type starting with::
 
-            Represents change in connection status. Upon enabling device,
-            new ``CONNECTING`` status should be registered. Once device is
-            disabled, ``DISCONNECTED`` status should be assumed regardless
-            of last registered `status` event (registration of
-            ``DISCONNECTED`` status event during device disabling is mandatory
-            but should not be relied upon).
+    'gateway', <gateway_name>, 'iec104_master', <device_name>, 'gateway', ...
 
-            Source timestamp is ``None``.
+Available gateway events are:
 
-            Payload is specified by
-            ``hat-gateway://iec104.yaml#/definitions/events/master/gateway/status``.
+    * ..., 'status'
 
-        * ..., 'data', <data_type>, <asdu_address>, <io_address>
+        Represents change in connection status. Upon enabling device,
+        new ``CONNECTING`` status should be registered. Once device is
+        disabled, ``DISCONNECTED`` status should be assumed regardless
+        of last registered `status` event (registration of
+        ``DISCONNECTED`` status event during device disabling is mandatory
+        but should not be relied upon).
 
-            Represents received IEC104 data message.
+        Source timestamp is ``None``.
 
-            Source timestamp is dependent on existence of IEC104 time.
-            If IEC104 time is not available, source timestamp is ``None``.
+        Payload is specified by
+        ``hat-gateway://iec104.yaml#/definitions/events/master/gateway/status``.
 
-            Payload is specified by
-            ``hat-gateway://iec104.yaml#/definitions/events/master/gateway/data``.
+    * ..., 'data', <data_type>, <asdu_address>, <io_address>
 
-        * ..., 'command', <command_type>, <asdu_address>, <io_address>
+        Represents received IEC104 data message.
 
-            Represents received IEC104 command message.
+        Source timestamp is dependent on existence of IEC104 time.
+        If IEC104 time is not available, source timestamp is ``None``.
 
-            Source timestamp is dependent on existence of IEC104 time.
-            If IEC104 time is not available, source timestamp is ``None``.
+        Payload is specified by
+        ``hat-gateway://iec104.yaml#/definitions/events/master/gateway/data``.
 
-            Payload is specified by
-            ``hat-gateway://iec104.yaml#/definitions/events/master/gateway/command``.
+    * ..., 'command', <command_type>, <asdu_address>, <io_address>
 
-        * ..., 'interrogation', <asdu_address>
+        Represents received IEC104 command message.
 
-            Represents received IEC104 interrogation message.
+        Source timestamp is dependent on existence of IEC104 time.
+        If IEC104 time is not available, source timestamp is ``None``.
 
-            Source timestamp is ``None``.
+        Payload is specified by
+        ``hat-gateway://iec104.yaml#/definitions/events/master/gateway/command``.
 
-            Payload is specified by
-            ``hat-gateway://iec104.yaml#/definitions/events/master/gateway/interrogation``.
+    * ..., 'interrogation', <asdu_address>
 
-        * ..., 'counter_interrogation', <asdu_address>
+        Represents received IEC104 interrogation message.
 
-            Represents received IEC104 counter interrogation message.
+        Source timestamp is ``None``.
 
-            Source timestamp is ``None``.
+        Payload is specified by
+        ``hat-gateway://iec104.yaml#/definitions/events/master/gateway/interrogation``.
 
-            Payload is specified by
-            ``hat-gateway://iec104.yaml#/definitions/events/master/gateway/counter_interrogation``.
+    * ..., 'counter_interrogation', <asdu_address>
 
-    * 'gateway', <gateway_name>, 'iec104_master', <device_name>, 'system', ...
+        Represents received IEC104 counter interrogation message.
 
-        * ..., 'command', <command_type>, <asdu_address>, <io_address>
+        Source timestamp is ``None``.
 
-            Represents request for command execution.
+        Payload is specified by
+        ``hat-gateway://iec104.yaml#/definitions/events/master/gateway/counter_interrogation``.
 
-            Source timestamp is dependent on existence of IEC104 time.
-            If IEC104 time is not available, source timestamp is ``None``.
 
-            Payload is specified by
-            ``hat-gateway://iec104.yaml#/definitions/events/master/system/command``.
+System events
+'''''''''''''
 
-        * ..., 'interrogation', <asdu_address>
+Events registered by other Hat components, which are consumed by gateway, have
+event type starting with::
 
-            Represents request for interrogation (interrogation activation).
+    'gateway', <gateway_name>, 'iec104_master', <device_name>, 'system', ...
 
-            Source timestamp is ``None``.
+Available system events are:
 
-            Payload is specified by
-            ``hat-gateway://iec104.yaml#/definitions/events/master/system/interrogation``.
+    * ..., 'command', <command_type>, <asdu_address>, <io_address>
 
-        * ..., 'counter_interrogation', <asdu_address>
+        Represents request for command execution.
 
-            Represents request for counter interrogation (interrogation
-            activation).
+        Source timestamp is dependent on existence of IEC104 time.
+        If IEC104 time is not available, source timestamp is ``None``.
 
-            Source timestamp is ``None``.
+        Payload is specified by
+        ``hat-gateway://iec104.yaml#/definitions/events/master/system/command``.
 
-            Payload is specified by
-            ``hat-gateway://iec104.yaml#/definitions/events/master/system/counter_interrogation``.
+    * ..., 'interrogation', <asdu_address>
+
+        Represents request for interrogation (interrogation activation).
+
+        Source timestamp is ``None``.
+
+        Payload is specified by
+        ``hat-gateway://iec104.yaml#/definitions/events/master/system/interrogation``.
+
+    * ..., 'counter_interrogation', <asdu_address>
+
+        Represents request for counter interrogation (interrogation
+        activation).
+
+        Source timestamp is ``None``.
+
+        Payload is specified by
+        ``hat-gateway://iec104.yaml#/definitions/events/master/system/counter_interrogation``.
 
 
 Slave device
@@ -159,90 +173,104 @@ event types have prefix::
     * messages with test flag are ignored
     * interrogation deactivation is rejected with UNKNOWN_CAUSE
 
-To enable communication between device and rest of the hat system, following
-event types are used:
 
-    * 'gateway', <gateway_name>, 'iec104_slave', <device_name>, 'gateway', ...
+Gateway events
+''''''''''''''
 
-        * ..., 'connections'
+Events registered by gateway have event type starting with::
 
-            Represents change in list of all active connections. When device
-            is disabled, empty list of connections is assumed (when device is
-            disabled, new `connections` event should be registered but user
-            should not depend on this behaviour).
+    'gateway', <gateway_name>, 'iec104_slave', <device_name>, 'gateway', ...
 
-            Source timestamp is ``None``.
+Available gateway events are:
 
-            Payload is specified by
-            ``hat-gateway://iec104.yaml#/definitions/events/slave/gateway/connections``.
+    * ..., 'connections'
 
-        * ..., 'command', <command_type>, <asdu_address>, <io_address>
+        Represents change in list of all active connections. When device
+        is disabled, empty list of connections is assumed (when device is
+        disabled, new `connections` event should be registered but user
+        should not depend on this behaviour).
 
-            Represents received IEC104 command message.
+        Source timestamp is ``None``.
 
-            Source timestamp is dependent on existence of IEC104 time.
-            If IEC104 time is not available, source timestamp is ``None``.
+        Payload is specified by
+        ``hat-gateway://iec104.yaml#/definitions/events/slave/gateway/connections``.
 
-            Payload is specified by
-            ``hat-gateway://iec104.yaml#/definitions/events/slave/gateway/command``.
+    * ..., 'command', <command_type>, <asdu_address>, <io_address>
 
-        * ..., 'interrogation', <asdu_address>
+        Represents received IEC104 command message.
 
-            Represents received IEC104 interrogation activation message.
+        Source timestamp is dependent on existence of IEC104 time.
+        If IEC104 time is not available, source timestamp is ``None``.
 
-            Source timestamp is ``None``.
+        Payload is specified by
+        ``hat-gateway://iec104.yaml#/definitions/events/slave/gateway/command``.
 
-            Payload is specified by
-            ``hat-gateway://iec104.yaml#/definitions/events/slave/gateway/interrogation``.
+    * ..., 'interrogation', <asdu_address>
 
-        * ..., 'counter_interrogation', <asdu_address>
+        Represents received IEC104 interrogation activation message.
 
-            Represents received IEC104 counter interrogation activation message.
+        Source timestamp is ``None``.
 
-            Source timestamp is ``None``.
+        Payload is specified by
+        ``hat-gateway://iec104.yaml#/definitions/events/slave/gateway/interrogation``.
 
-            Payload is specified by
-            ``hat-gateway://iec104.yaml#/definitions/events/slave/gateway/counter_interrogation``.
+    * ..., 'counter_interrogation', <asdu_address>
 
-    * 'gateway', <gateway_name>, 'iec104_slave', <device_name>, 'system', ...
+        Represents received IEC104 counter interrogation activation message.
 
-        * ..., 'data', <data_type> <asdu_address>, <io_address>
+        Source timestamp is ``None``.
 
-            Represents data change.
+        Payload is specified by
+        ``hat-gateway://iec104.yaml#/definitions/events/slave/gateway/counter_interrogation``.
 
-            Source timestamp is dependent on existence of IEC104 time.
-            If IEC104 time is not available, source timestamp is ``None``.
 
-            Payload is specified by
-            ``hat-gateway://iec104.yaml#/definitions/events/slave/system/data``.
+System events
+'''''''''''''
 
-        * ..., 'command', <command_type>, <asdu_address>, <io_address>
+Events registered by other Hat components, which are consumed by gateway, have
+event type starting with::
 
-            Represents command response.
+    'gateway', <gateway_name>, 'iec104_slave', <device_name>, 'system', ...
 
-            Source timestamp is dependent on existence of IEC104 time.
-            If IEC104 time is not available, source timestamp is ``None``.
+Available system events are:
 
-            Payload is specified by
-            ``hat-gateway://iec104.yaml#/definitions/events/slave/system/command``.
+    * ..., 'data', <data_type> <asdu_address>, <io_address>
 
-        * ..., 'interrogation', <asdu_address>
+        Represents data change.
 
-            Represents interrogation response message.
+        Source timestamp is dependent on existence of IEC104 time.
+        If IEC104 time is not available, source timestamp is ``None``.
 
-            Source timestamp is ``None``.
+        Payload is specified by
+        ``hat-gateway://iec104.yaml#/definitions/events/slave/system/data``.
 
-            Payload is specified by
-            ``hat-gateway://iec104.yaml#/definitions/events/slave/system/interrogation``.
+    * ..., 'command', <command_type>, <asdu_address>, <io_address>
 
-        * ..., 'counter_interrogation', <asdu_address>
+        Represents command response.
 
-            Represents counter interrogation response message.
+        Source timestamp is dependent on existence of IEC104 time.
+        If IEC104 time is not available, source timestamp is ``None``.
 
-            Source timestamp is ``None``.
+        Payload is specified by
+        ``hat-gateway://iec104.yaml#/definitions/events/slave/system/command``.
 
-            Payload is specified by
-            ``hat-gateway://iec104.yaml#/definitions/events/slave/system/counter_interrogation``.
+    * ..., 'interrogation', <asdu_address>
+
+        Represents interrogation response message.
+
+        Source timestamp is ``None``.
+
+        Payload is specified by
+        ``hat-gateway://iec104.yaml#/definitions/events/slave/system/interrogation``.
+
+    * ..., 'counter_interrogation', <asdu_address>
+
+        Represents counter interrogation response message.
+
+        Source timestamp is ``None``.
+
+        Payload is specified by
+        ``hat-gateway://iec104.yaml#/definitions/events/slave/system/counter_interrogation``.
 
 
 Configurations and event payloads

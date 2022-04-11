@@ -11,11 +11,6 @@ are also supported.
 
 Modbus specific events don't contain `source_timestamp`.
 
-Modbus device configurations are defined by schema:
-
-.. literalinclude:: ../../schemas_json/modbus.yaml
-    :language: yaml
-
 
 Data value
 ----------
@@ -70,6 +65,9 @@ Data value is unlimited unsigned integer 0x3456789a.
 Modbus master
 -------------
 
+Modbus master device configuration is specified by
+``hat-gateway://modbus.yaml#/definitions/master``.
+
 Once enabled, modbus master device will try to open communication connection
 defined by configuration parameters. While connection is established,
 this device repeatedly reads modbus registers (in accordance to configured
@@ -102,131 +100,96 @@ is calculated according to availability of data associated with that
 Polling of data values can be enabled/disabled based on `device_id`. Initially,
 polling for all remote devices is disabled and has to be explicitly enabled.
 
-To enable communication between modbus master device and rest of the hat
-system, following event types are used:
 
-    * 'gateway', <gateway_name>, 'modbus_master', <device_name>, 'gateway', ...
+Gateway events
+''''''''''''''
 
-        * ..., 'status'
+Events registered by gateway have event type starting with::
 
-            Connection status of a modbus master device.
+    'gateway', <gateway_name>, 'modbus_master', <device_name>, 'gateway', ...
 
-            Payload is defined by schema::
+Available gateway events are:
 
-                enum:
-                    - DISCONNECTED
-                    - CONNECTING
-                    - CONNECTED
+    * ..., 'status'
 
-        * ..., 'remote_device', <device_id>, 'status'
+        Connection status of a modbus master device.
 
-            Status of a remote modbus device, where `<device_id>` is
-            remote modbus device identifier `device_id` defined in
-            configuration for each data.
+        Payload is defined by
+        ``hat-gateway://modbus.yaml#/definitions/events/master/gateway/status``.
 
-            Payload is defined by schema::
+    * ..., 'remote_device', <device_id>, 'status'
 
-                enum:
-                    - DISABLED
-                    - CONNECTING
-                    - CONNECTED
+        Status of a remote modbus device, where `<device_id>` is
+        remote modbus device identifier `device_id` defined in
+        configuration for each data.
 
-        * ..., 'remote_device', <device_id>, 'read', <data_name>
+        Payload is defined by
+        ``hat-gateway://modbus.yaml#/definitions/events/master/gateway/remote_device_status``.
 
-            Read response reporting current data value. Data value and cause
-            of event reporting are available only in case of successful read.
-            `<data_name>` is configuration defined `name` for each data.
+    * ..., 'remote_device', <device_id>, 'read', <data_name>
 
-            First successful read of data value will be reported with
-            ``INTERROGATE`` `cause` and `result` ``SUCCESS``, while all the
-            following successful reads, where value is different from previous
-            are reported with ``CHANGE`` cause.
-            If read is not successful, `result` equals to any other string
-            that indicate reason of failure (`value` and `cause` properties
-            are not included). After value is invalidated, next successful
-            read will be reported with `INTERROGATED` cause.
+        Read response reporting current data value. Data value and cause
+        of event reporting are available only in case of successful read.
+        `<data_name>` is configuration defined `name` for each data.
 
-            Payload is defined by schema::
+        First successful read of data value will be reported with
+        ``INTERROGATE`` `cause` and `result` ``SUCCESS``, while all the
+        following successful reads, where value is different from previous
+        are reported with ``CHANGE`` cause.
+        If read is not successful, `result` equals to any other string
+        that indicate reason of failure (`value` and `cause` properties
+        are not included). After value is invalidated, next successful
+        read will be reported with `INTERROGATED` cause.
 
-                type: object
-                required:
-                    - result
-                properties:
-                    result:
-                        enum:
-                            - SUCCESS
-                            - INVALID_FUNCTION_CODE
-                            - INVALID_DATA_ADDRESS
-                            - INVALID_DATA_VALUE
-                            - FUNCTION_ERROR
-                            - TIMEOUT
-                    value:
-                        type: integer
-                    cause:
-                        enum:
-                            - INTERROGATE
-                            - CHANGE
+        Payload is defined by
+        ``hat-gateway://modbus.yaml#/definitions/events/master/gateway/read``.
 
-            .. note:: if data is not received within `request_timeout`
-              after polling, `read` event with result ``TIMEOUT`` is registered.
+        .. note:: if data is not received within `request_timeout`
+          after polling, `read` event with result ``TIMEOUT`` is registered.
 
-        * ..., 'remote_device', <device_id>, 'write', <data_name>
+    * ..., 'remote_device', <device_id>, 'write', <data_name>
 
-            Write response reporting resulting success value. Together with
-            `result` that contains success value, this event contains the same
-            `request_id` as provided in associated write request event.
+        Write response reporting resulting success value. Together with
+        `result` that contains success value, this event contains the same
+        `request_id` as provided in associated write request event.
 
-            Payload is defined by schema::
+        Payload is defined by
+        ``hat-gateway://modbus.yaml#/definitions/events/master/gateway/write``.
 
-                type: object
-                required:
-                    - request_id
-                    - result
-                properties:
-                    request_id:
-                        type: string
-                    result:
-                        enum:
-                            - SUCCESS
-                            - INVALID_FUNCTION_CODE
-                            - INVALID_DATA_ADDRESS
-                            - INVALID_DATA_VALUE
-                            - FUNCTION_ERROR
-                            - TIMEOUT
+        .. note:: in case response did not arrive within configuration
+          defined `request_timeout`, response with `result` ``TIMEOUT``
+          is registered.
 
-            .. note:: in case response did not arrive within configuration
-              defined `request_timeout`, response with `result` ``TIMEOUT``
-              is registered.
 
-    * 'gateway', <gateway_name>, 'modbus_master', <device_name>, 'system', ...
+System events
+'''''''''''''
 
-        * ..., 'remote_device', <device_id>, 'enable'
+Events registered by other Hat components, which are consumed by gateway, have
+event type starting with::
 
-            Enable polling of data associated with remote modbus device with
-            `<device_id>` identifier.
+    'gateway', <gateway_name>, 'modbus_master', <device_name>, 'system', ...
 
-            Payload is JSON boolean value which is set to ``true`` in case of
-            enabling remote device and set to ``false`` in case of disabling
-            remote device.
+Available system events are:
 
-        * ..., 'remote_device', <device_id>, 'write', <data_name>
+    * ..., 'remote_device', <device_id>, 'enable'
 
-            Write request containing data value and session identifier used
-            for pairing of request/response messages.
+        Enable polling of data associated with remote modbus device with
+        `<device_id>` identifier.
 
-            Payload is defined by schema::
+        Payload is defined by
+        ``hat-gateway://modbus.yaml#/definitions/events/master/system/enable``.
 
-                type: object
-                required:
-                    - request_id
-                    - value
-                properties:
-                    request_id:
-                        type: string
-                    value:
-                        type: integer
+    * ..., 'remote_device', <device_id>, 'write', <data_name>
 
-.. todo::
+        Write request containing data value and session identifier used
+        for pairing of request/response messages.
 
-    * do we need [..., 'system', 'remote_device', <device_id>, 'read',
-      <data_name>] explicit read request?
+        Payload is defined by
+        ``hat-gateway://modbus.yaml#/definitions/events/master/system/write``.
+
+
+Configurations and event payloads
+---------------------------------
+
+.. literalinclude:: ../../schemas_json/modbus.yaml
+    :language: yaml

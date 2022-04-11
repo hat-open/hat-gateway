@@ -47,94 +47,108 @@ event types have prefix::
         - change of connection state
     * time sync loop for each enabled remote device
 
-To enable communication between device and rest of the hat system, following
-event types are used:
 
-    * 'gateway', <gateway_name>, 'iec103_master', <device_name>, 'gateway', ...
+Gateway events
+''''''''''''''
 
-        * ..., 'status'
+Events registered by gateway have event type starting with::
 
-            Represents change in serial endpoint status. Upon enabling device,
-            new ``CONNECTING`` status should be registered, and ``CONNECTED``
-            once serial endpoint is opened. Once device is disabled,
-            ``DISCONNECTED`` status should be assumed regardless of last
-            registered `status` event (registration of ``DISCONNECTED`` status
-            event during device disabling is mandatory but should not be relied
-            upon).
+    'gateway', <gateway_name>, 'iec103_master', <device_name>, 'gateway', ...
 
-            Source timestamp is ``None``.
+Available gateway events are:
 
-            Payload is specified by
-            ``hat-gateway://iec103.yaml#/definitions/events/master/gateway/status``.
+    * ..., 'status'
 
-        * ..., 'remote_device', <device_address>, 'status'
+        Represents change in serial endpoint status. Upon enabling device,
+        new ``CONNECTING`` status should be registered, and ``CONNECTED``
+        once serial endpoint is opened. Once device is disabled,
+        ``DISCONNECTED`` status should be assumed regardless of last
+        registered `status` event (registration of ``DISCONNECTED`` status
+        event during device disabling is mandatory but should not be relied
+        upon).
 
-            Represents change in remote device connection status. Once serial
-            endpoint is opened and remote device enabled, new ``CONNECTING``
-            status should be registered. Once device is disabled or remote
-            device is disabled, ``DISCONNECTED`` status should be
-            assumed regardless of last registered `status` event (registration
-            of ``DISCONNECTED`` status event during device disabling or remote
-            device disabling is mandatory but should not be relied upon).
+        Source timestamp is ``None``.
 
-            Source timestamp is ``None``.
+        Payload is specified by
+        ``hat-gateway://iec103.yaml#/definitions/events/master/gateway/status``.
 
-            Payload is specified by
-            ``hat-gateway://iec103.yaml#/definitions/events/master/gateway/status``.
+    * ..., 'remote_device', <device_address>, 'status'
 
-        * ..., 'remote_device', <device_address>, 'data', <data_type>, <asdu_address>, <io_function>, <io_information>
+        Represents change in remote device connection status. Once serial
+        endpoint is opened and remote device enabled, new ``CONNECTING``
+        status should be registered. Once device is disabled or remote
+        device is disabled, ``DISCONNECTED`` status should be
+        assumed regardless of last registered `status` event (registration
+        of ``DISCONNECTED`` status event during device disabling or remote
+        device disabling is mandatory but should not be relied upon).
 
-            Represents received IEC103 data message.
+        Source timestamp is ``None``.
 
-            Source timestamp represents IEC103 data time.
+        Payload is specified by
+        ``hat-gateway://iec103.yaml#/definitions/events/master/gateway/status``.
 
-            Payload is specified by
-            ``hat-gateway://iec103.yaml#/definitions/events/master/gateway/data``.
+    * ..., 'remote_device', <device_address>, 'data', <data_type>, <asdu_address>, <io_function>, <io_information>
 
-        * ..., 'remote_device', <device_address>, 'command', <asdu_address>, <io_function>, <io_information>
+        Represents received IEC103 data message.
 
-            Represents received IEC103 command message.
+        Source timestamp represents IEC103 data time.
 
-            Source timestamp is ``None``.
+        Payload is specified by
+        ``hat-gateway://iec103.yaml#/definitions/events/master/gateway/data``.
 
-            Payload is specified by
-            ``hat-gateway://iec103.yaml#/definitions/events/master/gateway/command``.
+    * ..., 'remote_device', <device_address>, 'command', <asdu_address>, <io_function>, <io_information>
 
-        * ..., 'remote_device', <device_address>, 'interrogation', <asdu_address>
+        Represents received IEC103 command message.
 
-            Represents received IEC103 end of interrogation message.
+        Source timestamp is ``None``.
 
-            Source timestamp is ``None``.
+        Payload is specified by
+        ``hat-gateway://iec103.yaml#/definitions/events/master/gateway/command``.
 
-            Payload is ``None``.
+    * ..., 'remote_device', <device_address>, 'interrogation', <asdu_address>
 
-    * 'gateway', <gateway_name>, 'iec103_master', <device_name>, 'system', ...
+        Represents received IEC103 end of interrogation message.
 
-        * ..., 'remote_device', <device_address>, 'enable'
+        Source timestamp is ``None``.
 
-            Represents request for enable/disable remote device.
+        Payload is ``None``.
 
-            Source timestamp is ``None``.
 
-            Payload is specified by
-            ``hat-gateway://iec103.yaml#/definitions/events/master/system/enable``.
+System events
+'''''''''''''
 
-        * ..., 'remote_device', <device_address>, 'command', <asdu_address>, <io_function>, <io_information>
+Events registered by other Hat components, which are consumed by gateway, have
+event type starting with::
 
-            Represents request for command execution.
+    'gateway', <gateway_name>, 'iec103_master', <device_name>, 'system', ...
 
-            Source timestamp is ``None``.
+Available system events are:
 
-            Payload is specified by
-            ``hat-gateway://iec103.yaml#/definitions/events/master/system/command``.
+    * ..., 'remote_device', <device_address>, 'enable'
 
-        * ..., 'remote_device', <device_address>, 'interrogation', <asdu_address>
+        Represents request for enable/disable remote device.
 
-            Represents request for interrogation.
+        Source timestamp is ``None``.
 
-            Source timestamp is ``None``.
+        Payload is specified by
+        ``hat-gateway://iec103.yaml#/definitions/events/master/system/enable``.
 
-            Payload is ``None``.
+    * ..., 'remote_device', <device_address>, 'command', <asdu_address>, <io_function>, <io_information>
+
+        Represents request for command execution.
+
+        Source timestamp is ``None``.
+
+        Payload is specified by
+        ``hat-gateway://iec103.yaml#/definitions/events/master/system/command``.
+
+    * ..., 'remote_device', <device_address>, 'interrogation', <asdu_address>
+
+        Represents request for interrogation.
+
+        Source timestamp is ``None``.
+
+        Payload is ``None``.
 
 
 Configurations and event payloads

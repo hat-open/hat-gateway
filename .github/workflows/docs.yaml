@@ -11,6 +11,10 @@ jobs:
         steps:
           - name: checkout repository
             uses: actions/checkout@v2
+          - name: install ubuntu requirements
+            run: |
+                sudo apt update
+                sudo apt install -q -y $(< requirements.github.ubuntu.txt)
           - name: install python
             uses: actions/setup-python@v1
             with:

@@ -13,6 +13,7 @@ blockquote {
     padding: 0 0 0.5rem 0;
     margin-block-start: 0.5em;
     margin-block-end: 0.5em;
+    background: transparent;
 }
 
 ol, ul {
