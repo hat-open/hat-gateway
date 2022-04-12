@@ -139,6 +139,7 @@ definitions:
                 type: object
                 required:
                     - cause
+                    - test
                 properties:
                     cause:
                         oneOf:
@@ -153,6 +154,8 @@ definitions:
                           - type: integer
                             description: |
                                 other cause in range [0, 63]
+                    test:
+                        type: boolean
                 oneOf:
                     - "$ref": "hat-gateway://iec101.yaml#/definitions/data_types/single"
                     - "$ref": "hat-gateway://iec101.yaml#/definitions/data_types/double"
