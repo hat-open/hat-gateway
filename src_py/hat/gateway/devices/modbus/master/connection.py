@@ -1,5 +1,4 @@
 import asyncio
-import contextlib
 import enum
 import logging
 import typing
@@ -111,20 +110,42 @@ class Connection(aio.Resource):
         try:
             mlog.debug('starting request loop')
             while True:
-                fn, args, future = await self._request_queue.get()
+                fn, args, count, future = await self._request_queue.get()
                 mlog.debug('dequed request')
 
                 if future.done():
                     continue
 
                 try:
-                    result = await self._communicate(fn, *args)
+                    count -= 1
+                    result = await aio.wait_for(fn(*args),
+                                                self._conf['request_timeout'])
+
+                    mlog.debug('received result %s', result)
+                    if isinstance(result, modbus.Error):
+                        result = Error[result.name]
+
                     if not future.done():
                         mlog.debug('setting request result')
                         future.set_result(result)
+
+                except asyncio.TimeoutError:
+                    mlog.debug('single request timeout')
+
+                    if count > 0:
+                        mlog.debug('waiting for request retry')
+                        self.async_group.spawn(self._delay_request, fn, args,
+                                               count, future)
+                        future = None
+
+                    elif not future.done():
+                        mlog.debug('request resulting in timeout')
+                        future.set_result(Error.TIMEOUT)
+
                 except Exception as e:
                     mlog.debug('setting request exception')
-                    future.set_exception(e)
+                    if not future.done():
+                        future.set_exception(e)
                     raise
 
         except ConnectionError:
@@ -140,40 +161,29 @@ class Connection(aio.Resource):
             if future and not future.done():
                 future.set_exception(ConnectionError())
             while not self._request_queue.empty():
-                _, __, future = self._request_queue.get_nowait()
+                _, __, ___, future = self._request_queue.get_nowait()
                 if not future.done():
                     future.set_exception(ConnectionError())
 
     async def _request(self, fn, *args):
         try:
             future = asyncio.Future()
-            self._request_queue.put_nowait((fn, args, future))
+            count = self._conf['request_retry_count']
+            self._request_queue.put_nowait((fn, args, count, future))
             return await future
 
         except aio.QueueClosedError:
             raise ConnectionError()
 
-    async def _communicate(self, fn, *args):
-        count = 0
-        while True:
-            mlog.debug('sending request')
-            with contextlib.suppress(asyncio.TimeoutError):
-                result = await aio.wait_for(fn(*args),
-                                            self._conf['request_timeout'])
-                mlog.debug('received result %s', result)
-
-                if isinstance(result, modbus.Error):
-                    return Error[result.name]
-
-                return result
-
-            mlog.debug('single request timeout')
-            count += 1
-            if count >= self._conf['request_retry_count']:
-                break
-
-            mlog.debug('waiting for request retry')
+    async def _delay_request(self, fn, args, count, future):
+        try:
             await asyncio.sleep(self._conf['request_retry_delay'])
+            self._request_queue.put_nowait((fn, args, count, future))
+            future = None
 
-        mlog.debug('request resulting in timeout')
-        return Error.TIMEOUT
+        except aio.QueueClosedError:
+            pass
+
+        finally:
+            if future and not future.done():
+                future.set_exception(ConnectionError())
