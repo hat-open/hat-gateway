@@ -92,11 +92,15 @@ class Iec104SlaveDevice(common.Device):
                 msgs = await conn.receive()
                 events = []
                 for msg in msgs:
-                    if (isinstance(msg, (iec104.InterrogationMsg,
-                                         iec104.CounterInterrogationMsg)) and
-                            msg.cause != iec104.CommandReqCause.ACTIVATION):
+                    if _is_interrogate_deactivation(msg):
                         conn.send([msg._replace(
                             cause=iec104.CommandResCause.UNKNOWN_CAUSE)])
+                        continue
+                    if _is_test_request(msg):
+                        conn.send([msg._replace(
+                            cause=_req_to_resp_cause(msg.cause),
+                            is_negative_confirm=True,
+                            is_test=False)])
                         continue
                     try:
                         event = _msg_to_event(
@@ -145,9 +149,30 @@ class Iec104SlaveDevice(common.Device):
             self._event_client.register([event])
 
 
+def _is_test_request(msg):
+    return msg.is_test and isinstance(msg, (iec104.CommandMsg,
+                                            iec104.InterrogationMsg,
+                                            iec104.CounterInterrogationMsg))
+
+
+def _is_interrogate_deactivation(msg):
+    return (isinstance(msg, (iec104.InterrogationMsg,
+                             iec104.CounterInterrogationMsg)) and
+            msg.cause != iec104.CommandReqCause.ACTIVATION)
+
+
 def _msg_to_event(msg, event_type_prefix):
     if isinstance(msg, (iec104.CommandMsg,
                         iec104.InterrogationMsg,
                         iec104.CounterInterrogationMsg)):
         return msg_to_event(msg, event_type_prefix, 'slave')
     raise Exception('message not supported')
+
+
+def _req_to_resp_cause(req_cause):
+    return{
+        iec104.CommandReqCause.ACTIVATION:
+            iec104.CommandResCause.ACTIVATION_CONFIRMATION,
+        iec104.CommandReqCause.DEACTIVATION:
+            iec104.CommandResCause.DEACTIVATION_CONFIRMATION}.get(
+                req_cause, iec104.CommandResCause.UNKNOWN_CAUSE)

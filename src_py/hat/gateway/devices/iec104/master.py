@@ -158,6 +158,10 @@ class Iec104MasterDevice(common.Device):
 
 
 def _msg_to_event(msg, event_type_prefix):
+    if msg.is_test and isinstance(msg, (iec104.CommandMsg,
+                                        iec104.InterrogationMsg,
+                                        iec104.CounterInterrogationMsg)):
+        mlog.warning('received test response %s', msg)
     if isinstance(msg, (iec104.DataMsg,
                         iec104.CommandMsg,
                         iec104.InterrogationMsg,

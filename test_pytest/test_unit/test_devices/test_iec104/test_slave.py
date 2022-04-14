@@ -506,6 +506,7 @@ async def test_counter_interrogation_request(event_client_connection_pair,
 @pytest.mark.parametrize("asdu_address", [123])
 @pytest.mark.parametrize("io_address", [321])
 @pytest.mark.parametrize("time", [None, default_time])
+@pytest.mark.parametrize("test", [True, False])
 @pytest.mark.parametrize("cause", [
     i for i in iec104.DataResCause
     if not (i.name.startswith('INTERROGATED_GROUP') or
@@ -607,7 +608,7 @@ async def test_counter_interrogation_request(event_client_connection_pair,
       'quality': default_measurement_quality._asdict()}),
 ])
 async def test_data_response(event_client_connection_pair, create_data_event,
-                             asdu_address, io_address, time, cause, data,
+                             asdu_address, io_address, time, test, cause, data,
                              data_type, payload):
     if data_type in ('protection', 'protection_start', 'protection_command'):
         if time is None:
@@ -629,6 +630,7 @@ async def test_data_response(event_client_connection_pair, create_data_event,
     payload = {'cause': ('INTERROGATED'
                          if cause.name.startswith('INTERROGATED_')
                          else cause.name),
+               'test': test,
                **payload}
     event = create_data_event(data_type, asdu_address, io_address, time,
                               payload)
@@ -638,7 +640,7 @@ async def test_data_response(event_client_connection_pair, create_data_event,
     assert len(msgs) == 1
     msg = msgs[0]
     assert_msg_equal(msg, iec104.DataMsg(
-        is_test=False,
+        is_test=test,
         originator_address=0,
         asdu_address=asdu_address,
         io_address=io_address,

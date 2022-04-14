@@ -185,10 +185,6 @@ class Iec101MasterDevice(common.Device):
                 msgs = await conn.receive()
                 events = []
                 for msg in msgs:
-                    if msg.is_test:
-                        mlog.warning(
-                            'test message received and ignored %s', msg)
-                        continue
                     try:
                         event = _msg_to_event(
                             msg, self._event_type_prefix, address)
@@ -335,6 +331,10 @@ class Iec101MasterDevice(common.Device):
 
 
 def _msg_to_event(msg, event_type_prefix, address):
+    if msg.is_test and isinstance(msg, (iec101.CommandMsg,
+                                        iec101.InterrogationMsg,
+                                        iec101.CounterInterrogationMsg)):
+        mlog.warning('received test response %s', msg)
     if isinstance(msg, iec101.DataMsg):
         return _data_msg_to_event(msg, event_type_prefix, address)
     elif isinstance(msg, iec101.CommandMsg):
@@ -351,7 +351,8 @@ def _msg_to_event(msg, event_type_prefix, address):
 def _data_msg_to_event(msg, event_type_prefix, address):
     source_timestamp = hat.event.common.timestamp_from_datetime(
         iec101.time_to_datetime(msg.time)) if msg.time else None
-    data_type, payload = _data_type_payload_from_msg(msg)
+    data_type = _data_type_from_msg(msg)
+    payload = _data_payload_from_msg(msg)
     return hat.event.common.RegisterEvent(
         event_type=(*event_type_prefix, 'gateway', 'remote_device',
                     str(address), 'data',
@@ -363,7 +364,8 @@ def _data_msg_to_event(msg, event_type_prefix, address):
 
 
 def _command_msg_to_event(msg, event_type_prefix, address):
-    command_type, payload = _command_type_payload_from_msg(msg)
+    command_type = _command_type_from_msg(msg)
+    payload = _command_payload_from_msg(msg)
     return hat.event.common.RegisterEvent(
         event_type=(*event_type_prefix, 'gateway', 'remote_device',
                     str(address), 'command',
@@ -398,126 +400,117 @@ def _interrogation_msg_to_event(msg, event_type_prefix, address, is_counter):
             data=payload))
 
 
-def _data_type_payload_from_msg(msg):
+def _data_payload_from_msg(msg):
     if isinstance(msg.cause, enum.Enum):
         cause = ('INTERROGATED' if msg.cause.name.startswith('INTERROGATED')
                  else msg.cause.name)
     else:
         cause = msg.cause
     quality = msg.data.quality._asdict() if msg.data.quality else None
-    if isinstance(msg.data, iec101.SingleData):
-        return 'single', {
-            'value': msg.data.value.name,
-            'quality': quality,
-            'cause': cause}
-    elif isinstance(msg.data, iec101.DoubleData):
-        return 'double', {
-            'value': msg.data.value.name,
-            'quality': quality,
-            'cause': cause}
-    elif isinstance(msg.data, iec101.StepPositionData):
-        return 'step_position', {
-            'value': msg.data.value._asdict(),
-            'quality': quality,
-            'cause': cause}
-    elif isinstance(msg.data, iec101.BitstringData):
-        return 'bitstring', {
-            'value': list(msg.data.value.value),
-            'quality': quality,
-            'cause': cause}
-    elif isinstance(msg.data, iec101.NormalizedData):
-        return 'normalized', {
-            'value': msg.data.value.value,
-            'quality': quality,
-            'cause': cause}
-    elif isinstance(msg.data, iec101.ScaledData):
-        return 'scaled', {
-            'value': msg.data.value.value,
-            'quality': quality,
-            'cause': cause}
-    elif isinstance(msg.data, iec101.FloatingData):
-        return 'floating', {
-            'value': msg.data.value.value,
-            'quality': quality,
-            'cause': cause}
-    elif isinstance(msg.data, iec101.BinaryCounterData):
-        return 'binary_counter', {
-            'value': msg.data.value.value,
-            'quality': quality,
-            'cause': cause}
-    elif isinstance(msg.data, iec101.ProtectionData):
-        return 'protection', {
-            'value': msg.data.value.name,
-            'quality': quality,
-            'cause': cause,
-            'elapsed_time': msg.data.elapsed_time}
+    payload = {'value': _data_value_from_msg(msg),
+               'quality': quality,
+               'cause': cause,
+               'test': msg.is_test}
+    if isinstance(msg.data, iec101.ProtectionData):
+        payload['elapsed_time'] = msg.data.elapsed_time
     elif isinstance(msg.data, iec101.ProtectionStartData):
-        return 'protection_start', {
-            'value': msg.data.value._asdict(),
-            'quality': quality,
-            'cause': cause,
-            'duration_time': msg.data.duration_time}
+        payload['duration_time'] = msg.data.duration_time
     elif isinstance(msg.data, iec101.ProtectionCommandData):
-        return 'protection_command', {
-            'value': msg.data.value._asdict(),
-            'quality': quality,
-            'cause': cause,
-            'operating_time': msg.data.operating_time}
-    elif isinstance(msg.data, iec101.StatusData):
-        return 'status', {
-            'value': msg.data.value._asdict(),
-            'quality': quality,
-            'cause': cause}
+        payload['operating_time'] = msg.data.operating_time
+    return payload
+
+
+def _data_value_from_msg(msg):
+    if isinstance(msg.data, (iec101.SingleData,
+                             iec101.DoubleData,
+                             iec101.ProtectionData)):
+        return msg.data.value.name
+    elif isinstance(msg.data, (iec101.StepPositionData,
+                               iec101.ProtectionStartData,
+                               iec101.ProtectionCommandData,
+                               iec101.StatusData)):
+        return msg.data.value._asdict()
+    elif isinstance(msg.data, iec101.BitstringData):
+        return list(msg.data.value.value)
+    elif isinstance(msg.data, (iec101.NormalizedData,
+                               iec101.ScaledData,
+                               iec101.FloatingData,
+                               iec101.BinaryCounterData)):
+        return msg.data.value.value
     raise Exception('unsupported data message')
 
 
-def _command_type_payload_from_msg(msg):
+def _data_type_from_msg(msg):
+    if isinstance(msg.data, iec101.SingleData):
+        return 'single'
+    elif isinstance(msg.data, iec101.DoubleData):
+        return 'double'
+    elif isinstance(msg.data, iec101.StepPositionData):
+        return 'step_position'
+    elif isinstance(msg.data, iec101.BitstringData):
+        return 'bitstring'
+    elif isinstance(msg.data, iec101.NormalizedData):
+        return 'normalized'
+    elif isinstance(msg.data, iec101.ScaledData):
+        return 'scaled'
+    elif isinstance(msg.data, iec101.FloatingData):
+        return 'floating'
+    elif isinstance(msg.data, iec101.BinaryCounterData):
+        return 'binary_counter'
+    elif isinstance(msg.data, iec101.ProtectionData):
+        return 'protection'
+    elif isinstance(msg.data, iec101.ProtectionStartData):
+        return 'protection_start'
+    elif isinstance(msg.data, iec101.ProtectionCommandData):
+        return 'protection_command'
+    elif isinstance(msg.data, iec101.StatusData):
+        return 'status'
+    raise Exception('unsupported data message')
+
+
+def _command_payload_from_msg(msg):
     cause = msg.cause.name if isinstance(msg.cause, enum.Enum) else msg.cause
-    success = not msg.is_negative_confirm
-    if isinstance(msg.command, iec101.SingleCommand):
-        return 'single', {
-                'value': msg.command.value.name,
-                'select': msg.command.select,
-                'qualifier': msg.command.qualifier,
-                'cause': cause,
-                'success': success}
-    elif isinstance(msg.command, iec101.DoubleCommand):
-        return 'double', {
-                'value': msg.command.value.name,
-                'select': msg.command.select,
-                'qualifier': msg.command.qualifier,
-                'cause': cause,
-                'success': success}
-    elif isinstance(msg.command, iec101.RegulatingCommand):
-        return 'regulating', {
-                'value': msg.command.value.name,
-                'select': msg.command.select,
-                'qualifier': msg.command.qualifier,
-                'cause': cause,
-                'success': success}
-    elif isinstance(msg.command, iec101.NormalizedCommand):
-        return 'normalized', {
-                'value': msg.command.value.value,
-                'select': msg.command.select,
-                'cause': cause,
-                'success': success}
-    elif isinstance(msg.command, iec101.ScaledCommand):
-        return 'scaled', {
-                'value': msg.command.value.value,
-                'select': msg.command.select,
-                'cause': cause,
-                'success': success}
-    elif isinstance(msg.command, iec101.FloatingCommand):
-        return 'floating', {
-                'value': msg.command.value.value,
-                'select': msg.command.select,
-                'cause': cause,
-                'success': success}
+    payload = {'value': _command_value_from_msg(msg),
+               'cause': cause,
+               'success': not msg.is_negative_confirm}
+    if not isinstance(msg.command, iec101.BitstringCommand):
+        payload['select'] = msg.command.select
+    if isinstance(msg.command, (iec101.SingleCommand,
+                                iec101.DoubleCommand,
+                                iec101.RegulatingCommand)):
+        payload['qualifier'] = msg.command.qualifier
+    return payload
+
+
+def _command_value_from_msg(msg):
+    if isinstance(msg.command, (iec101.SingleCommand,
+                                iec101.DoubleCommand,
+                                iec101.RegulatingCommand)):
+        return msg.command.value.name
+    elif isinstance(msg.command, (iec101.NormalizedCommand,
+                                  iec101.ScaledCommand,
+                                  iec101.FloatingCommand)):
+        return msg.command.value.value
     elif isinstance(msg.command, iec101.BitstringCommand):
-        return 'bitstring', {
-                'value': list(msg.command.value.value),
-                'cause': cause,
-                'success': success}
+        return list(msg.command.value.value)
+    raise Exception('unsupported command message')
+
+
+def _command_type_from_msg(msg):
+    if isinstance(msg.command, iec101.SingleCommand):
+        return 'single'
+    elif isinstance(msg.command, iec101.DoubleCommand):
+        return 'double'
+    elif isinstance(msg.command, iec101.RegulatingCommand):
+        return 'regulating'
+    elif isinstance(msg.command, iec101.NormalizedCommand):
+        return 'normalized'
+    elif isinstance(msg.command, iec101.ScaledCommand):
+        return 'scaled'
+    elif isinstance(msg.command, iec101.FloatingCommand):
+        return 'floating'
+    elif isinstance(msg.command, iec101.BitstringCommand):
+        return 'bitstring'
     raise Exception('unsupported command message')
 
 

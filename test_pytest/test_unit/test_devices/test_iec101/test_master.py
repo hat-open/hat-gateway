@@ -166,7 +166,7 @@ def assert_status_event(event, status, address=None):
 
 
 def assert_data_event(event, address, data_type, asdu_address, io_address,
-                      time, cause, payload):
+                      time, test, cause, payload):
     assert event.event_type == (*event_type_prefix, 'gateway', 'remote_device',
                                 str(address), 'data', data_type,
                                 str(asdu_address), str(io_address))
@@ -176,6 +176,7 @@ def assert_data_event(event, address, data_type, asdu_address, io_address,
     payload = {'cause': ('INTERROGATED'
                          if cause.name.startswith('INTERROGATED_')
                          else cause.name),
+               'test': test,
                **payload}
 
     for key in {*payload.keys(), *event.payload.data.keys()}:
@@ -746,6 +747,7 @@ async def test_counter_interrogation_request(
 @pytest.mark.parametrize("asdu_address", [123])
 @pytest.mark.parametrize("io_address", [321])
 @pytest.mark.parametrize("time", [None, default_time])
+@pytest.mark.parametrize("test", [True, False])
 @pytest.mark.parametrize("cause", [
     i for i in iec101.DataResCause
     if not (i.name.startswith('INTERROGATED_GROUP') or
@@ -847,7 +849,7 @@ async def test_counter_interrogation_request(
       'quality': default_measurement_quality._asdict()}),
 ])
 async def test_data_response(create_event_client_connection_pair, address,
-                             asdu_address, io_address, time, cause, data,
+                             asdu_address, io_address, time, test, cause, data,
                              data_type, payload):
     if data_type in ('protection', 'protection_start', 'protection_command'):
         if time is None:
@@ -860,7 +862,7 @@ async def test_data_response(create_event_client_connection_pair, address,
         event_client, conn = pair
         await wait_remote_device_connected_event(event_client, address)
 
-        msg = iec101.DataMsg(is_test=False,
+        msg = iec101.DataMsg(is_test=test,
                              originator_address=0,
                              asdu_address=asdu_address,
                              io_address=io_address,
@@ -871,7 +873,7 @@ async def test_data_response(create_event_client_connection_pair, address,
 
         event = await event_client.register_queue.get()
         assert_data_event(event, address, data_type, asdu_address, io_address,
-                          time, cause, payload)
+                          time, test, cause, payload)
 
 
 @pytest.mark.parametrize("address", [0])

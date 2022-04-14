@@ -5,8 +5,6 @@ from hat.drivers.iec60870 import iec104
 
 
 def msg_to_event(msg, event_type_prefix, device):
-    if msg.is_test:
-        raise Exception('test message')
     if isinstance(msg, iec104.DataMsg):
         return _data_msg_to_event(msg, event_type_prefix)
     if isinstance(msg, iec104.CommandMsg):
@@ -140,7 +138,8 @@ def _msg_to_data_payload(msg):
     payload = {
         'value': _msg_to_data_value(msg),
         'quality': msg.data.quality._asdict() if msg.data.quality else None,
-        'cause': cause
+        'cause': cause,
+        'test': msg.is_test
     }
     if isinstance(msg.data, iec104.ProtectionData):
         payload['elapsed_time'] = msg.data.elapsed_time
@@ -222,7 +221,7 @@ def _event_to_data_msg(event, data_type, asdu, io, data_without_timestamp):
     else:
         cause = iec104.DataResCause.INTERROGATED_STATION
     return iec104.DataMsg(
-        is_test=False,
+        is_test=event.payload.data['test'],
         originator_address=0,
         asdu_address=asdu,
         io_address=io,
