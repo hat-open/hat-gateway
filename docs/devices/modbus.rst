@@ -20,12 +20,12 @@ Because of different data encoding schemas, single user defined data values
 can occupy only parts of modbus registers or span across multiple registers.
 To accommodate these different encoding rules, modbus gateway devices represent
 single data point values as list of bits, encoded as single unsigned integer,
-with size specified by configuration parameters.
+with legth specified by configuration parameters.
 
 Among other parameters, each data specifies:
 
     * data type (1bit or 16bit register size)
-    * bit size
+    * bit count
     * starting register address
     * bit offset
 
@@ -35,7 +35,7 @@ in each register are read starting with most significant and advancing to the
 least significant bit. Starting register bit defines bit offset - number of
 bits which are skipped during start of this iterative procedure. These skipped
 bits are not included in resulting value and are not taken into account in
-bit size calculation.
+bit count calculation.
 
 
 Encoding/decoding example
@@ -55,9 +55,9 @@ In case of 16bit registers with content:
 
 When data item is configured with properties:
 
-    * bit size: 32
+    * bit count: 32
     * starting register address: 1000
-    * bit offset: 16
+    * bit offset: 8
 
 Data value is unlimited unsigned integer 0x3456789a.
 
