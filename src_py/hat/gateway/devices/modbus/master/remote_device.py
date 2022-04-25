@@ -226,6 +226,10 @@ class _Reader(aio.Resource):
             if quantity is None:
                 quantity = data_info.quantity
 
+            elif data_info.start_address > start_address + quantity:
+                data_infos_queue.appendleft(data_info)
+                break
+
             else:
                 new_quantity = data_info.quantity + (data_info.start_address -
                                                      start_address)
@@ -238,6 +242,9 @@ class _Reader(aio.Resource):
                     quantity = new_quantity
 
             data_infos.append(data_info)
+
+        if start_address is None or quantity is None:
+            return
 
         is_connected_key = len(self._is_connected)
         self._is_connected[is_connected_key] = False
