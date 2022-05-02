@@ -117,7 +117,7 @@ Available gateway events are:
 
     * ..., 'remote_device', <device_address>, 'interrogation', <asdu_address>
 
-        Represents received IEC101 interrogation activation message.
+        Represents received IEC101 interrogation message.
 
         Source timestamp is ``None``.
 
@@ -126,7 +126,7 @@ Available gateway events are:
 
     * ..., 'remote_device', <device_address>, 'counter_interrogation', <asdu_address>
 
-        Represents received IEC101 counter interrogation activation message.
+        Represents received IEC101 counter interrogation message.
 
         Source timestamp is ``None``.
 
@@ -164,7 +164,7 @@ Available system events are:
 
     * ..., 'remote_device', <device_address>, 'interrogation', <asdu_address>
 
-        Represents interrogation response message.
+        Represents request for interrogation (interrogation activation).
 
         Source timestamp is ``None``.
 
@@ -173,7 +173,8 @@ Available system events are:
 
     * ..., 'remote_device', <device_address>, 'counter_interrogation', <asdu_address>
 
-        Represents counter interrogation response message.
+         Represents request for counter interrogation (interrogation
+        activation).
 
         Source timestamp is ``None``.
 
