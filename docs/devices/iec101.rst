@@ -173,7 +173,7 @@ Available system events are:
 
     * ..., 'remote_device', <device_address>, 'counter_interrogation', <asdu_address>
 
-         Represents request for counter interrogation (interrogation
+        Represents request for counter interrogation (interrogation
         activation).
 
         Source timestamp is ``None``.

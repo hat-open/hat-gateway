@@ -1,0 +1,166 @@
+---
+"$schema": "http://json-schema.org/schema#"
+id: "hat-gateway://snmp.yaml#"
+definitions:
+    manager:
+        type: object
+        required:
+            - snmp_version
+            - snmp_context
+            - remote_host
+            - remote_port
+            - connect_delay
+            - request_timeout
+            - request_retry_count
+            - request_retry_delay
+            - polling_delay
+            - polling_oids
+        properties:
+            snmp_version:
+                enum:
+                    - V1
+                    - V2C
+                    - V3
+            snmp_context:
+                type: object
+                required:
+                    - engine_id
+                    - name
+                properties:
+                    engine_id:
+                        type:
+                            - "null"
+                            - string
+                        description: |
+                            Available only in case of V3 version
+                    name:
+                        type: string
+                        description: |
+                            Used as community name in case of V1 or V2C version
+            remote_host:
+                type: string
+                description: |
+                    Remote hostname or IP address
+            remote_port:
+                type: integer
+                description: |
+                    Remote UDP port
+            connect_delay:
+                type: number
+                description: |
+                    Delay (in seconds) between two consecutive connection
+                    establishment attempts
+            request_timeout:
+                type: number
+                description: |
+                    Maximum duration (in seconds) of request/response exchange
+            request_retry_count:
+                type: integer
+                description: |
+                    Number of request retries before remote data is considered
+                    unavailable
+            request_retry_delay:
+                type: number
+                description: |
+                    Delay (in seconds) between two consecutive request retries
+            polling_delay:
+                type: number
+                description: |
+                    Delay (in seconds) between two consecutive polling cycles
+            polling_oids:
+                type: array
+                description: |
+                    List of OIDs read during polling cycle
+    events:
+        manager:
+            gateway:
+                status:
+                    enum:
+                        - CONNECTING
+                        - CONNECTED
+                        - DISCONNECTED
+                read:
+                    type: object
+                    required:
+                        - session_id
+                        - cause
+                        - data
+                    properties:
+                        session_id:
+                            oneOf:
+                              - type: "null"
+                                description: |
+                                    In case of INTERROGATE or CHANGE cause
+                              - description: |
+                                    In case of REQUESTED cause
+                        cause:
+                            - INTERROGATE
+                            - CHANGE
+                            - REQUESTED
+                        data:
+                            "$ref": "hat-gateway://snmp.yaml#/definitions/data"
+                write:
+                    type: object
+                    required:
+                        - session_id
+                        - success
+                    properties:
+                        success:
+                            type: boolean
+            system:
+                read:
+                    type: object
+                    required:
+                        - session_id
+                write:
+                    type: object
+                    required:
+                        - session_id
+                        - data
+                    properties:
+                        data:
+                            "$ref": "hat-gateway://snmp.yaml#/definitions/data"
+    data:
+        oneOf:
+          - type: object
+            required:
+                - type
+                - value
+            properties:
+                type:
+                    enum:
+                        - INTEGER
+                        - UNSIGNED
+                        - COUNTER
+                        - BIG_COUNTER
+                        - TIME_TICKS
+                value:
+                    type: integer
+          - type: object
+            required:
+                - type
+                - value
+            properties:
+                type:
+                    enum:
+                        - STRING
+                        - OBJECT_ID
+                        - IP_ADDRESS
+                        - ARBITRARY
+                value:
+                    type: string
+          - type: object
+            required:
+                - type
+                - value
+            properties:
+                type:
+                    enum:
+                        - EMPTY
+                        - UNSPECIFIED
+                        - NO_SUCH_OBJECT
+                        - NO_SUCH_INSTANCE
+                        - END_OF_MIB_VIEW
+                value:
+                    type: "null"
+...
