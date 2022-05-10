@@ -71,6 +71,8 @@ definitions:
                 type: array
                 description: |
                     List of OIDs read during polling cycle
+                items:
+                    type: string
     events:
         manager:
             gateway:
@@ -155,12 +157,30 @@ definitions:
                 - value
             properties:
                 type:
+                    const: ERROR
+                value:
                     enum:
+                        - TOO_BIG
+                        - NO_SUCH_NAME
+                        - BAD_VALUE
+                        - READ_ONLY
+                        - GEN_ERR
+                        - NO_ACCESS
+                        - WRONG_TYPE
+                        - WRONG_LENGTH
+                        - WRONG_ENCODING
+                        - WRONG_VALUE
+                        - NO_CREATION
+                        - INCONSISTENT_VALUE
+                        - RESOURCE_UNAVAILABLE
+                        - COMMIT_FAILED
+                        - UNDO_FAILED
+                        - AUTHORIZATION_ERROR
+                        - NOT_WRITABLE
+                        - INCONSISTENT_NAME
                         - EMPTY
                         - UNSPECIFIED
                         - NO_SUCH_OBJECT
                         - NO_SUCH_INSTANCE
                         - END_OF_MIB_VIEW
-                value:
-                    type: "null"
 ...
