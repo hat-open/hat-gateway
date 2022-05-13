@@ -64,7 +64,7 @@ class SnmpManagerDevice(common.Device):
                 except Exception as e:
                     mlog.warning('creating manager failed %s', e, exc_info=e)
                 if self._manager:
-                    self._manager._async_group.spawn(self._polling_loop)
+                    self._manager.async_group.spawn(self._polling_loop)
                     await self._manager.wait_closed()
                 self._register_status('DISCONNECTED')
                 self._manager = None
@@ -83,8 +83,6 @@ class SnmpManagerDevice(common.Device):
                 for oid in self._polling_oids:
                     req = snmp.GetDataReq(names=[_oid_from_str(oid)])
                     resp = await self._request(req)
-                    if resp is None:
-                        break
                     self._register_status('CONNECTED')
                     if (not self._conf['polling_oids'] or
                             self._cache.get(oid) == resp):
@@ -102,6 +100,8 @@ class SnmpManagerDevice(common.Device):
                         continue
                     self._event_client.register([event])
                 await asyncio.sleep(self._conf['polling_delay'])
+        except Exception as e:
+            mlog.warning('polling loop error: %s', e, exc_info=e)
         finally:
             mlog.debug('closing manager')
             self._manager.close()
@@ -127,24 +127,26 @@ class SnmpManagerDevice(common.Device):
     async def _process_event(self, event):
         etype_suffix = event.event_type[len(self._event_type_prefix):]
         if etype_suffix[:2] == ('system', 'read'):
-            oid = etype_suffix[3]
+            oid = etype_suffix[2]
             await self._process_read_event(event, oid)
         elif etype_suffix[:2] == ('system', 'write'):
-            oid = etype_suffix[3]
+            oid = etype_suffix[2]
             await self._process_write_event(event, oid)
         else:
             raise Exception('event type not supported')
 
     async def _process_read_event(self, event, oid):
-        resp = await self.request(snmp.GetDataReq(names=[_oid_from_str(oid)]))
-        if resp is None:
+        req = snmp.GetDataReq(names=[_oid_from_str(oid)])
+        try:
+            resp = await self._request(req)
+        except Exception:
             self._manager.close()
-            return
+            raise
         session_id = event.payload.data['session_id']
-        event = self._event_from_response(resp, oid, 'REQUEST', session_id)
+        event = self._event_from_response(resp, oid, 'REQUESTED', session_id)
         self._event_client.register([event])
 
-    def _process_write_event(self, event, oid):
+    async def _process_write_event(self, event, oid):
         set_data = _data_from_event(event, oid)
         try:
             resp = await asyncio.wait_for(
@@ -174,7 +176,7 @@ class SnmpManagerDevice(common.Device):
                 mlog.warning('request %s/%s timeout', i,
                              self._conf['request_retry_count'])
                 await asyncio.sleep(self._conf['request_retry_delay'])
-        mlog.warning('request retries exceeded')
+        raise Exception('request retries exceeded')
 
     def _register_status(self, status):
         if self._status == status:
@@ -216,7 +218,7 @@ def _event_value_from_response(response):
         return resp_data.type.name
     if resp_data.type in [snmp.DataType.IP_ADDRESS,
                           snmp.DataType.OBJECT_ID]:
-        return '.'.join(resp_data.value)
+        return '.'.join(str(i) for i in resp_data.value)
     elif resp_data.type == snmp.DataType.ARBITRARY:
         return resp_data.value.hex()
     return resp_data.value
@@ -254,7 +256,7 @@ def _value_from_event(event):
         return data['value']
     elif data['type'] in ['OBJECT_ID',
                           'IP_ADDRESS']:
-        return (int(i) for i in data['value'].split('.'))
+        return tuple(int(i) for i in data['value'].split('.'))
     elif data['type'] == 'ARBITRARY':
         return bytes.fromhex(data['value'])
     raise Exception(f"unsupported data type {data['type']} in write event")
