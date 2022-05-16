@@ -18,15 +18,13 @@ def msg_to_event(msg, event_type_prefix, device):
     raise Exception('message not supported')
 
 
-def event_to_msg(event, event_type_prefix, device,
-                 data_without_timestamp=[]):
+def event_to_msg(event, event_type_prefix, device):
     etype_suffix = event.event_type[len(event_type_prefix):]
     if etype_suffix[:2] == ('system', 'data'):
         data_type = etype_suffix[2]
         asdu = int(etype_suffix[3])
         io = int(etype_suffix[4])
-        return _event_to_data_msg(
-            event, data_type, asdu, io, data_without_timestamp)
+        return _event_to_data_msg(event, data_type, asdu, io)
     if etype_suffix[:2] == ('system', 'command'):
         command_type = etype_suffix[2]
         asdu = int(etype_suffix[3])
@@ -211,7 +209,7 @@ def _msg_to_command_value(msg):
     return msg.command.value.value
 
 
-def _event_to_data_msg(event, data_type, asdu, io, data_without_timestamp):
+def _event_to_data_msg(event, data_type, asdu, io):
     if not isinstance(event.payload.data['cause'], str):
         cause = event.payload.data['cause']
     elif event.payload.data['cause'] != 'INTERROGATED':
@@ -226,8 +224,7 @@ def _event_to_data_msg(event, data_type, asdu, io, data_without_timestamp):
         asdu_address=asdu,
         io_address=io,
         data=_event_to_data(event, data_type),
-        time=(None if (data_type, asdu, io) in data_without_timestamp else
-              _source_timestamp_to_time_iec104(event.source_timestamp)),
+        time=_source_timestamp_to_time_iec104(event.source_timestamp),
         cause=cause)
 
 

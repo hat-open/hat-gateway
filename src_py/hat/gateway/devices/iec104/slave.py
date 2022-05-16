@@ -29,9 +29,6 @@ async def create(conf: common.DeviceConf,
     device = Iec104SlaveDevice()
 
     device._conf = conf
-    device._data_without_timestamp = {
-        (i['type'].lower(), i['asdu_address'], i['io_address'])
-        for i in conf['data_without_timestamp']}
     device._event_type_prefix = event_type_prefix
     device._event_client = event_client
     device._conns = {}
@@ -65,10 +62,8 @@ class Iec104SlaveDevice(common.Device):
                 events = await self._event_client.receive()
                 for event in events:
                     try:
-                        msg = event_to_msg(event,
-                                           self._event_type_prefix,
-                                           'slave',
-                                           self._data_without_timestamp)
+                        msg = event_to_msg(
+                            event, self._event_type_prefix, 'slave')
                     except Exception as e:
                         mlog.warning('event %s ignored: %s',
                                      event, e, exc_info=e)

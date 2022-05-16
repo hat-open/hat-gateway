@@ -297,8 +297,7 @@ def create_conf(port):
                     supervisory_timeout=10,
                     test_timeout=20,
                     send_window_size=12,
-                    receive_window_size=8,
-                    data_without_timestamp=[]):
+                    receive_window_size=8):
         return {'local_host': '127.0.0.1',
                 'local_port': port,
                 'remote_hosts': remote_hosts,
@@ -306,8 +305,7 @@ def create_conf(port):
                 'supervisory_timeout': supervisory_timeout,
                 'test_timeout': test_timeout,
                 'send_window_size': send_window_size,
-                'receive_window_size': receive_window_size,
-                'data_without_timestamp': data_without_timestamp}
+                'receive_window_size': receive_window_size}
 
     return create_conf
 

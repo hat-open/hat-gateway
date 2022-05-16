@@ -46,7 +46,6 @@ definitions:
             - test_timeout
             - send_window_size
             - receive_window_size
-            - data_without_timestamp
         properties:
             local_host:
                 type: string
@@ -70,35 +69,6 @@ definitions:
                 type: integer
             receive_window_size:
                 type: integer
-            data_without_timestamp:
-                type: array
-                description: |
-                    data whose change notifications are sent without timestamp
-                items:
-                    type: object
-                    required:
-                        - type
-                        - asdu_address
-                        - io_address
-                    properties:
-                        type:
-                            enum:
-                                - SINGLE
-                                - DOUBLE
-                                - STEP_POSITION
-                                - BITSTRING
-                                - NORMALIZED
-                                - SCALED
-                                - FLOATING
-                                - BINARY_COUNTER
-                                - PROTECTION
-                                - PROTECTION_START
-                                - PROTECTION_COMMAND
-                                - STATUS
-                        asdu_address:
-                            type: integer
-                        io_address:
-                            type: integer
     events:
         master:
             gateway:
