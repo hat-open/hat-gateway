@@ -167,4 +167,7 @@ def _msg_to_event(msg, event_type_prefix):
                         iec104.InterrogationMsg,
                         iec104.CounterInterrogationMsg)):
         return msg_to_event(msg, event_type_prefix, 'master')
+    if (isinstance(msg, iec104.ClockSyncMsg) and
+            msg.cause == iec104.ActivationResCause.ACTIVATION_CONFIRMATION):
+        return
     raise Exception('message not supported')

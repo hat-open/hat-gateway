@@ -192,7 +192,8 @@ class Iec101MasterDevice(common.Device):
                         mlog.warning('message %s ignored due to:%s',
                                      msg, e, exc_info=e)
                         continue
-                    events.append(event)
+                    if event:
+                        events.append(event)
                 if events:
                     self._event_client.register(events)
         except ConnectionError:
@@ -345,6 +346,9 @@ def _msg_to_event(msg, event_type_prefix, address):
     elif isinstance(msg, iec101.CounterInterrogationMsg):
         return _interrogation_msg_to_event(
             msg, event_type_prefix, address, is_counter=True)
+    elif (isinstance(msg, iec101.ClockSyncMsg) and
+          msg.cause == iec101.ActivationResCause.ACTIVATION_CONFIRMATION):
+        return
     raise Exception('unexpected message')
 
 
