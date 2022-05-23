@@ -137,6 +137,7 @@ class Iec104MasterDevice(common.Device):
                     originator_address=0,
                     asdu_address=0xFFFF,
                     time=time_iec104_now,
+                    is_negative_confirm=False,
                     cause=iec104.ActivationReqCause.ACTIVATION)
                 conn.send([msg])
                 await conn.drain()
@@ -169,5 +170,8 @@ def _msg_to_event(msg, event_type_prefix):
         return msg_to_event(msg, event_type_prefix, 'master')
     if (isinstance(msg, iec104.ClockSyncMsg) and
             msg.cause == iec104.ActivationResCause.ACTIVATION_CONFIRMATION):
+        if msg.is_negative_confirm:
+            mlog.warning(
+                'received negative confirmation on clock sync: %s', msg)
         return
     raise Exception('message not supported')
