@@ -1,10 +1,10 @@
 appdirs ~= 1.4.4
 click ~= 8.0.3
-hat-aio ~= 0.6.0
+hat-aio ~= 0.6.1
 hat-chatter ~= 0.5.1
-hat-drivers ~= 0.5.9
+hat-drivers ~= 0.5.11
 hat-event ~= 0.6.5
-hat-json ~= 0.5.5
+hat-json ~= 0.5.6
 hat-monitor ~= 0.5.3
-hat-sbs ~= 0.5.3
-hat-util ~= 0.5.4
+hat-sbs ~= 0.5.4
+hat-util ~= 0.5.6
