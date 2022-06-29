@@ -138,7 +138,7 @@ class Iec104MasterDevice(common.Device):
                     asdu_address=0xFFFF,
                     time=time_iec104_now,
                     is_negative_confirm=False,
-                    cause=iec104.ActivationReqCause.ACTIVATION)
+                    cause=iec104.ClockSyncReqCause.ACTIVATION)
                 conn.send([msg])
                 await conn.drain()
                 mlog.debug('time sync sent %s', time_iec104_now)
@@ -169,7 +169,7 @@ def _msg_to_event(msg, event_type_prefix):
                         iec104.CounterInterrogationMsg)):
         return msg_to_event(msg, event_type_prefix, 'master')
     if (isinstance(msg, iec104.ClockSyncMsg) and
-            msg.cause == iec104.ActivationResCause.ACTIVATION_CONFIRMATION):
+            msg.cause == iec104.ClockSyncResCause.ACTIVATION_CONFIRMATION):
         if msg.is_negative_confirm:
             mlog.warning(
                 'received negative confirmation on clock sync: %s', msg)

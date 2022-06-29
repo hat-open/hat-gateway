@@ -405,7 +405,7 @@ async def test_time_sync(create_server, create_conf):
         assert msg.is_test is False
         assert msg.originator_address == 0
         assert msg.asdu_address == 0xFFFF
-        assert msg.cause == iec104.ActivationReqCause.ACTIVATION
+        assert msg.cause == iec104.ClockSyncReqCause.ACTIVATION
 
         new_datetime = iec104.time_to_datetime(msg.time)
         assert new_datetime >= last_datetime

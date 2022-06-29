@@ -600,7 +600,7 @@ async def test_time_sync(serial_conns, create_enable_event, address,
         assert msg.is_test is False
         assert msg.originator_address == 0
         assert msg.asdu_address == asdu_address
-        assert msg.cause == iec101.ActivationReqCause.ACTIVATION
+        assert msg.cause == iec101.ClockSyncReqCause.ACTIVATION
 
         new_datetime = iec101.time_to_datetime(msg.time)
         assert new_datetime >= last_datetime

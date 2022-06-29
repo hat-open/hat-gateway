@@ -214,7 +214,7 @@ class Iec101MasterDevice(common.Device):
                         'TWO': 0xFFFF}[self._conf['asdu_address_size']],
                     time=time_iec101,
                     is_negative_confirm=False,
-                    cause=iec101.ActivationReqCause.ACTIVATION)
+                    cause=iec101.ClockSyncReqCause.ACTIVATION)
                 await conn.send([msg])
                 mlog.debug('time sync sent %s', time_iec101)
                 await asyncio.sleep(delay)
@@ -348,7 +348,7 @@ def _msg_to_event(msg, event_type_prefix, address):
         return _interrogation_msg_to_event(
             msg, event_type_prefix, address, is_counter=True)
     elif (isinstance(msg, iec101.ClockSyncMsg) and
-          msg.cause == iec101.ActivationResCause.ACTIVATION_CONFIRMATION):
+          msg.cause == iec101.ClockSyncResCause.ACTIVATION_CONFIRMATION):
         if msg.is_negative_confirm:
             mlog.warning(
                 'received negative confirmation on clock sync: %s', msg)
