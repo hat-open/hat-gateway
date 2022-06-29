@@ -68,6 +68,7 @@ class SnmpManagerDevice(common.Device):
                     await self._manager.wait_closed()
                 self._register_status('DISCONNECTED')
                 self._manager = None
+                self._cache = {}
                 await asyncio.sleep(self._conf['connect_delay'])
         finally:
             mlog.debug('closing device')

@@ -287,6 +287,21 @@ async def test_polling(create_conf, create_agent):
         event = await event_client.register_queue.get()
         assert_read_event(event, oid, None, cause, data)
 
+    # cause is INTERROGATE on connection restart
+    await agent.async_close()
+    event = await event_client.register_queue.get()
+    assert_status_event(event, 'DISCONNECTED')
+    agent = await create_agent(on_request)
+    event = await event_client.register_queue.get()
+    assert_status_event(event, 'CONNECTING')
+    event = await event_client.register_queue.get()
+    assert_status_event(event, 'CONNECTED')
+
+    for i in range(10):
+        cause = 'INTERROGATE' if i < 2 else 'CHANGE'
+        event = await event_client.register_queue.get()
+        assert event.payload.data['cause'] == cause
+
     await device.async_close()
     await agent.async_close()
     await event_client.async_close()
