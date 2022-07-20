@@ -1,6 +1,7 @@
 """Gateway main"""
 
 from pathlib import Path
+import argparse
 import asyncio
 import contextlib
 import functools
@@ -10,13 +11,12 @@ import sys
 import typing
 
 import appdirs
-import click
 
 from hat import aio
 from hat import json
 from hat.gateway import common
 from hat.gateway.engine import create_engine
-import hat.event.client
+import hat.event.eventer_client
 import hat.event.common
 import hat.monitor.client
 
@@ -25,22 +25,32 @@ user_conf_dir: Path = Path(appdirs.user_config_dir('hat'))
 """User configuration directory path"""
 
 
-@click.command()
-@click.option('--conf', default=None, metavar='PATH', type=Path,
-              help="configuration defined by hat-gateway://main.yaml# "
-                   "(default $XDG_CONFIG_HOME/hat/gateway.{yaml|yml|json})")
-def main(conf: typing.Optional[Path]):
+def create_argument_parser() -> argparse.ArgumentParser:
+    """Create argument parser"""
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '--conf', metavar='PATH', type=Path, default=None,
+        help="configuration defined by hat-gateway://main.yaml# "
+             "(default $XDG_CONFIG_HOME/hat/gateway.{yaml|yml|json})")
+    return parser
+
+
+def main():
     """Gateway"""
-    if not conf:
+    parser = create_argument_parser()
+    args = parser.parse_args()
+
+    conf_path = args.conf
+    if not conf_path:
         for suffix in ('.yaml', '.yml', '.json'):
-            conf = (user_conf_dir / 'gateway').with_suffix(suffix)
-            if conf.exists():
+            conf_path = (user_conf_dir / 'gateway').with_suffix(suffix)
+            if conf_path.exists():
                 break
 
-    if conf == Path('-'):
+    if conf_path == Path('-'):
         conf = json.decode_stream(sys.stdin)
     else:
-        conf = json.decode_file(conf)
+        conf = json.decode_file(conf_path)
 
     sync_main(conf)
 
@@ -77,13 +87,13 @@ async def async_main(conf: json.Data):
 
             component = hat.monitor.client.Component(
                 monitor, run_with_monitor, conf, monitor, subscriptions)
-            component.set_enabled(True)
+            component.set_ready(True)
             _bind_resource(async_group, component)
 
             await async_group.wait_closing()
 
         else:
-            client = await hat.event.client.connect(
+            client = await hat.event.eventer_client.connect(
                 conf['event_server_address'], subscriptions)
             _bind_resource(async_group, client)
 
@@ -99,12 +109,12 @@ async def run_with_monitor(component: hat.monitor.client.Component,
                            subscriptions: typing.List[hat.event.common.EventType]):  # NOQA
     """Run monitor component"""
     run_cb = functools.partial(run_with_event, conf)
-    await hat.event.client.run_client(monitor, conf['event_server_group'],
-                                      run_cb, subscriptions)
+    await hat.event.eventer_client.run_eventer_client(
+        monitor, conf['event_server_group'], run_cb, subscriptions)
 
 
 async def run_with_event(conf: json.Data,
-                         client: hat.event.client.Client):
+                         client: hat.event.eventer_client.EventerClient):
     """Run event client"""
     engine = await create_engine(conf, client)
     try:

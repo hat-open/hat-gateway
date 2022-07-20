@@ -6,10 +6,10 @@ import logging
 
 from hat import aio
 from hat import json
-from hat.gateway import common
-import hat.event.common
 from hat.drivers import snmp
 from hat.drivers import udp
+from hat.gateway import common
+import hat.event.common
 
 
 mlog: logging.Logger = logging.getLogger(__name__)

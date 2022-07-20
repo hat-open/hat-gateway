@@ -218,10 +218,10 @@ async def wait_connections_event(event_client, conn_count):
 
 @pytest.fixture
 def create_event():
-    instance_ids = itertools.count(0)
+    instance_ids = itertools.count(1)
 
     def create_event(event_type, payload_data, source_timestamp=None):
-        event_id = hat.event.common.EventId(1, next(instance_ids))
+        event_id = hat.event.common.EventId(1, 1, next(instance_ids))
         payload = hat.event.common.EventPayload(
             hat.event.common.EventPayloadType.JSON, payload_data)
         event = hat.event.common.Event(event_id=event_id,

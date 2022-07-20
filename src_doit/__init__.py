@@ -2,12 +2,11 @@ from pathlib import Path
 
 from hat import json
 from hat.doit import common
+from hat.doit.docs import (build_sphinx,
+                           build_pdoc)
 from hat.doit.py import (build_wheel,
                          run_pytest,
                          run_flake8)
-from hat.doit.docs import (SphinxOutputType,
-                           build_sphinx,
-                           build_pdoc)
 
 
 __all__ = ['task_clean_all',
@@ -47,7 +46,6 @@ def task_build():
             description='Hat gateway',
             url='https://github.com/hat-open/hat-gateway',
             license=common.License.APACHE2,
-            packages=['hat'],
             console_scripts=['hat-gateway = hat.gateway.main:main'])
 
     return {'actions': [build],
@@ -69,11 +67,18 @@ def task_test():
 
 def task_docs():
     """Docs"""
-    return {'actions': [(build_sphinx, [SphinxOutputType.HTML,
-                                        docs_dir,
-                                        build_docs_dir]),
-                        (build_pdoc, ['hat.gateway',
-                                      build_docs_dir / 'py_api'])],
+
+    def build():
+        build_sphinx(src_dir=docs_dir,
+                     dst_dir=build_docs_dir,
+                     project='hat-gateway',
+                     extensions=['sphinx.ext.graphviz',
+                                 'sphinxcontrib.plantuml',
+                                 'sphinxcontrib.programoutput'])
+        build_pdoc(module='hat.gateway',
+                   dst_dir=build_docs_dir / 'py_api')
+
+    return {'actions': [build],
             'task_dep': ['json_schema_repo']}
 
 
@@ -89,4 +94,3 @@ def task_json_schema_repo():
     return {'actions': [generate],
             'file_dep': src_paths,
             'targets': [json_schema_repo_path]}
-

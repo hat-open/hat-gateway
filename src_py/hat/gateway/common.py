@@ -1,7 +1,7 @@
 """Common gateway interfaces"""
 
-from pathlib import Path
 import abc
+import importlib.resources
 import typing
 
 from hat import aio
@@ -10,12 +10,12 @@ import hat.event.common
 import hat.monitor.common
 
 
-json_schema_repo: json.SchemaRepository = json.SchemaRepository(
-    json.json_schema_repo,
-    hat.monitor.common.json_schema_repo,
-    json.SchemaRepository.from_json(Path(__file__).parent /
-                                    'json_schema_repo.json'))
-"""JSON schema repository"""
+with importlib.resources.path(__package__, 'json_schema_repo.json') as _path:
+    json_schema_repo: json.SchemaRepository = json.SchemaRepository(
+        json.json_schema_repo,
+        hat.monitor.common.json_schema_repo,
+        json.SchemaRepository.from_json(_path))
+    """JSON schema repository"""
 
 DeviceConf = json.Data
 """Device configuration"""

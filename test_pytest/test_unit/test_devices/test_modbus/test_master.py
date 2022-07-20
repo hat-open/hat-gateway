@@ -1,3 +1,5 @@
+import itertools
+
 import pytest
 
 from hat import aio
@@ -103,12 +105,10 @@ def connection_conf(slave_addr):
 
 @pytest.fixture
 def create_event():
-    counter = 0
+    counter = itertools.count(1)
 
     def create_event(event_type, payload_data):
-        nonlocal counter
-        counter += 1
-        event_id = hat.event.common.EventId(1, counter)
+        event_id = hat.event.common.EventId(1, 1, next(counter))
         payload = hat.event.common.EventPayload(
             hat.event.common.EventPayloadType.JSON, payload_data)
         event = hat.event.common.Event(event_id=event_id,

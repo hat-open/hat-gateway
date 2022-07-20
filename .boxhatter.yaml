@@ -4,6 +4,14 @@ command: |
     python -m venv .venv
     . .venv/bin/activate
 
+    if [ -e .boxhatter_cache ]; then
+        pip_cache_src=$(pwd)/.boxhatter_cache/pip
+        pip_cache_dst=$(pip cache dir)
+        mkdir -p $pip_cache_dst/.. $pip_cache_src
+        rm -rf $pip_cache_dst
+        ln -sfT $pip_cache_src $pip_cache_dst
+    fi
+
     pip install -q -r requirements.pip.dev.txt
 
     doit check

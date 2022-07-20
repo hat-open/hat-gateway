@@ -52,12 +52,10 @@ async def device_queue(device_module, monkeypatch):
 
 @pytest.fixture
 def create_event():
-    counter = 0
+    counter = itertools.count(1)
 
     def create_event(event_type, payload_data):
-        nonlocal counter
-        counter += 1
-        event_id = hat.event.common.EventId(1, counter)
+        event_id = hat.event.common.EventId(1, 1, next(counter))
         payload = create_json_payload(payload_data)
         event = hat.event.common.Event(event_id=event_id,
                                        event_type=event_type,
