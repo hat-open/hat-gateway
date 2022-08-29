@@ -165,7 +165,7 @@ def _msg_to_event(msg, event_type_prefix):
 
 
 def _req_to_resp_cause(req_cause):
-    return{
+    return {
         iec104.CommandReqCause.ACTIVATION:
             iec104.CommandResCause.ACTIVATION_CONFIRMATION,
         iec104.CommandReqCause.DEACTIVATION:
