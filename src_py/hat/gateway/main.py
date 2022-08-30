@@ -120,7 +120,7 @@ async def run_with_event(conf: json.Data,
     try:
         await engine.wait_closing()
     finally:
-        await aio.uncancellable(engine.async_close())
+        engine.close()
 
 
 def _bind_resource(async_group, resource):
