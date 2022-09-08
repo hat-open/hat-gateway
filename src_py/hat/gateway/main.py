@@ -21,6 +21,9 @@ import hat.event.common
 import hat.monitor.client
 
 
+mlog: logging.Logger = logging.getLogger(__name__)
+"""Module logger"""
+
 user_conf_dir: Path = Path(appdirs.user_config_dir('hat'))
 """User configuration directory path"""
 
@@ -117,9 +120,13 @@ async def run_with_event(conf: json.Data,
                          client: hat.event.eventer_client.EventerClient):
     """Run event client"""
     engine = await create_engine(conf, client)
+    mlog.debug('engine created')
+
     try:
         await engine.wait_closing()
+
     finally:
+        mlog.debug('engine closing')
         engine.close()
 
 
