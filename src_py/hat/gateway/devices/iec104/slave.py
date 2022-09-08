@@ -69,7 +69,7 @@ class Iec104SlaveDevice(common.Device):
                                      event, e, exc_info=e)
                         continue
                     if not self._conns:
-                        mlog.warning('event %s ignored: no connection', event)
+                        mlog.debug('event %s ignored: no connection', event)
                     for conn, conn_info in self._conns.items():
                         if conn.is_open:
                             conn.send([msg])
