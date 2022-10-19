@@ -52,17 +52,23 @@ class Iec104MasterDevice(common.Device):
         try:
             while True:
                 self._register_status('CONNECTING')
-                try:
-                    conn_apci = await apci.connect(
-                        addr=tcp.Address(host=self._conf['remote_host'],
-                                         port=self._conf['remote_port']),
-                        response_timeout=self._conf['response_timeout'],
-                        supervisory_timeout=self._conf['supervisory_timeout'],
-                        test_timeout=self._conf['test_timeout'],
-                        send_window_size=self._conf['send_window_size'],
-                        receive_window_size=self._conf['receive_window_size'])
-                except Exception as e:
-                    mlog.warning('connection failed %s', e, exc_info=e)
+                conn_apci = None
+                for address in self._conf['remote_addresses']:
+                    try:
+                        conn_apci = await apci.connect(
+                            addr=tcp.Address(host=address['host'],
+                                             port=address['port']),
+                            response_timeout=self._conf['response_timeout'],
+                            supervisory_timeout=(
+                                self._conf['supervisory_timeout']),
+                            test_timeout=self._conf['test_timeout'],
+                            send_window_size=self._conf['send_window_size'],
+                            receive_window_size=(
+                                self._conf['receive_window_size']))
+                        break
+                    except Exception as e:
+                        mlog.warning('connection failed %s', e, exc_info=e)
+                if conn_apci is None:
                     self._register_status('DISCONNECTED')
                     await asyncio.sleep(self._conf['reconnect_delay'])
                     continue

@@ -5,8 +5,7 @@ definitions:
     master:
         type: object
         required:
-            - remote_host
-            - remote_port
+            - remote_addresses
             - response_timeout
             - supervisory_timeout
             - test_timeout
@@ -15,10 +14,18 @@ definitions:
             - reconnect_delay
             - time_sync_delay
         properties:
-            remote_host:
-                type: string
-            remote_port:
-                type: integer
+            remote_addresses:
+                type: array
+                items:
+                    type: object
+                    required:
+                        - host
+                        - port
+                    properties:
+                        host:
+                            type: string
+                        port:
+                            type: integer
             response_timeout:
                 type: number
             supervisory_timeout:

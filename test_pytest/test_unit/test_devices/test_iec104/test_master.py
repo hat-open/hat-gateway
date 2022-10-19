@@ -279,8 +279,8 @@ def create_conf(port):
                     receive_window_size=8,
                     reconnect_delay=0.01,
                     time_sync_delay=None):
-        return {'remote_host': '127.0.0.1',
-                'remote_port': port,
+        return {'remote_addresses': [{'host': '127.0.0.1',
+                                      'port': port}],
                 'response_timeout': response_timeout,
                 'supervisory_timeout': supervisory_timeout,
                 'test_timeout': test_timeout,
