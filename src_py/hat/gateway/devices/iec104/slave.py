@@ -2,6 +2,7 @@
 
 import contextlib
 import logging
+import ssl
 
 from hat import aio
 from hat import json
@@ -34,6 +35,11 @@ async def create(conf: common.DeviceConf,
     device._conns = {}
 
     device._async_group = aio.Group()
+    ssl_ctx = None
+    if conf['security']['enabled']:
+        ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ssl_ctx.load_cert_chain(certfile=conf['security']['cert_path'],
+                                keyfile=conf['security']['key_path'] or None)
     srv = await apci.listen(
         connection_cb=device._on_connection,
         addr=tcp.Address(host=conf['local_host'],
@@ -42,7 +48,8 @@ async def create(conf: common.DeviceConf,
         supervisory_timeout=conf['supervisory_timeout'],
         test_timeout=conf['test_timeout'],
         send_window_size=conf['send_window_size'],
-        receive_window_size=conf['receive_window_size'])
+        receive_window_size=conf['receive_window_size'],
+        ssl_ctx=ssl_ctx)
     device._async_group.spawn(aio.call_on_cancel, srv.async_close)
     device._async_group.spawn(device._event_loop)
     device._register_connections()

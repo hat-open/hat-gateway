@@ -2,6 +2,7 @@ import collections
 import datetime
 import itertools
 import math
+import ssl
 
 import pytest
 
@@ -13,6 +14,7 @@ from hat.drivers.iec60870 import iec104
 from hat.gateway import common
 from hat.gateway.devices.iec104 import slave
 import hat.event.common
+import pem
 
 
 gateway_name = 'gateway_name'
@@ -217,6 +219,13 @@ async def wait_connections_event(event_client, conn_count):
 
 
 @pytest.fixture
+def pem_path(tmp_path):
+    path = tmp_path / 'pem'
+    pem.create_pem_file(path)
+    return path
+
+
+@pytest.fixture
 def create_event():
     instance_ids = itertools.count(1)
 
@@ -313,8 +322,8 @@ def create_conf(port):
 @pytest.fixture
 def create_connection(port):
 
-    async def create_connection():
-        conn = await apci.connect(tcp.Address('127.0.0.1', port))
+    async def create_connection(**kwargs):
+        conn = await apci.connect(tcp.Address('127.0.0.1', port), **kwargs)
         return iec104.Connection(conn)
 
     return create_connection
@@ -382,6 +391,35 @@ async def test_connections(create_conf, create_connection, conn_count):
 
     assert event_client.register_queue.empty()
 
+    await device.async_close()
+    await event_client.async_close()
+
+
+async def test_secure_connection(create_conf, create_connection, pem_path):
+    event_client = EventClient()
+    conf = create_conf()
+    conf['security'] = {'enabled': True,
+                        'cert_path': pem_path,
+                        'key_path': None}
+    device = await aio.call(slave.create, conf, event_client,
+                            event_type_prefix)
+
+    event = await event_client.register_queue.get()
+    assert_connection_event(event, 0)
+
+    assert event_client.register_queue.empty()
+
+    ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ssl_ctx.check_hostname = False
+    ssl_ctx.verify_mode = ssl.VerifyMode.CERT_NONE
+    ssl_ctx.load_cert_chain(pem_path)
+    conn = await create_connection(ssl_ctx=ssl_ctx)
+    assert conn.is_open
+
+    event = await event_client.register_queue.get()
+    assert_connection_event(event, 1)
+
+    await conn.async_close()
     await device.async_close()
     await event_client.async_close()
 

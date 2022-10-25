@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import datetime
 import logging
+import ssl
 
 from hat import aio
 from hat import json
@@ -34,7 +35,20 @@ async def create(conf: common.DeviceConf,
     device._event_type_prefix = event_type_prefix
     device._event_client = event_client
     device._conn = None
-
+    device._ssl_ctx = None
+    conf_secure = conf['security']
+    if conf_secure['enabled']:
+        ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ssl_ctx.check_hostname = False
+        if conf_secure['verify_cert']:
+            ssl_ctx.load_default_certs()
+            if conf_secure['ca_path']:
+                ssl_ctx.load_verify_locations(cafile=conf_secure['ca_path'])
+        else:
+            ssl_ctx.verify_mode = ssl.VerifyMode.CERT_NONE
+        ssl_ctx.load_cert_chain(certfile=conf_secure['cert_path'],
+                                keyfile=conf_secure['key_path'] or None)
+        device._ssl_ctx = ssl_ctx
     device._async_group = aio.Group()
     device._async_group.spawn(device._connection_loop)
     device._async_group.spawn(device._event_loop)
@@ -64,7 +78,8 @@ class Iec104MasterDevice(common.Device):
                             test_timeout=self._conf['test_timeout'],
                             send_window_size=self._conf['send_window_size'],
                             receive_window_size=(
-                                self._conf['receive_window_size']))
+                                self._conf['receive_window_size']),
+                            ssl_ctx=self._ssl_ctx)
                         break
                     except Exception as e:
                         mlog.warning('connection failed %s', e, exc_info=e)

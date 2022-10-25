@@ -13,6 +13,7 @@ definitions:
             - receive_window_size
             - reconnect_delay
             - time_sync_delay
+            - security
         properties:
             remote_addresses:
                 type: array
@@ -42,6 +43,19 @@ definitions:
                 type:
                     - "null"
                     - number
+            security:
+                allOf:
+                  - "$ref": "hat-gateway://iec104.yaml#/definitions/security"
+                  - type: object
+                    required:
+                        - verify_cert
+                        - ca_path
+                    properties:
+                        verify_cert: boolean
+                        ca_path:
+                            type:
+                                - "null"
+                                - number
     slave:
         type: object
         required:
@@ -53,6 +67,7 @@ definitions:
             - test_timeout
             - send_window_size
             - receive_window_size
+            - security
         properties:
             local_host:
                 type: string
@@ -76,6 +91,8 @@ definitions:
                 type: integer
             receive_window_size:
                 type: integer
+            security:
+                "$ref": "hat-gateway://iec104.yaml#/definitions/security"
     events:
         master:
             gateway:
@@ -694,4 +711,19 @@ definitions:
                     type: boolean
                 time_invalid:
                     type: boolean
+    security:
+        type: object
+        required:
+            - enabled
+            - cert_path
+            - key_path
+        properties:
+            enabled:
+                type: boolean
+            cert_path:
+                type: string
+            key_path:
+                oneOf:
+                  - type: "null"
+                  - type: string
 ...

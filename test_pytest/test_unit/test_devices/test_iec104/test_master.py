@@ -1,6 +1,7 @@
 import datetime
 import itertools
 import math
+import ssl
 
 import pytest
 
@@ -12,6 +13,7 @@ from hat.drivers.iec60870 import iec104
 from hat.gateway import common
 from hat.gateway.devices.iec104 import master
 import hat.event.common
+import pem
 
 
 gateway_name = 'gateway_name'
@@ -211,6 +213,13 @@ async def wait_connected_event(event_client):
 
 
 @pytest.fixture
+def pem_path(tmp_path):
+    path = tmp_path / 'pem'
+    pem.create_pem_file(path)
+    return path
+
+
+@pytest.fixture
 def create_event():
     instance_ids = itertools.count(1)
 
@@ -295,14 +304,14 @@ def create_conf(port):
 @pytest.fixture
 def create_server(port):
 
-    async def create_server(connection_cb):
+    async def create_server(connection_cb, **kwargs):
 
         async def on_connection(conn):
             conn = iec104.Connection(conn)
             await aio.call(connection_cb, conn)
 
         return await apci.listen(connection_cb=on_connection,
-                                 addr=tcp.Address('127.0.0.1', port))
+                                 addr=tcp.Address('127.0.0.1', port), **kwargs)
 
     return create_server
 
@@ -381,6 +390,40 @@ async def test_status(create_conf, create_server):
 
     assert event_client.register_queue.empty()
 
+    await server.async_close()
+    await event_client.async_close()
+
+
+async def test_secure_connection(create_conf, create_server, pem_path):
+    event_client = EventClient()
+    conn_queue = aio.Queue()
+
+    ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    ssl_ctx.check_hostname = False
+    ssl_ctx.load_cert_chain(pem_path)
+    server = await create_server(conn_queue.put_nowait, ssl_ctx=ssl_ctx)
+
+    conf = create_conf()
+    conf['security'] = {'enabled': True,
+                        'cert_path': pem_path,
+                        'key_path': None,
+                        'verify_cert': False,
+                        'ca_path': None}
+    device = await aio.call(master.create, conf, event_client,
+                            event_type_prefix)
+
+    event = await event_client.register_queue.get()
+    assert_status_event(event, 'CONNECTING')
+
+    event = await event_client.register_queue.get()
+    assert_status_event(event, 'CONNECTED')
+
+    assert event_client.register_queue.empty()
+
+    conn = await conn_queue.get()
+    assert conn.is_open
+
+    await device.async_close()
     await server.async_close()
     await event_client.async_close()
 
