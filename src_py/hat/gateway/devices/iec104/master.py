@@ -36,8 +36,8 @@ async def create(conf: common.DeviceConf,
     device._event_client = event_client
     device._conn = None
     device._ssl_ctx = None
-    conf_secure = conf['security']
-    if conf_secure['enabled']:
+    conf_secure = conf.get('security')
+    if conf_secure:
         ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         ssl_ctx.check_hostname = False
         if conf_secure['verify_cert']:

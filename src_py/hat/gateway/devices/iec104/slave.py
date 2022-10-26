@@ -36,7 +36,7 @@ async def create(conf: common.DeviceConf,
 
     device._async_group = aio.Group()
     ssl_ctx = None
-    if conf['security']['enabled']:
+    if conf.get('security'):
         ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         ssl_ctx.load_cert_chain(certfile=conf['security']['cert_path'],
                                 keyfile=conf['security']['key_path'] or None)

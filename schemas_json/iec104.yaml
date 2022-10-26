@@ -13,7 +13,6 @@ definitions:
             - receive_window_size
             - reconnect_delay
             - time_sync_delay
-            - security
         properties:
             remote_addresses:
                 type: array
@@ -51,7 +50,8 @@ definitions:
                         - verify_cert
                         - ca_path
                     properties:
-                        verify_cert: boolean
+                        verify_cert:
+                            type: boolean
                         ca_path:
                             type:
                                 - "null"
@@ -67,7 +67,6 @@ definitions:
             - test_timeout
             - send_window_size
             - receive_window_size
-            - security
         properties:
             local_host:
                 type: string
@@ -714,12 +713,9 @@ definitions:
     security:
         type: object
         required:
-            - enabled
             - cert_path
             - key_path
         properties:
-            enabled:
-                type: boolean
             cert_path:
                 type: string
             key_path:
