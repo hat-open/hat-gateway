@@ -43,19 +43,7 @@ definitions:
                     - "null"
                     - number
             security:
-                allOf:
-                  - "$ref": "hat-gateway://iec104.yaml#/definitions/security"
-                  - type: object
-                    required:
-                        - verify_cert
-                        - ca_path
-                    properties:
-                        verify_cert:
-                            type: boolean
-                        ca_path:
-                            type:
-                                - "null"
-                                - number
+                "$ref": "hat-gateway://iec104.yaml#/definitions/security"
     slave:
         type: object
         required:
@@ -715,6 +703,8 @@ definitions:
         required:
             - cert_path
             - key_path
+            - verify_cert
+            - ca_path
         properties:
             cert_path:
                 type: string
@@ -722,4 +712,11 @@ definitions:
                 oneOf:
                   - type: "null"
                   - type: string
+            verify_cert:
+                type: boolean
+            ca_path:
+                type:
+                    - "null"
+                    - number
+
 ...

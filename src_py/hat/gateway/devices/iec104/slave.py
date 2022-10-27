@@ -36,10 +36,17 @@ async def create(conf: common.DeviceConf,
 
     device._async_group = aio.Group()
     ssl_ctx = None
+    conf_secure = conf.get('security')
     if conf.get('security'):
         ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        ssl_ctx.load_cert_chain(certfile=conf['security']['cert_path'],
-                                keyfile=conf['security']['key_path'] or None)
+        if conf_secure['verify_cert']:
+            ssl_ctx.verify_mode = ssl.VerifyMode.CERT_REQUIRED
+            ssl_ctx.check_hostname = False
+            ssl_ctx.load_default_certs()
+            if conf_secure['ca_path']:
+                ssl_ctx.load_verify_locations(cafile=conf_secure['ca_path'])
+        ssl_ctx.load_cert_chain(certfile=conf_secure['cert_path'],
+                                keyfile=conf_secure['key_path'] or None)
     srv = await apci.listen(
         connection_cb=device._on_connection,
         addr=tcp.Address(host=conf['local_host'],

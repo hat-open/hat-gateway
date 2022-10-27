@@ -400,7 +400,10 @@ async def test_secure_connection(create_conf, create_connection, pem_path):
     conf = create_conf()
     conf['security'] = {'enabled': True,
                         'cert_path': pem_path,
-                        'key_path': None}
+                        'key_path': None,
+                        'verify_cert': False,
+                        'ca_path': None}
+
     device = await aio.call(slave.create, conf, event_client,
                             event_type_prefix)
 
