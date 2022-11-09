@@ -1,6 +1,7 @@
 """Gateway engine"""
 
 import collections
+import contextlib
 import importlib
 import logging
 
@@ -192,7 +193,8 @@ class _DeviceProxy(aio.Resource):
                             break
 
                     finally:
-                        self._register_running(False)
+                        with contextlib.suppress(ConnectionError):
+                            self._register_running(False)
 
         except Exception as e:
             mlog.error('device loop error: %s', e, exc_info=e)
