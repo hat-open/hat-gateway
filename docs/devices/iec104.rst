@@ -174,6 +174,26 @@ event types have prefix::
     * interrogation deactivation is rejected with UNKNOWN_CAUSE
 
 
+Buffering
+'''''''''
+
+.. todo::
+
+    * data buffering
+        * indication - single, double
+        * measurement - normalized, scaled, floating
+    * 2 buffers (one for indications, one for measurements)
+    * size of each buffer defined by configuration
+    * cyclic buffering
+    * data changes with timestamp are added to buffer if master connection
+      is not available
+    * immediately after interrogation activation confirmation is sent,
+      buffers are emptied - according to asdu address, data changes are
+      notified with INTERROGATED_STATION cause
+    * only one connection receives buffer content
+    * buffers are not persisted
+
+
 Gateway events
 ''''''''''''''
 

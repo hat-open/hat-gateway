@@ -1,5 +1,6 @@
 """IEC 60870-5-104 slave device"""
 
+import collections
 import contextlib
 import logging
 import ssl
@@ -33,6 +34,8 @@ async def create(conf: common.DeviceConf,
     device._event_type_prefix = event_type_prefix
     device._event_client = event_client
     device._conns = {}
+    device._indication_buff = collections.deque()
+    device._measurement_buff = collections.deque()
 
     device._async_group = aio.Group()
     ssl_ctx = None
@@ -82,15 +85,50 @@ class Iec104SlaveDevice(common.Device):
                         mlog.warning('event %s ignored: %s',
                                      event, e, exc_info=e)
                         continue
-                    if not self._conns:
-                        mlog.debug('event %s ignored: no connection', event)
+
+                    is_sent = False
                     for conn, conn_info in self._conns.items():
-                        if conn.is_open:
-                            conn.send([msg])
-                            mlog.debug("msg %s sent to %s",
-                                       msg, conn_info.remote_addr)
+                        if not conn.is_open:
+                            continue
+
+                        is_sent = True
+                        conn.send([msg])
+                        mlog.debug("msg %s sent to %s",
+                                   msg, conn_info.remote_addr)
+
+                        if _is_positive_interroration_confirmation(msg):
+                            indication_msgs = _pop_buffered_msgs(
+                                self._indication_buff, msg.asdu_address)
+                            measurement_msgs = _pop_buffered_msgs(
+                                self._measurement_buff, msg.asdu_address)
+                            msgs = [*indication_msgs, *measurement_msgs]
+                            if msgs:
+                                conn.send(msgs)
+                                mlog.debug("%s buffered msg sent to %s",
+                                           len(msgs), conn_info.remote_addr)
+
+                    if is_sent:
+                        continue
+
+                    buffer = None
+                    if self._conf.get('buffer'):
+                        if _is_buffered_indication(msg):
+                            buffer = self._indication_buff
+                        elif _is_buffered_measurement(msg):
+                            buffer = self._measurement_buff
+
+                    if buffer is None:
+                        mlog.debug('event %s ignored: no connection', event)
+                        continue
+
+                    mlog.debug('buffering event %s', event)
+                    buffer.append(msg)
+                    while len(buffer) > self._conf['buffer']:
+                        buffer.popleft()
+
         except ConnectionError:
             mlog.debug('connection to event server closed')
+
         finally:
             mlog.debug('closing device, event loop')
             self.close()
@@ -185,3 +223,33 @@ def _req_to_resp_cause(req_cause):
         iec104.CommandReqCause.DEACTIVATION:
             iec104.CommandResCause.DEACTIVATION_CONFIRMATION}.get(
                 req_cause, iec104.CommandResCause.UNKNOWN_CAUSE)
+
+
+def _is_buffered_indication(msg):
+    return (isinstance(msg, iec104.DataMsg) and
+            msg.time is not None and
+            isinstance(msg.data, (iec104.SingleData,
+                                  iec104.DoubleData)))
+
+
+def _is_buffered_measurement(msg):
+    return (isinstance(msg, iec104.DataMsg) and
+            msg.time is not None and
+            isinstance(msg.data, (iec104.NormalizedData,
+                                  iec104.ScaledData,
+                                  iec104.FloatingData)))
+
+
+def _is_positive_interroration_confirmation(msg):
+    return (isinstance(msg, iec104.InterrogationMsg) and
+            msg.cause == iec104.CommandResCause.ACTIVATION_CONFIRMATION and
+            not msg.is_negative_confirm)
+
+
+def _pop_buffered_msgs(buffer, asdu_address):
+    for _ in range(len(buffer)):
+        msg = buffer.popleft()
+        if asdu_address == 0xFFFF or msg.asdu_address == asdu_address:
+            yield msg._replace(cause=iec104.DataResCause.INTERROGATED_STATION)
+        else:
+            buffer.append(msg)

@@ -78,6 +78,10 @@ definitions:
                 type: integer
             receive_window_size:
                 type: integer
+            buffer:
+                type:
+                    - integer
+                    - "null"
             security:
                 "$ref": "hat-gateway://iec104.yaml#/definitions/security"
     events:
