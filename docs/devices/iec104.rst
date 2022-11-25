@@ -41,16 +41,56 @@ event types have prefix::
 
     'gateway', <gateway_name>, 'iec104_master', <device_name>, <source>, ...
 
-.. todo::
+When IEC104 master device is enabled, connection establishment loop is started.
+Device will try to connect to one of configured remote slave devices in order
+defined by configuration. Once connection to remote slave is established,
+connection loop is temporary paused and new connection's status is monitored.
+If connection is broken, connection loop is resumed. Changes in connection
+status are notified as gateway 'status' events.
 
-    * reconnect procedure when device is enabled (reconnect delay)
-    * iec104 messages are sent to device only as reaction to `system` events
-    * only "automatic" driver action is reconnect loop
-    * new `gateway` events are generated only as reaction to:
-        - receiving iec104 asdu messages
-        - change of connection state
-    * messages with test flag are ignored
-    * time sync loop when device is enabled
+Implementation of IEC104 master device is based on transparent mapping of
+IEC104 request/response messages to system/gateway events. Supported
+IEC104 messages:
+
+    * Data response
+
+        When master receives IEC104 data response message, it will generate
+        gateway 'data' event.
+
+    * Command request
+
+        When master receives system 'command' event, it will send IEC104
+        command request message.
+
+    * Command response
+
+        When master receives IEC104 command response message, it will generate
+        gateway 'command' event.
+
+    * Interrogate request
+
+        When master receives system 'interrogate' event, it will send IEC104
+        interrogate request message.
+
+    * Interrogate response
+
+        When master receives IEC104 interrogate response message, it will
+        generate gateway 'interrogate' event.
+
+    * Counter interrogate request
+
+        When master receives system 'counter_interrogate' event, it will send
+        IEC104 counter interrogate request message.
+
+    * Counter interrogate response
+
+        When master receives IEC104 counter interrogate response message, it
+        will generate gateway 'counter_interrogate' event.
+
+In addition to bidirectional mapping of messages/events, IEC104 master device
+provides possibility of time synchronization. If configured, once connection
+to remote slave is established, master will periodically send IEC104
+clock sync messages with current system time.
 
 
 Gateway events
@@ -166,32 +206,43 @@ event types have prefix::
 
     'gateway', <gateway_name>, 'iec104_slave', <device_name>, <source>, ...
 
-.. todo::
+IEC104 slave device provides implementation of IEC104 slave which accepts
+multiple parallel remote master connections. If configured, allowed master
+connections can be filtered based on remote master IP address. Change
+of active master connections list is trigger for registration
+of new gateway 'connection' event containing current list's state.
 
-    * all events are mapped to/from iec104 messages (only `connections` is
-      exception)
-    * messages with test flag are ignored
-    * interrogation deactivation is rejected with UNKNOWN_CAUSE
+IEC104 slave device is configured with list of available data. Once device
+is enabled, device will query last system 'data' events corresponding to
+configured data. This local cache is continuously updated with latest data
+states based on received system 'data' events. All remote masters are
+notified with IEC104 data messages each time locally cached data state is
+changed. When slave receives IEC104 interrogation or counter interrogation
+message, it will immediately respond with IEC104 interrogation/data messages
+based on current state of local data cache. Interrogation deactivation
+is not supported (slave responds with UNKNOWN_CAUSE).
 
+In addition to local cache of last data states, IEC104 slave device can be
+configured with arbitrary number of circular data buffers, each configured
+with limited size. Each data can be associated with single buffer. When
+system 'data' event, associated with configured data, is received, together
+with local cache update, data change is appended to the end of configured
+data buffer. Once buffer is full, new changes will overwrite oldest changes.
+Data change is removed from buffer when at least one remote master
+acknowledges delivery of IEC104 data message associated with data change
+(delivery confirmation is based on IEC104 APCI sequence numbers).
+When remote master connect to slave and new connection is established,
+slave will immediately send IEC104 data messages for each buffered data
+change. Slave's initially query of system 'data' events is not buffered.
 
-Buffering
-'''''''''
-
-.. todo::
-
-    * data buffering
-        * indication - single, double
-        * measurement - normalized, scaled, floating
-    * 2 buffers (one for indications, one for measurements)
-    * size of each buffer defined by configuration
-    * cyclic buffering
-    * data changes with timestamp are added to buffer if master connection
-      is not available
-    * immediately after interrogation activation confirmation is sent,
-      buffers are emptied - according to asdu address, data changes are
-      notified with INTERROGATED_STATION cause
-    * only one connection receives buffer content
-    * buffers are not persisted
+In addition to sending IEC104 data messages and processing IEC104 interrogation
+and counter interrogation requests, slave supports IEC104 command messages.
+Command messages are transparently bidirectionally mapped to 'command' events.
+Each time slave receives IEC104 command request, it will register new
+gateway 'command' event which contains unique identification of master
+connection which sent command request. When new system 'command' event is
+received, it must contain identification of master connection which will
+be used for sending associated IEC104 command response.
 
 
 Gateway events
@@ -225,24 +276,6 @@ Available gateway events are:
         Payload is specified by
         ``hat-gateway://iec104.yaml#/definitions/events/slave/gateway/command``.
 
-    * ..., 'interrogation', <asdu_address>
-
-        Represents received IEC104 interrogation activation message.
-
-        Source timestamp is ``None``.
-
-        Payload is specified by
-        ``hat-gateway://iec104.yaml#/definitions/events/slave/gateway/interrogation``.
-
-    * ..., 'counter_interrogation', <asdu_address>
-
-        Represents received IEC104 counter interrogation activation message.
-
-        Source timestamp is ``None``.
-
-        Payload is specified by
-        ``hat-gateway://iec104.yaml#/definitions/events/slave/gateway/counter_interrogation``.
-
 
 System events
 '''''''''''''
@@ -254,7 +287,7 @@ event type starting with::
 
 Available system events are:
 
-    * ..., 'data', <data_type> <asdu_address>, <io_address>
+    * ..., 'data', <data_type>, <asdu_address>, <io_address>
 
         Represents data change.
 
@@ -273,24 +306,6 @@ Available system events are:
 
         Payload is specified by
         ``hat-gateway://iec104.yaml#/definitions/events/slave/system/command``.
-
-    * ..., 'interrogation', <asdu_address>
-
-        Represents interrogation response message.
-
-        Source timestamp is ``None``.
-
-        Payload is specified by
-        ``hat-gateway://iec104.yaml#/definitions/events/slave/system/interrogation``.
-
-    * ..., 'counter_interrogation', <asdu_address>
-
-        Represents counter interrogation response message.
-
-        Source timestamp is ``None``.
-
-        Payload is specified by
-        ``hat-gateway://iec104.yaml#/definitions/events/slave/system/counter_interrogation``.
 
 
 Configurations and event payloads
