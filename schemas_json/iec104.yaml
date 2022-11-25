@@ -164,7 +164,7 @@ definitions:
                         properties:
                             connection_id:
                                 type: integer
-                      - "$ref": "hat-gateway://iec104.yaml#/definitions/messages/data/res"
+                      - "$ref": "hat-gateway://iec104.yaml#/definitions/messages/command/req"
             system:
                 data:
                     "$ref": "hat-gateway://iec104.yaml#/definitions/messages/data/res"
@@ -176,7 +176,7 @@ definitions:
                         properties:
                             connection_id:
                                 type: integer
-                      - "$ref": "hat-gateway://iec104.yaml#/definitions/messages/data/res"
+                      - "$ref": "hat-gateway://iec104.yaml#/definitions/messages/command/res"
     messages:
         status:
             enum:

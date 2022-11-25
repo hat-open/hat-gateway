@@ -233,7 +233,7 @@ acknowledges delivery of IEC104 data message associated with data change
 (delivery confirmation is based on IEC104 APCI sequence numbers).
 When remote master connect to slave and new connection is established,
 slave will immediately send IEC104 data messages for each buffered data
-change. Slave's initially query of system 'data' events is not buffered.
+change. Slave's initial query of system 'data' events is not buffered.
 
 In addition to sending IEC104 data messages and processing IEC104 interrogation
 and counter interrogation requests, slave supports IEC104 command messages.
