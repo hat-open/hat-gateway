@@ -792,13 +792,13 @@ definitions:
             cert_path:
                 type: string
             key_path:
-                oneOf:
-                  - type: "null"
-                  - type: string
+                type:
+                    - "null"
+                    - string
             verify_cert:
                 type: boolean
             ca_path:
                 type:
                     - "null"
-                    - number
+                    - string
 ...

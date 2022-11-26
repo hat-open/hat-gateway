@@ -1,7 +1,121 @@
 import enum
+import ssl
+import typing
 
-import hat.event.common
+from hat import json
 from hat.drivers.iec60870 import iec104
+import hat.event.common
+
+from hat.gateway.common import *  # NOQA
+
+
+class SslProtocol(enum.Enum):
+    TLS_CLIENT = ssl.PROTOCOL_TLS_CLIENT
+    TLS_SERVER = ssl.PROTOCOL_TLS_SERVER
+
+
+class DataType(enum.Enum):
+    SINGLE = 'single'
+    DOUBLE = 'double'
+    STEP_POSITION = 'step_position'
+    BITSTRING = 'bitstring'
+    NORMALIZED = 'normalized'
+    SCALED = 'scaled'
+    FLOATING = 'floating'
+    BINARY_COUNTER = 'binary_counter'
+    PROTECTION = 'protection'
+    PROTECTION_START = 'protection_start'
+    PROTECTION_COMMAND = 'protection_command'
+    STATUS = 'status'
+
+
+class CommandType(enum.Enum):
+    SINGLE = 'single'
+    DOUBLE = 'double'
+    REGULATING = 'regulating'
+    NORMALIZED = 'normalized'
+    SCALED = 'scaled'
+    FLOATING = 'floating'
+    BITSTRING = 'bitstring'
+
+
+def create_ssl_ctx(conf: json.Data,
+                   protocol: SslProtocol
+                   ) -> ssl.SSLContext:
+    ctx = ssl.SSLContext(protocol.value)
+    ctx.check_hostname = False
+
+    if conf['verify_cert']:
+        ctx.verify_mode = ssl.VerifyMode.CERT_REQUIRED
+        ctx.load_default_certs()
+        if conf['ca_path']:
+            ctx.load_verify_locations(cafile=conf['ca_path'])
+
+    else:
+        ctx.verify_mode = ssl.VerifyMode.CERT_NONE
+
+    ctx.load_cert_chain(certfile=conf['cert_path'],
+                        keyfile=conf['key_path'])
+
+    return ctx
+
+
+def data_to_json(data: iec104.Data) -> json.Data:
+    pass
+
+
+def data_from_json(data: json.Data) -> iec104.Data:
+    pass
+
+
+def command_to_json(cmd: iec104.Command) -> json.Data:
+    pass
+
+
+def command_from_json(cmd_type: CommandType,
+                      cmd: json.Data
+                      ) -> iec104.Command:
+    pass
+
+
+def time_to_source_timestamp(t: typing.Optional[iec104.Time]
+                             ) -> typing.Optional[hat.event.common.Timestamp]:
+    pass
+
+
+def time_from_source_timestamp(t: typing.Optional[hat.event.common.Timestamp],
+                               ) -> typing.Optional[iec104.Time]:
+    pass
+
+
+def get_data_type(data: iec104.Data) -> DataType:
+    pass
+
+
+def get_command_type(cmd: iec104.Command) -> CommandType:
+    pass
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def msg_to_event(msg, event_type_prefix, device):

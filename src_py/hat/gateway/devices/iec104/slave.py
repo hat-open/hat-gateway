@@ -50,6 +50,7 @@ async def create(conf: common.DeviceConf,
                 ssl_ctx.load_verify_locations(cafile=conf_secure['ca_path'])
         ssl_ctx.load_cert_chain(certfile=conf_secure['cert_path'],
                                 keyfile=conf_secure['key_path'] or None)
+
     srv = await apci.listen(
         connection_cb=device._on_connection,
         addr=tcp.Address(host=conf['local_host'],
