@@ -3,7 +3,7 @@ import ssl
 import typing
 
 from hat import json
-from hat.drivers.iec60870 import iec104
+from hat.drivers import iec104
 import hat.event.common
 
 from hat.gateway.common import *  # NOQA
@@ -39,6 +39,18 @@ class CommandType(enum.Enum):
     BITSTRING = 'bitstring'
 
 
+class DataKey(typing.NamedTuple):
+    data_type: DataType
+    asdu_address: iec104.AsduAddress
+    io_address: iec104.IoAddress
+
+
+class CommandKey(typing.NamedTuple):
+    cmd_type: CommandType
+    asdu_address: iec104.AsduAddress
+    io_address: iec104.IoAddress
+
+
 def create_ssl_ctx(conf: json.Data,
                    protocol: SslProtocol
                    ) -> ssl.SSLContext:
@@ -64,7 +76,8 @@ def data_to_json(data: iec104.Data) -> json.Data:
     pass
 
 
-def data_from_json(data: json.Data) -> iec104.Data:
+def data_from_json(data_type: DataType,
+                   data: json.Data) -> iec104.Data:
     pass
 
 

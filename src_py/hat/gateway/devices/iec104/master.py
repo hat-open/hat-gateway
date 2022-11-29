@@ -4,6 +4,7 @@ import asyncio
 import collections
 import contextlib
 import datetime
+import enum
 import logging
 
 from hat import aio
@@ -169,7 +170,7 @@ class Iec104MasterDevice(common.Device):
             mlog.debug('connection closed')
 
         except Exception as e:
-            mlog.error('event loop error: %s', e, exc_info=e)
+            mlog.error('receive loop error: %s', e, exc_info=e)
 
         finally:
             mlog.debug('closing receive loop')
@@ -212,6 +213,7 @@ class Iec104MasterDevice(common.Device):
             payload=hat.event.common.EventPayload(
                 type=hat.event.common.EventPayloadType.JSON,
                 data=status))
+
         self._event_client.register([event])
         mlog.debug('registered status %s', status)
 
@@ -242,18 +244,19 @@ def _data_to_event(event_type_prefix, msg):
     source_timestamp = common.time_to_source_timestamp(msg.time)
 
     return hat.event.common.RegisterEvent(
-            event_type=event_type,
-            source_timestamp=source_timestamp,
-            payload=hat.event.common.EventPayload(
-                type=hat.event.common.EventPayloadType.JSON,
-                data={'is_test': msg.is_test,
-                      'cause': cause,
-                      'data': data}))
+        event_type=event_type,
+        source_timestamp=source_timestamp,
+        payload=hat.event.common.EventPayload(
+            type=hat.event.common.EventPayloadType.JSON,
+            data={'is_test': msg.is_test,
+                  'cause': cause,
+                  'data': data}))
 
 
 def _command_to_event(event_type_prefix, msg):
     command_type = common.get_command_type(msg.command)
     cause = (msg.cause.name if isinstance(msg.cause, iec104.CommandResCause)
+             else msg.cause.value if isinstance(msg.cause, enum.Enum)
              else msg.cause)
     command = common.command_to_json(msg.command)
     event_type = (*event_type_prefix, 'gateway', 'command', command_type.value,
@@ -261,59 +264,60 @@ def _command_to_event(event_type_prefix, msg):
     source_timestamp = common.time_to_source_timestamp(msg.time)
 
     return hat.event.common.RegisterEvent(
-            event_type=event_type,
-            source_timestamp=source_timestamp,
-            payload=hat.event.common.EventPayload(
-                type=hat.event.common.EventPayloadType.JSON,
-                data={'is_test': msg.is_test,
-                      'is_negative_confirm': msg.is_negative_confirm,
-                      'cause': cause,
-                      'command': command}))
+        event_type=event_type,
+        source_timestamp=source_timestamp,
+        payload=hat.event.common.EventPayload(
+            type=hat.event.common.EventPayloadType.JSON,
+            data={'is_test': msg.is_test,
+                  'is_negative_confirm': msg.is_negative_confirm,
+                  'cause': cause,
+                  'command': command}))
 
 
 def _interrogation_to_event(event_type_prefix, msg):
     cause = (msg.cause.name if isinstance(msg.cause, iec104.CommandResCause)
+             else msg.cause.value if isinstance(msg.cause, enum.Enum)
              else msg.cause)
     event_type = (*event_type_prefix, 'gateway', 'interrogation',
                   str(msg.asdu_address))
 
     return hat.event.common.RegisterEvent(
-            event_type=event_type,
-            source_timestamp=None,
-            payload=hat.event.common.EventPayload(
-                type=hat.event.common.EventPayloadType.JSON,
-                data={'is_test': msg.is_test,
-                      'request': msg.request,
-                      'cause': cause}))
+        event_type=event_type,
+        source_timestamp=None,
+        payload=hat.event.common.EventPayload(
+            type=hat.event.common.EventPayloadType.JSON,
+            data={'is_test': msg.is_test,
+                  'request': msg.request,
+                  'cause': cause}))
 
 
 def _counter_interrogation_to_event(event_type_prefix, msg):
     cause = (msg.cause.name if isinstance(msg.cause, iec104.CommandResCause)
+             else msg.cause.value if isinstance(msg.cause, enum.Enum)
              else msg.cause)
     event_type = (*event_type_prefix, 'gateway', 'counter_interrogation',
                   str(msg.asdu_address))
 
     return hat.event.common.RegisterEvent(
-            event_type=event_type,
-            source_timestamp=None,
-            payload=hat.event.common.EventPayload(
-                type=hat.event.common.EventPayloadType.JSON,
-                data={'is_test': msg.is_test,
-                      'request': msg.request,
-                      'freeze': msg.freeze.name,
-                      'cause': cause}))
+        event_type=event_type,
+        source_timestamp=None,
+        payload=hat.event.common.EventPayload(
+            type=hat.event.common.EventPayloadType.JSON,
+            data={'is_test': msg.is_test,
+                  'request': msg.request,
+                  'freeze': msg.freeze.name,
+                  'cause': cause}))
 
 
 def _msg_from_event(event_type_prefix, event):
     suffix = event.event_type[len(event_type_prefix):]
 
     if suffix[:2] == ('system', 'command'):
-        command_type_str, asdu_address_str, io_address_str = suffix[2:]
-        command_type = common.CommandType(command_type_str)
-        asdu_address = int(asdu_address_str)
-        io_address = int(io_address_str)
-        return _command_from_event(command_type, asdu_address, io_address,
-                                   event)
+        cmd_type_str, asdu_address_str, io_address_str = suffix[2:]
+        cmd_key = common.CommandKey(cmd_key=common.CommandType(cmd_type_str),
+                                    asdu_address=int(asdu_address_str),
+                                    io_address=int(io_address_str))
+        return _command_from_event(cmd_key, event)
 
     if suffix[:2] == ('system', 'interrogation'):
         asdu_address = int(suffix[2])
@@ -326,18 +330,18 @@ def _msg_from_event(event_type_prefix, event):
     raise Exception('unsupported event type')
 
 
-def _command_from_event(command_type, asdu_address, io_address, event):
+def _command_from_event(cmd_key, event):
     time = common.time_from_source_timestamp(event.source_timestamp)
     cause = (iec104.CommandReqCause[event.payload.data['cause']]
              if isinstance(event.payload.data['cause'], str)
              else event.payload.data['cause'])
-    command = common.command_from_json(command_type,
+    command = common.command_from_json(cmd_key.cmd_type,
                                        event.payload.data['command'])
 
     return iec104.CommandMsg(is_test=event.payload.data['is_test'],
                              originator_address=0,
-                             asdu_address=asdu_address,
-                             io_address=io_address,
+                             asdu_address=cmd_key.asdu_address,
+                             io_address=cmd_key.io_address,
                              command=command,
                              is_negative_confirm=False,
                              time=time,
