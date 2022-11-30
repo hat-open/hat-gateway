@@ -85,6 +85,9 @@ class Iec104MasterDevice(common.Device):
                 self._register_status('DISCONNECTED')
                 self._conn = None
 
+        except ConnectionError:
+            pass
+
         except Exception as e:
             mlog.error('connection loop error: %s', e, exc_info=e)
 
@@ -123,7 +126,7 @@ class Iec104MasterDevice(common.Device):
                                  len(msgs))
 
                 try:
-                    self._conn.send(list(msg))
+                    self._conn.send(list(msgs))
                     mlog.debug('%s messages sent', len(msg))
 
                 except ConnectionError as e:
@@ -238,6 +241,8 @@ def _data_to_event(event_type_prefix, msg):
     data_type = common.get_data_type(msg.data)
     cause = (msg.cause.name if isinstance(msg.cause, iec104.DataResCause)
              else msg.cause)
+    if isinstance(cause, str) and cause.startswith('INTERROGATED_'):
+        cause = 'INTERROGATED'
     data = common.data_to_json(msg.data)
     event_type = (*event_type_prefix, 'gateway', 'data', data_type.value,
                   str(msg.asdu_address), str(msg.io_address))
@@ -287,6 +292,7 @@ def _interrogation_to_event(event_type_prefix, msg):
         payload=hat.event.common.EventPayload(
             type=hat.event.common.EventPayloadType.JSON,
             data={'is_test': msg.is_test,
+                  'is_negative_confirm': msg.is_negative_confirm,
                   'request': msg.request,
                   'cause': cause}))
 
@@ -304,6 +310,7 @@ def _counter_interrogation_to_event(event_type_prefix, msg):
         payload=hat.event.common.EventPayload(
             type=hat.event.common.EventPayloadType.JSON,
             data={'is_test': msg.is_test,
+                  'is_negative_confirm': msg.is_negative_confirm,
                   'request': msg.request,
                   'freeze': msg.freeze.name,
                   'cause': cause}))
@@ -314,7 +321,7 @@ def _msg_from_event(event_type_prefix, event):
 
     if suffix[:2] == ('system', 'command'):
         cmd_type_str, asdu_address_str, io_address_str = suffix[2:]
-        cmd_key = common.CommandKey(cmd_key=common.CommandType(cmd_type_str),
+        cmd_key = common.CommandKey(cmd_type=common.CommandType(cmd_type_str),
                                     asdu_address=int(asdu_address_str),
                                     io_address=int(io_address_str))
         return _command_from_event(cmd_key, event)

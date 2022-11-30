@@ -407,7 +407,7 @@ def _value_from_json(data_cmd_type, value):
 
     if data_cmd_type == DataType.STATUS:
         return iec104.StatusValue(value=value['value'],
-                                  value=value['change'])
+                                  change=value['change'])
 
     raise ValueError('unsupported data or command type')
 
