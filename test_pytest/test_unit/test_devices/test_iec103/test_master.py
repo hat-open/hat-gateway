@@ -8,10 +8,10 @@ import pytest
 
 from hat import aio
 from hat import util
+from hat.drivers import iec103
 from hat.drivers import serial
-from hat.drivers.iec60870 import app
-from hat.drivers.iec60870 import iec103
 from hat.drivers.iec60870 import link
+from hat.drivers.iec60870 import msgs as app
 from hat.gateway import common
 from hat.gateway.devices.iec103 import master
 import hat.event.common

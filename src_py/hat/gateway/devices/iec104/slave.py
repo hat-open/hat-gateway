@@ -3,6 +3,7 @@
 import collections
 import contextlib
 import enum
+import functools
 import itertools
 import logging
 
@@ -32,7 +33,8 @@ async def create(conf: common.DeviceConf,
     device._event_type_prefix = event_type_prefix
     device._next_conn_ids = itertools.count(1)
     device._conns = {}
-    device._remote_hosts = set(conf['remote_hosts'])
+    device._remote_hosts = (set(conf['remote_hosts'])
+                            if conf['remote_hosts'] is not None else None)
 
     device._buffers = {}
     for buffer in conf['buffers']:
@@ -46,7 +48,7 @@ async def create(conf: common.DeviceConf,
                                   io_address=data['io_address'])
         device._data_msgs[data_key] = None
         if data['buffer']:
-            device._data_buffers = device._buffers[data['buffer']]
+            device._data_buffers[data_key] = device._buffers[data['buffer']]
 
     events = await event_client.query(hat.event.common.QueryData(
         event_types=[(*event_type_prefix, 'system', 'data', '*')],
@@ -110,21 +112,21 @@ class Iec104SlaveDevice(common.Device):
             self._conns[conn_id] = conn
             self._register_connections()
 
-            for buffer in self._buffers.values():
-                for event_id, data_msg in buffer.get_event_id_data_msgs():
-                    self._send_data_msg(conn, buffer, event_id, data_msg)
+            enabled_cb = functools.partial(self._on_enabled, conn)
+            with conn.register_enabled_cb(enabled_cb):
+                enabled_cb(conn.is_enabled)
 
-            while True:
-                msgs = await conn.receive()
+                while True:
+                    msgs = await conn.receive()
 
-                for msg in msgs:
-                    try:
-                        mlog.debug('received message: %s', msg)
-                        await self._process_msg(conn_id, conn, msg)
+                    for msg in msgs:
+                        try:
+                            mlog.debug('received message: %s', msg)
+                            await self._process_msg(conn_id, conn, msg)
 
-                    except Exception as e:
-                        mlog.warning('error processing message: %s',
-                                     e, exc_info=e)
+                        except Exception as e:
+                            mlog.warning('error processing message: %s',
+                                         e, exc_info=e)
 
         except ConnectionError:
             mlog.debug('connection close')
@@ -139,6 +141,15 @@ class Iec104SlaveDevice(common.Device):
             with contextlib.suppress(Exception):
                 self._conns.pop(conn_id)
                 self._register_connections()
+
+    def _on_enabled(self, conn, enabled):
+        if not enabled:
+            return
+
+        with contextlib.suppress(Exception):
+            for buffer in self._buffers.values():
+                for event_id, data_msg in buffer.get_event_id_data_msgs():
+                    self._send_data_msg(conn, buffer, event_id, data_msg)
 
     async def _event_loop(self):
         try:
@@ -195,7 +206,7 @@ class Iec104SlaveDevice(common.Device):
         elif suffix[:2] == ('system', 'command'):
             cmd_type_str, asdu_address_str, io_address_str = suffix[2:]
             cmd_key = common.CommandKey(
-                cmd_key=common.CommandType(cmd_type_str),
+                cmd_type=common.CommandType(cmd_type_str),
                 asdu_address=int(asdu_address_str),
                 io_address=int(io_address_str))
 
@@ -209,7 +220,7 @@ class Iec104SlaveDevice(common.Device):
             raise Exception('data not configured')
 
         data_msg = _data_msg_from_event(data_key, event)
-        self._data[data_key] = data_msg
+        self._data_msgs[data_key] = data_msg
 
         buffer = self._data_buffers.get(data_key)
         if buffer:
@@ -309,7 +320,7 @@ class Iec104SlaveDevice(common.Device):
             data_msgs = [
                 data_msg._replace(
                     is_test=msg.is_test,
-                    cause=iec104.DataResCause.INTERROGATED_STATION)
+                    cause=iec104.DataResCause.INTERROGATED_COUNTER)
                 for data_msg in self._data_msgs.values()
                 if (data_msg and
                     (msg.asdu_address == 0xFFFF or
@@ -428,9 +439,14 @@ def _cmd_msg_to_event(event_type_prefix, conn_id, msg):
 
 def _data_msg_from_event(data_key, event):
     time = common.time_from_source_timestamp(event.source_timestamp)
-    cause = (iec104.DataResCause[event.payload.data['cause']]
-             if isinstance(event.payload.data['cause'], str)
-             else event.payload.data['cause'])
+    if event.payload.data['cause'] == 'INTERROGATED':
+        cause = (iec104.DataResCause.INTERROGATED_STATION
+                 if data_key.data_type != common.DataType.BINARY_COUNTER
+                 else iec104.DataResCause.INTERROGATED_COUNTER)
+    elif isinstance(event.payload.data['cause'], str):
+        cause = iec104.DataResCause[event.payload.data['cause']]
+    else:
+        cause = event.payload.data['cause']
     data = common.data_from_json(data_key.data_type,
                                  event.payload.data['data'])
 
