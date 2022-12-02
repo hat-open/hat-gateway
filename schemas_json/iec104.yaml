@@ -53,6 +53,7 @@ definitions:
             - local_host
             - local_port
             - remote_hosts
+            - max_connections
             - response_timeout
             - supervisory_timeout
             - test_timeout
@@ -74,6 +75,10 @@ definitions:
                     if null, all remote hosts are allowed
                 items:
                     type: string
+            max_connections:
+                type:
+                    - "null"
+                    - integer
             response_timeout:
                 type: number
             supervisory_timeout:

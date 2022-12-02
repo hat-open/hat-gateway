@@ -31,6 +31,7 @@ async def create(conf: common.DeviceConf,
     device = Iec104SlaveDevice()
     device._event_client = event_client
     device._event_type_prefix = event_type_prefix
+    device._max_connections = conf['max_connections']
     device._next_conn_ids = itertools.count(1)
     device._conns = {}
     device._remote_hosts = (set(conf['remote_hosts'])
@@ -101,6 +102,12 @@ class Iec104SlaveDevice(common.Device):
         return self._srv.async_group
 
     async def _on_connection(self, conn):
+        if (self._max_connections is not None and
+                len(self._conns) >= self._max_connections):
+            mlog.info('max connections exceeded - rejecting connection')
+            conn.close()
+            return
+
         conn_id = next(self._next_conn_ids)
 
         try:

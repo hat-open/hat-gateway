@@ -251,6 +251,7 @@ def port():
 def create_conf(port):
 
     def create_conf(remote_hosts=None,
+                    max_connections=None,
                     response_timeout=0.1,
                     supervisory_timeout=10,
                     test_timeout=20,
@@ -262,6 +263,7 @@ def create_conf(port):
         return {'local_host': '127.0.0.1',
                 'local_port': port,
                 'remote_hosts': remote_hosts,
+                'max_connections': max_connections,
                 'response_timeout': response_timeout,
                 'supervisory_timeout': supervisory_timeout,
                 'test_timeout': test_timeout,
