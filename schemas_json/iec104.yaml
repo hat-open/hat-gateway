@@ -256,7 +256,7 @@ definitions:
                     is_test:
                         type: boolean
                     cause:
-                        "$ref": "hat-gateway://iec104.yaml#/definitions/causes/command/res"
+                        "$ref": "hat-gateway://iec104.yaml#/definitions/causes/command/req"
                     command:
                         oneOf:
                             - "$ref": "hat-gateway://iec104.yaml#/definitions/commands/single"
