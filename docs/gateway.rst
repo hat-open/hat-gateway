@@ -160,4 +160,4 @@ Implementation
 
 Documentation is available as part of generated API reference:
 
-    * `Python hat.gateway module <py_api/hat/gateway/index.html>`_
+    * `Python hat.gateway module <py_api/hat/gateway.html>`_
