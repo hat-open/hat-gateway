@@ -132,6 +132,7 @@ class Iec101MasterDevice(common.Device):
                 continue
             try:
                 await conn.send([msg])
+                mlog.debug('msg sent asdu=%s', msg.asdu_address)
             except ConnectionError:
                 mlog.warning('msg %s not sent, connection to %s closed',
                              msg, address)
@@ -196,6 +197,8 @@ class Iec101MasterDevice(common.Device):
                         events.append(event)
                 if events:
                     self._event_client.register(events)
+                    for e in events:
+                        mlog.debug('registered event %s', e)
         except ConnectionError:
             mlog.debug('connection closed')
         finally:
@@ -235,12 +238,15 @@ class Iec101MasterDevice(common.Device):
             command_type = etype_suffix[1]
             asdu = int(etype_suffix[2])
             io = int(etype_suffix[3])
+            mlog.debug('received command req event asdu=%s io=%s', asdu, io)
             self._process_command(event, address, command_type, asdu, io)
         elif etype_suffix[0] == 'interrogation':
             asdu = int(etype_suffix[1])
+            mlog.debug('received interrogation event asdu=%s', asdu)
             self._process_interrogation(event, address, asdu, is_counter=False)
         elif etype_suffix[0] == 'counter_interrogation':
             asdu = int(etype_suffix[1])
+            mlog.debug('received counter interrogation event asdu=%s', asdu)
             self._process_interrogation(event, address, asdu, is_counter=True)
         else:
             raise Exception('unexpected event type')
@@ -263,14 +269,17 @@ class Iec101MasterDevice(common.Device):
             self._enable_remote(address)
 
     def _enable_remote(self, address):
+        mlog.debug('enabling device %s', address)
         remote_group = self._remote_groups.get(address)
         if remote_group and remote_group.is_open:
+            mlog.debug('device %s is already running', address)
             return
         remote_group = self._async_group.create_subgroup()
         self._remote_groups[address] = remote_group
         remote_group.spawn(self._connection_loop, remote_group, address)
 
     def _disable_remote(self, address):
+        mlog.debug('disabling device %s', address)
         if address in self._remote_groups:
             remote_group = self._remote_groups.pop(address)
             remote_group.close()
@@ -289,6 +298,7 @@ class Iec101MasterDevice(common.Device):
             is_negative_confirm=False,
             cause=cause)
         self._send_queue.put_nowait((msg, address))
+        mlog.debug('command asdu=%s io=%s prepared for sending', asdu, io)
 
     def _process_interrogation(self, event, address, asdu, is_counter):
         cause = iec101.CommandReqCause.ACTIVATION
@@ -311,6 +321,7 @@ class Iec101MasterDevice(common.Device):
                 is_negative_confirm=False,
                 cause=cause)
         self._send_queue.put_nowait((msg, address))
+        mlog.debug("interrogation request asdu=%s prepared for sending", asdu)
 
     def _register_status(self, status):
         event = hat.event.common.RegisterEvent(
@@ -320,6 +331,7 @@ class Iec101MasterDevice(common.Device):
                 type=hat.event.common.EventPayloadType.JSON,
                 data=status))
         self._event_client.register([event])
+        mlog.debug('device status -> %s', status)
 
     def _register_rmt_status(self, address, status):
         event = hat.event.common.RegisterEvent(
@@ -330,6 +342,7 @@ class Iec101MasterDevice(common.Device):
                 type=hat.event.common.EventPayloadType.JSON,
                 data=status))
         self._event_client.register([event])
+        mlog.debug('remote device %s status -> %s', address, status)
 
 
 def _msg_to_event(msg, event_type_prefix, address):
@@ -338,17 +351,25 @@ def _msg_to_event(msg, event_type_prefix, address):
                                         iec101.CounterInterrogationMsg)):
         mlog.warning('received test response %s', msg)
     if isinstance(msg, iec101.DataMsg):
+        mlog.debug('received data msg asdu=%s io=%s',
+                   msg.asdu_address, msg.io_address)
         return _data_msg_to_event(msg, event_type_prefix, address)
     elif isinstance(msg, iec101.CommandMsg):
+        mlog.debug('received command resp msg asdu=%s io=%s',
+                   msg.asdu_address, msg.io_address)
         return _command_msg_to_event(msg, event_type_prefix, address)
     elif isinstance(msg, iec101.InterrogationMsg):
+        mlog.debug('received interrogation resp msg asdu=%s', msg.asdu_address)
         return _interrogation_msg_to_event(
             msg, event_type_prefix, address, is_counter=False)
     elif isinstance(msg, iec101.CounterInterrogationMsg):
+        mlog.debug('received counter interrogation resp msg asdu=%s',
+                   msg.asdu_address)
         return _interrogation_msg_to_event(
             msg, event_type_prefix, address, is_counter=True)
     elif (isinstance(msg, iec101.ClockSyncMsg) and
           msg.cause == iec101.ClockSyncResCause.ACTIVATION_CONFIRMATION):
+        mlog.debug('received clock sync message response')
         if msg.is_negative_confirm:
             mlog.warning(
                 'received negative confirmation on clock sync: %s', msg)
