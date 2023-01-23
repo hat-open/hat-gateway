@@ -82,7 +82,8 @@ class Connection(aio.Resource):
 
     async def receive(self):
         asdu_bytes = await self._conn.receive()
-        return self._encoder.decode_asdu(asdu_bytes)
+        asdu, _ = self._encoder.decode_asdu(asdu_bytes)
+        return asdu
 
 
 def get_conf(remote_addresses=[],
