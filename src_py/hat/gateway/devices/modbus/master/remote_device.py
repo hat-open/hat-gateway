@@ -353,11 +353,18 @@ class _Reader(aio.Resource):
         if self._status == status:
             return
 
-        mlog.debug('changing remote device status: %s -> %s', self._status,
-                   status)
-        self._status = status
-        self._response_cb(RemoteDeviceStatusRes(device_id=self._device_id,
-                                                status=status))
+        if self._status == 'CONNECTED' and status == 'CONNECTING':
+            statuses = ['DISCONNECTED', status]
+
+        else:
+            statuses = [status]
+
+        for status in statuses:
+            mlog.debug('changing remote device status: %s -> %s',
+                       self._status, status)
+            self._status = status
+            self._response_cb(RemoteDeviceStatusRes(device_id=self._device_id,
+                                                    status=status))
 
 
 def _get_register_size(data_type):

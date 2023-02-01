@@ -94,8 +94,13 @@ is calculated according to availability of data associated with that
 
     * ``CONNECTED``
 
-        Data polling is enabled or and all data read responses have been
+        Data polling is enabled and all data read responses have been
         received.
+
+    * ``DISCONNECTED``
+
+        Transitive status signaling transition from ``CONNECTED`` to
+        ``CONNECTING``.
 
 Polling of data values can be enabled/disabled based on `device_id`. Initially,
 polling for all remote devices is disabled and has to be explicitly enabled.
