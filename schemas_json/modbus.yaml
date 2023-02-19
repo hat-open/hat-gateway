@@ -18,6 +18,7 @@ definitions:
                     - connect_timeout
                     - connect_delay
                     - request_timeout
+                    - request_delay
                     - request_retry_count
                     - request_retry_delay
                 properties:
@@ -130,6 +131,11 @@ definitions:
                         description: |
                             Maximum duration (in seconds) of read or write
                             request/response exchange.
+                    request_delay:
+                        type: number
+                        description: |
+                            Delay (in seconds) between two consecutive requests
+                            (minimal duration between response and next request)
                     request_retry_count:
                         type: integer
                         description: |

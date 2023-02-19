@@ -1,6 +1,7 @@
 import asyncio
 import enum
 import logging
+import time
 import typing
 
 from hat import json
@@ -106,12 +107,18 @@ class Connection(aio.Resource):
 
     async def _request_loop(self):
         future = None
+        result_t = None
 
         try:
             mlog.debug('starting request loop')
             while True:
                 fn, args, count, future = await self._request_queue.get()
                 mlog.debug('dequed request')
+
+                if result_t is not None and self._conf['request_delay'] > 0:
+                    dt = time.monotonic() - result_t
+                    if dt < self._conf['request_delay']:
+                        await asyncio.sleep(self._conf['request_delay'] - dt)
 
                 if future.done():
                     continue
@@ -120,6 +127,7 @@ class Connection(aio.Resource):
                     count -= 1
                     result = await aio.wait_for(fn(*args),
                                                 self._conf['request_timeout'])
+                    result_t = time.monotonic()
 
                     mlog.debug('received result %s', result)
                     if isinstance(result, modbus.Error):
