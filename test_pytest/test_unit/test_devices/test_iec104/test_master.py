@@ -2,6 +2,7 @@ import datetime
 import itertools
 import math
 import ssl
+import subprocess
 
 import pytest
 
@@ -12,7 +13,6 @@ from hat.drivers import tcp
 from hat.gateway.devices.iec104 import common
 from hat.gateway.devices.iec104 import master
 import hat.event.common
-import pem
 
 
 gateway_name = 'gateway_name'
@@ -223,7 +223,13 @@ async def wait_connected_event(event_client):
 @pytest.fixture
 def pem_path(tmp_path):
     path = tmp_path / 'pem'
-    pem.create_pem_file(path)
+    subprocess.run(['openssl', 'req', '-batch', '-x509', '-noenc',
+                    '-newkey', 'rsa:2048',
+                    '-days', '1',
+                    '-keyout', str(path),
+                    '-out', str(path)],
+                   stderr=subprocess.DEVNULL,
+                   check=True)
     return path
 
 
