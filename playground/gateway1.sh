@@ -18,7 +18,7 @@ log:
             formatter: console_formatter
             level: DEBUG
     loggers:
-        hat:
+        hat.gateway:
             level: $LOG_LEVEL
     root:
         level: INFO

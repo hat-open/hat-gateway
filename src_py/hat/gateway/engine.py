@@ -8,7 +8,7 @@ import logging
 from hat import aio
 from hat import json
 from hat.gateway import common
-import hat.event.eventer_client
+import hat.event.eventer
 import hat.event.common
 
 
@@ -17,7 +17,7 @@ mlog: logging.Logger = logging.getLogger(__name__)
 
 
 async def create_engine(conf: json.Data,
-                        client: hat.event.eventer_client.EventerClient
+                        client: hat.event.eventer.Client
                         ) -> 'Engine':
     """Create gateway engine"""
     engine = Engine()
