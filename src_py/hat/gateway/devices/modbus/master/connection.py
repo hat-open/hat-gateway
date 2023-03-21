@@ -31,8 +31,10 @@ async def connect(conf: json.Data) -> 'Connection':
 
     if transport_conf['type'] == 'TCP':
         addr = tcp.Address(transport_conf['host'], transport_conf['port'])
-        master = await modbus.create_tcp_master(modbus_type=modbus_type,
-                                                addr=addr)
+        master = await modbus.create_tcp_master(
+            modbus_type=modbus_type,
+            addr=addr,
+            response_timeout=conf['request_timeout'])
 
     elif transport_conf['type'] == 'SERIAL':
         port = transport_conf['port']
@@ -54,7 +56,8 @@ async def connect(conf: json.Data) -> 'Connection':
             xonxoff=xonxoff,
             rtscts=rtscts,
             dsrdtr=dsrdtr,
-            silent_interval=silent_interval)
+            silent_interval=silent_interval,
+            response_timeout=conf['request_timeout'])
 
     else:
         raise ValueError('unsupported link type')
@@ -125,8 +128,7 @@ class Connection(aio.Resource):
 
                 try:
                     count -= 1
-                    result = await aio.wait_for(fn(*args),
-                                                self._conf['request_timeout'])
+                    result = await fn(*args)
                     result_t = time.monotonic()
 
                     mlog.debug('received result %s', result)
@@ -137,7 +139,7 @@ class Connection(aio.Resource):
                         mlog.debug('setting request result')
                         future.set_result(result)
 
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     mlog.debug('single request timeout')
 
                     if count > 0:
@@ -166,12 +168,13 @@ class Connection(aio.Resource):
             mlog.debug('closing request loop')
             self.close()
             self._request_queue.close()
-            if future and not future.done():
-                future.set_exception(ConnectionError())
-            while not self._request_queue.empty():
-                _, __, ___, future = self._request_queue.get_nowait()
-                if not future.done():
+
+            while True:
+                if future and not future.done():
                     future.set_exception(ConnectionError())
+                if self._request_queue.empty():
+                    break
+                _, __, ___, future = self._request_queue.get_nowait()
 
     async def _request(self, fn, *args):
         try:
