@@ -55,8 +55,8 @@ def create_ssl_ctx(conf: json.Data,
         protocol=protocol,
         verify_cert=conf['verify_cert'],
         cert_path=(Path(conf['cert_path']) if conf['cert_path'] else None),
-        cert_path=(Path(conf['key_path']) if conf['key_path'] else None),
-        cert_path=(Path(conf['ca_path']) if conf['ca_path'] else None))
+        key_path=(Path(conf['key_path']) if conf['key_path'] else None),
+        ca_path=(Path(conf['ca_path']) if conf['ca_path'] else None))
 
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     ctx.set_ciphers('AES128-SHA256:'
