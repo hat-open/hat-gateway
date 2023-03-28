@@ -1,17 +1,14 @@
+from hat.gateway.common import *  # NOQA
+
+from pathlib import Path
 import enum
 import ssl
 import typing
 
 from hat import json
 from hat.drivers import iec104
+from hat.drivers import tcp
 import hat.event.common
-
-from hat.gateway.common import *  # NOQA
-
-
-class SslProtocol(enum.Enum):
-    TLS_CLIENT = ssl.PROTOCOL_TLS_CLIENT
-    TLS_SERVER = ssl.PROTOCOL_TLS_SERVER
 
 
 class DataType(enum.Enum):
@@ -52,22 +49,25 @@ class CommandKey(typing.NamedTuple):
 
 
 def create_ssl_ctx(conf: json.Data,
-                   protocol: SslProtocol
+                   protocol: tcp.SslProtocol
                    ) -> ssl.SSLContext:
-    ctx = ssl.SSLContext(protocol.value)
-    ctx.check_hostname = False
+    ctx = tcp.create_ssl_ctx(
+        protocol=protocol,
+        verify_cert=conf['verify_cert'],
+        cert_path=(Path(conf['cert_path']) if conf['cert_path'] else None),
+        cert_path=(Path(conf['key_path']) if conf['key_path'] else None),
+        cert_path=(Path(conf['ca_path']) if conf['ca_path'] else None))
 
-    if conf['verify_cert']:
-        ctx.verify_mode = ssl.VerifyMode.CERT_REQUIRED
-        ctx.load_default_certs()
-        if conf['ca_path']:
-            ctx.load_verify_locations(cafile=conf['ca_path'])
-
-    else:
-        ctx.verify_mode = ssl.VerifyMode.CERT_NONE
-
-    ctx.load_cert_chain(certfile=conf['cert_path'],
-                        keyfile=conf['key_path'])
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    ctx.set_ciphers('AES128-SHA256:'
+                    'DH-RSA-AES128-SHA256:'
+                    'DH-RSA-AES128-GCM-SHA256:'
+                    'DHE-RSA-AES128-GCM-SHA256:'
+                    'DH-RSA-AES128-GCM-SHA256:'
+                    'ECDHE-RSA-AES128-GCM-SHA256:'
+                    'ECDHE-RSA-AES256-GCM-SHA384:'
+                    'TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:'
+                    'TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384')
 
     return ctx
 

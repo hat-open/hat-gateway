@@ -70,7 +70,7 @@ async def create(conf: common.DeviceConf,
             mlog.debug('skipping initial data: %s', e, exc_info=e)
 
     ssl_ctx = (common.create_ssl_ctx(conf['security'],
-                                     common.SslProtocol.TLS_SERVER)
+                                     tcp.SslProtocol.TLS_SERVER)
                if conf['security'] else None)
 
     device._srv = await iec104.listen(

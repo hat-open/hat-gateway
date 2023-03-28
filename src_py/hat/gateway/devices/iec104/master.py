@@ -35,7 +35,7 @@ async def create(conf: common.DeviceConf,
     device._async_group = aio.Group()
 
     ssl_ctx = (common.create_ssl_ctx(conf['security'],
-                                     common.SslProtocol.TLS_CLIENT)
+                                     tcp.SslProtocol.TLS_CLIENT)
                if conf['security'] else None)
 
     device.async_group.spawn(device._connection_loop, conf, ssl_ctx)
