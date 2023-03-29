@@ -7,12 +7,16 @@ import datetime
 import enum
 import logging
 
+import cryptography.x509
+import cryptography.hazmat.primitives.asymmetric.rsa
+
 from hat import aio
 from hat import json
 from hat.drivers import iec104
 from hat.drivers import tcp
-from hat.gateway.devices.iec104 import common
 import hat.event.common
+
+from hat.gateway.devices.iec104 import common
 
 
 mlog: logging.Logger = logging.getLogger(__name__)
@@ -65,10 +69,22 @@ class Iec104MasterDevice(common.Device):
                             send_window_size=conf['send_window_size'],
                             receive_window_size=conf['receive_window_size'],
                             ssl_ctx=ssl_ctx)
+
+                        if self._conn.conn.ssl_object:
+                            try:
+                                _check_ssl_object(self._conn.conn.ssl_object)
+
+                            except BaseException:
+                                await aio.uncancellable(
+                                    self._conn.async_close())
+                                raise
+
+                            mlog.info('TLS session successfully established')
+
                         break
 
                     except Exception as e:
-                        mlog.warning('connection failed %s', e, exc_info=e)
+                        mlog.warning('connection failed: %s', e, exc_info=e)
 
                 else:
                     self._register_status('DISCONNECTED')
@@ -219,6 +235,22 @@ class Iec104MasterDevice(common.Device):
 
         self._event_client.register([event])
         mlog.debug('registered status %s', status)
+
+
+def _check_ssl_object(ssl_object):
+    cert_bytes = ssl_object.getpeercert(True)
+    if len(cert_bytes) > 8192:
+        mlog.warning('TLS certificate size exceeded')
+
+    cert = cryptography.x509.load_der_x509_certificate(cert_bytes)
+    key = cert.public_key()
+
+    if isinstance(key, cryptography.hazmat.primitives.asymmetric.rsa.RSAPublicKey):  # NOQA
+        if key.key_size < 2048:
+            raise Exception('insufficient RSA key length')
+
+        if key.key_size > 8192:
+            mlog.warning('RSA key length greater than 8192')
 
 
 def _msg_to_event(event_type_prefix, msg):

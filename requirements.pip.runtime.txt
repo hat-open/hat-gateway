@@ -1,4 +1,5 @@
 appdirs ~= 1.4.4
+cryptography >= 3.3.2
 hat-aio ~= 0.7.5
 hat-drivers ~= 0.6.16
 hat-event ~= 0.8.3
