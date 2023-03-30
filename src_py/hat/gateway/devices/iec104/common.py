@@ -1,13 +1,10 @@
 from hat.gateway.common import *  # NOQA
 
-from pathlib import Path
 import enum
-import ssl
 import typing
 
 from hat import json
 from hat.drivers import iec104
-from hat.drivers import tcp
 import hat.event.common
 
 
@@ -46,30 +43,6 @@ class CommandKey(typing.NamedTuple):
     cmd_type: CommandType
     asdu_address: iec104.AsduAddress
     io_address: iec104.IoAddress
-
-
-def create_ssl_ctx(conf: json.Data,
-                   protocol: tcp.SslProtocol
-                   ) -> ssl.SSLContext:
-    ctx = tcp.create_ssl_ctx(
-        protocol=protocol,
-        verify_cert=conf['verify_cert'],
-        cert_path=(Path(conf['cert_path']) if conf['cert_path'] else None),
-        key_path=(Path(conf['key_path']) if conf['key_path'] else None),
-        ca_path=(Path(conf['ca_path']) if conf['ca_path'] else None))
-
-    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-    ctx.set_ciphers('AES128-SHA256:'
-                    'DH-RSA-AES128-SHA256:'
-                    'DH-RSA-AES128-GCM-SHA256:'
-                    'DHE-RSA-AES128-GCM-SHA256:'
-                    'DH-RSA-AES128-GCM-SHA256:'
-                    'ECDHE-RSA-AES128-GCM-SHA256:'
-                    'ECDHE-RSA-AES256-GCM-SHA384:'
-                    'TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:'
-                    'TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384')
-
-    return ctx
 
 
 def data_to_json(data: iec104.Data) -> json.Data:

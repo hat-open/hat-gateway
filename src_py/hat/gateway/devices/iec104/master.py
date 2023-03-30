@@ -7,9 +7,6 @@ import datetime
 import enum
 import logging
 
-import cryptography.x509
-import cryptography.hazmat.primitives.asymmetric.rsa
-
 from hat import aio
 from hat import json
 from hat.drivers import iec104
@@ -17,6 +14,7 @@ from hat.drivers import tcp
 import hat.event.common
 
 from hat.gateway.devices.iec104 import common
+from hat.gateway.devices.iec104.ssl import create_ssl_ctx, check_cert
 
 
 mlog: logging.Logger = logging.getLogger(__name__)
@@ -38,8 +36,8 @@ async def create(conf: common.DeviceConf,
     device._conn = None
     device._async_group = aio.Group()
 
-    ssl_ctx = (common.create_ssl_ctx(conf['security'],
-                                     tcp.SslProtocol.TLS_CLIENT)
+    ssl_ctx = (create_ssl_ctx(conf['security'],
+                              tcp.SslProtocol.TLS_CLIENT)
                if conf['security'] else None)
 
     device.async_group.spawn(device._connection_loop, conf, ssl_ctx)
@@ -70,9 +68,12 @@ class Iec104MasterDevice(common.Device):
                             receive_window_size=conf['receive_window_size'],
                             ssl_ctx=ssl_ctx)
 
-                        if self._conn.conn.ssl_object:
+                        if (conf['security'] and
+                                conf['security'].get('strict_mode')):
                             try:
-                                _check_ssl_object(self._conn.conn.ssl_object)
+                                ssl_object = self._conn.conn.ssl_object
+                                cert_bytes = ssl_object.getpeercert(True)
+                                check_cert(cert_bytes)
 
                             except BaseException:
                                 await aio.uncancellable(
@@ -235,22 +236,6 @@ class Iec104MasterDevice(common.Device):
 
         self._event_client.register([event])
         mlog.debug('registered status %s', status)
-
-
-def _check_ssl_object(ssl_object):
-    cert_bytes = ssl_object.getpeercert(True)
-    if len(cert_bytes) > 8192:
-        mlog.warning('TLS certificate size exceeded')
-
-    cert = cryptography.x509.load_der_x509_certificate(cert_bytes)
-    key = cert.public_key()
-
-    if isinstance(key, cryptography.hazmat.primitives.asymmetric.rsa.RSAPublicKey):  # NOQA
-        if key.key_size < 2048:
-            raise Exception('insufficient RSA key length')
-
-        if key.key_size > 8192:
-            mlog.warning('RSA key length greater than 8192')
 
 
 def _msg_to_event(event_type_prefix, msg):

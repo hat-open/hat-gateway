@@ -11,8 +11,10 @@ from hat import aio
 from hat import json
 from hat.drivers import iec104
 from hat.drivers import tcp
-from hat.gateway.devices.iec104 import common
 import hat.event.common
+
+from hat.gateway.devices.iec104 import common
+from hat.gateway.devices.iec104.ssl import create_ssl_ctx, check_cert
 
 
 mlog: logging.Logger = logging.getLogger(__name__)
@@ -29,6 +31,7 @@ async def create(conf: common.DeviceConf,
                  event_type_prefix: common.EventTypePrefix
                  ) -> 'Iec104SlaveDevice':
     device = Iec104SlaveDevice()
+    device._conf = conf
     device._event_client = event_client
     device._event_type_prefix = event_type_prefix
     device._max_connections = conf['max_connections']
@@ -69,8 +72,8 @@ async def create(conf: common.DeviceConf,
         except Exception as e:
             mlog.debug('skipping initial data: %s', e, exc_info=e)
 
-    ssl_ctx = (common.create_ssl_ctx(conf['security'],
-                                     tcp.SslProtocol.TLS_SERVER)
+    ssl_ctx = (create_ssl_ctx(conf['security'],
+                              tcp.SslProtocol.TLS_SERVER)
                if conf['security'] else None)
 
     device._srv = await iec104.listen(
@@ -107,6 +110,19 @@ class Iec104SlaveDevice(common.Device):
             mlog.info('max connections exceeded - rejecting connection')
             conn.close()
             return
+
+        if (self._conf['security'] and
+                self._conf['security'].get('strict_mode')):
+            try:
+                cert_bytes = conn.conn.ssl_object.getpeercert(True)
+                check_cert(cert_bytes)
+
+            except Exception as e:
+                mlog.error('TLS check error: %s', exc_info=e)
+                conn.close()
+                return
+
+            mlog.info('TLS session successfully established')
 
         conn_id = next(self._next_conn_ids)
 

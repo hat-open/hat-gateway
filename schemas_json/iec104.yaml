@@ -806,4 +806,6 @@ definitions:
                 type:
                     - "null"
                     - string
+            strict_mode:
+                type: boolean
 ...
