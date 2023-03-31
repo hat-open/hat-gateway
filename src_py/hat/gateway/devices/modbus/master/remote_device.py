@@ -38,9 +38,11 @@ class RemoteDevice:
 
     def __init__(self,
                  conf: json.Data,
-                 conn: Connection):
+                 conn: Connection,
+                 log_prefix: str):
         self._conn = conn
         self._device_id = conf['device_id']
+        self._log_prefix = f"{log_prefix}: remote device id {self._device_id}"
         self._data_infos = {}
 
         for i in conf['data']:
@@ -73,7 +75,8 @@ class RemoteDevice:
         return _Reader(conn=self._conn,
                        device_id=self._device_id,
                        data_infos=self._data_infos.values(),
-                       response_cb=response_cb)
+                       response_cb=response_cb,
+                       log_prefix=self._log_prefix)
 
     async def write(self,
                     data_name: str,
@@ -82,7 +85,7 @@ class RemoteDevice:
                     ) -> typing.Optional[RemoteDeviceWriteRes]:
         data_info = self._data_infos.get(data_name)
         if not data_info:
-            mlog.debug('data %s is not available', data_name)
+            self._log(logging.DEBUG, 'data %s is not available', data_name)
             return
 
         if data_info.data_type == DataType.COIL:
@@ -92,7 +95,8 @@ class RemoteDevice:
             result = await self._write_holding_register(data_info, value)
 
         else:
-            mlog.debug('write unsupported for %s', data_info.data_type)
+            self._log(logging.DEBUG, 'write unsupported for %s',
+                      data_info.data_type)
             return
 
         return RemoteDeviceWriteRes(
@@ -156,13 +160,20 @@ class RemoteDevice:
                                            and_mask=and_mask,
                                            or_mask=or_mask)
 
+    def _log(self, level, msg, *args, **kwargs):
+        if not mlog.isEnabledFor(level):
+            return
+
+        mlog.log(level, f"{self._log_prefix}: {msg}", *args, **kwargs)
+
 
 class _Reader(aio.Resource):
 
-    def __init__(self, conn, device_id, data_infos, response_cb):
+    def __init__(self, conn, device_id, data_infos, response_cb, log_prefix):
         self._conn = conn
         self._device_id = device_id
         self._response_cb = response_cb
+        self._log_prefix = log_prefix
 
         self._async_group = conn.async_group.create_subgroup()
         self._status = None
@@ -256,7 +267,7 @@ class _Reader(aio.Resource):
     async def _read_loop(self, data_infos, interval, data_type, start_address,
                          quantity, is_connected_key):
         try:
-            mlog.debug('starting read loop')
+            self._log(logging.DEBUG, 'starting read loop')
             last_read_time = time.monotonic() - interval
 
             while True:
@@ -264,7 +275,7 @@ class _Reader(aio.Resource):
                 if dt < interval:
                     await asyncio.sleep(interval - dt)
 
-                mlog.debug('reading data')
+                self._log(logging.DEBUG, 'reading data')
                 last_read_time = time.monotonic()
                 result = await self._conn.read(device_id=self._device_id,
                                                data_type=data_type,
@@ -280,13 +291,13 @@ class _Reader(aio.Resource):
                 self._eval_status()
 
         except ConnectionError:
-            mlog.debug('connection closed')
+            self._log(logging.DEBUG, 'connection closed')
 
         except Exception as e:
-            mlog.error('read loop error: %s', e, exc_info=e)
+            self._log(logging.ERROR, 'read loop error: %s', e, exc_info=e)
 
         finally:
-            mlog.debug('closing read loop')
+            self._log(logging.DEBUG, 'closing read loop')
             self.close()
 
     def _process_read_result(self, data_info, start_address, result):
@@ -303,9 +314,9 @@ class _Reader(aio.Resource):
                 result[offset:offset+data_info.quantity])
 
         if isinstance(result, Error):
-            mlog.debug('received error response (device_id: %s; '
-                       'data_name: %s): %s',
-                       self._device_id, data_info.name, result)
+            self._log(logging.DEBUG, 'received error response (device_id: %s; '
+                      'data_name: %s): %s',
+                      self._device_id, data_info.name, result)
             response = RemoteDeviceReadRes(device_id=self._device_id,
                                            data_name=data_info.name,
                                            result=result.name,
@@ -314,9 +325,9 @@ class _Reader(aio.Resource):
 
         elif (last_response is None or
                 last_response.result != 'SUCCESS'):
-            mlog.debug('received initial value (device_id: %s; '
-                       'data_name: %s): %s',
-                       self._device_id, data_info.name, value)
+            self._log(logging.DEBUG, 'received initial value (device_id: %s; '
+                      'data_name: %s): %s',
+                      self._device_id, data_info.name, value)
             response = RemoteDeviceReadRes(device_id=self._device_id,
                                            data_name=data_info.name,
                                            result='SUCCESS',
@@ -324,10 +335,10 @@ class _Reader(aio.Resource):
                                            cause='INTERROGATE')
 
         elif last_response.value != value:
-            mlog.debug('data value change value (device_id: %s; '
-                       'data_name: %s): %s -> %s',
-                       self._device_id, data_info.name,
-                       last_response.value, value)
+            self._log(logging.DEBUG, 'data value change value (device_id: %s; '
+                      'data_name: %s): %s -> %s',
+                      self._device_id, data_info.name,
+                      last_response.value, value)
             response = RemoteDeviceReadRes(device_id=self._device_id,
                                            data_name=data_info.name,
                                            result='SUCCESS',
@@ -335,7 +346,7 @@ class _Reader(aio.Resource):
                                            cause='CHANGE')
 
         else:
-            mlog.debug('no data change')
+            self._log(logging.DEBUG, 'no data change')
             response = None
 
         if response:
@@ -360,11 +371,17 @@ class _Reader(aio.Resource):
             statuses = [status]
 
         for status in statuses:
-            mlog.debug('changing remote device status: %s -> %s',
-                       self._status, status)
+            self._log(logging.DEBUG, 'changing remote device status: %s -> %s',
+                      self._status, status)
             self._status = status
             self._response_cb(RemoteDeviceStatusRes(device_id=self._device_id,
                                                     status=status))
+
+    def _log(self, level, msg, *args, **kwargs):
+        if not mlog.isEnabledFor(level):
+            return
+
+        mlog.log(level, f"{self._log_prefix}: {msg}", *args, **kwargs)
 
 
 def _get_register_size(data_type):

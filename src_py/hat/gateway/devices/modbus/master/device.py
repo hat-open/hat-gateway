@@ -12,7 +12,6 @@ from hat.gateway.devices.modbus.master.event_client import (RemoteDeviceEnableRe
                                                             RemoteDeviceWriteRes,  # NOQA
                                                             EventClientProxy)
 from hat.gateway.devices.modbus.master.remote_device import RemoteDevice
-import hat.event.common
 
 
 mlog = logging.getLogger(__name__)
@@ -23,10 +22,11 @@ async def create(conf: common.DeviceConf,
                  event_type_prefix: common.EventTypePrefix
                  ) -> 'ModbusMasterDevice':
     device = ModbusMasterDevice()
-    device._enabled_devices = await _query_enabled_devices(event_client,
-                                                           event_type_prefix)
     device._conf = conf
-    device._event_client = EventClientProxy(event_client, event_type_prefix)
+    device._log_prefix = f"gateway device {conf['name']}"
+    device._event_client = EventClientProxy(event_client, event_type_prefix,
+                                            device._log_prefix)
+    device._enabled_devices = await device._event_client.query_enabled_devices()  # NOQA
     device._status = None
     device._conn = None
     device._devices = {}
@@ -48,19 +48,21 @@ class ModbusMasterDevice(aio.Resource):
 
     async def _event_client_loop(self):
         try:
-            mlog.debug('starting event client loop')
+            self._log(logging.DEBUG, 'starting event client loop')
             while True:
                 request = await self._event_client.read()
 
                 if isinstance(request, RemoteDeviceEnableReq):
-                    mlog.debug('received remote device enable request')
+                    self._log(logging.DEBUG,
+                              'received remote device enable request')
                     if request.enable:
                         self._enable_remote_device(request.device_id)
                     else:
                         await self._disable_remote_device(request.device_id)
 
                 elif isinstance(request, RemoteDeviceWriteReq):
-                    mlog.debug('received remote device write request')
+                    self._log(logging.DEBUG,
+                              'received remote device write request')
                     if self._conn and self._conn.is_open:
                         self._conn.async_group.spawn(
                             self._write, request.device_id, request.data_name,
@@ -70,30 +72,32 @@ class ModbusMasterDevice(aio.Resource):
                     raise ValueError('invalid request')
 
         except ConnectionError:
-            mlog.debug('event client connection closed')
+            self._log(logging.DEBUG, 'event client connection closed')
 
         except Exception as e:
-            mlog.error('event client loop error: %s', e, exc_info=e)
+            self._log(logging.ERROR, 'event client loop error: %s', e,
+                      exc_info=e)
 
         finally:
-            mlog.debug('closing event client loop')
+            self._log(logging.DEBUG, 'closing event client loop')
             self.close()
 
     async def _connection_loop(self):
         try:
-            mlog.debug('starting connection loop')
+            self._log(logging.DEBUG, 'starting connection loop')
             while True:
                 self._set_status('CONNECTING')
 
                 try:
                     self._conn = await aio.wait_for(
-                        connect(self._conf['connection']),
+                        connect(self._conf['connection'], self._log_prefix),
                         self._conf['connection']['connect_timeout'])
                 except aio.CancelledWithResultError as e:
                     self._conn = e.result
                     raise
                 except Exception as e:
-                    mlog.info('connecting error: %s', e, exc_info=e)
+                    self._log(logging.INFO, 'connecting error: %s', e,
+                              exc_info=e)
                     self._set_status('DISCONNECTED')
                     await asyncio.sleep(
                         self._conf['connection']['connect_delay'])
@@ -103,9 +107,10 @@ class ModbusMasterDevice(aio.Resource):
                 self._devices = {}
                 self._readers = {}
 
-                mlog.debug('creating remote devices')
+                self._log(logging.DEBUG, 'creating remote devices')
                 for device_conf in self._conf['remote_devices']:
-                    device = RemoteDevice(device_conf, self._conn)
+                    device = RemoteDevice(device_conf, self._conn,
+                                          self._log_prefix)
                     self._devices[device.device_id] = device
 
                     if device.device_id in self._enabled_devices:
@@ -120,10 +125,11 @@ class ModbusMasterDevice(aio.Resource):
                 self._set_status('DISCONNECTED')
 
         except Exception as e:
-            mlog.error('connection loop error: %s', e, exc_info=e)
+            self._log(logging.ERROR, 'connection loop error: %s', e,
+                      exc_info=e)
 
         finally:
-            mlog.debug('closing connection loop')
+            self._log(logging.DEBUG, 'closing connection loop')
             self.close()
             if self._conn:
                 await aio.uncancellable(self._conn.async_close())
@@ -136,74 +142,61 @@ class ModbusMasterDevice(aio.Resource):
     def _set_status(self, status):
         if self._status == status:
             return
-        mlog.debug('changing status: %s -> %s', self._status, status)
+        self._log(logging.DEBUG, 'changing status: %s -> %s',
+                  self._status, status)
         self._status = status
         self._notify_response(StatusRes(status))
 
     def _enable_remote_device(self, device_id):
-        mlog.debug('enabling device %s', device_id)
+        self._log(logging.DEBUG, 'enabling device %s', device_id)
         self._enabled_devices.add(device_id)
 
         device = self._devices.get(device_id)
         if not device:
-            mlog.debug('device %s is not available', device_id)
+            self._log(logging.DEBUG, 'device %s is not available', device_id)
             return
         if not device.conn.is_open:
-            mlog.debug('connection is not available')
+            self._log(logging.DEBUG, 'connection is not available')
             return
 
         reader = self._readers.get(device_id)
         if reader and reader.is_open:
-            mlog.debug('reader %s is already running', device_id)
+            self._log(logging.DEBUG, 'reader %s is already running', device_id)
             return
 
-        mlog.debug('creating reader for device %s', device_id)
+        self._log(logging.DEBUG, 'creating reader for device %s', device_id)
         reader = device.create_reader(self._notify_response)
         self._readers[device.device_id] = reader
 
     async def _disable_remote_device(self, device_id):
-        mlog.debug('disabling device %s', device_id)
+        self._log(logging.DEBUG, 'disabling device %s', device_id)
         self._enabled_devices.discard(device_id)
 
         reader = self._readers.pop(device_id, None)
         if not reader:
-            mlog.debug('device reader %s is not available', device_id)
+            self._log(logging.DEBUG, 'device reader %s is not available',
+                      device_id)
             return
 
         await reader.async_close()
 
     async def _write(self, device_id, data_name, request_id, value):
-        mlog.debug('writing (device_id: %s; data_name: %s; value: %s)',
-                   device_id, data_name, value)
+        self._log(logging.DEBUG,
+                  'writing (device_id: %s; data_name: %s; value: %s)',
+                  device_id, data_name, value)
 
         device = self._devices.get(device_id)
         if not device:
-            mlog.debug('device %s is not available', device_id)
+            self._log(logging.DEBUG, 'device %s is not available', device_id)
             return
 
         response = await device.write(data_name, request_id, value)
         if response:
-            mlog.debug('writing result: %s', response.result)
+            self._log(logging.DEBUG, 'writing result: %s', response.result)
             self._notify_response(response)
 
+    def _log(self, level, msg, *args, **kwargs):
+        if not mlog.isEnabledFor(level):
+            return
 
-async def _query_enabled_devices(event_client, event_type_prefix):
-    mlog.debug('querying enabled devices')
-    enabled_devices = set()
-
-    events = await event_client.query(hat.event.common.QueryData(
-        event_types=[(*event_type_prefix, 'system', 'remote_device', '?',
-                      'enable')],
-        unique_type=True))
-    mlog.debug('received %s events', len(events))
-
-    for event in events:
-        if not event.payload or not bool(event.payload.data):
-            continue
-
-        device_id_str = event.event_type[6]
-        with contextlib.suppress(ValueError):
-            enabled_devices.add(int(device_id_str))
-
-    mlog.debug('detected %s enabled devices', len(enabled_devices))
-    return enabled_devices
+        mlog.log(level, f"{self._log_prefix}: {msg}", *args, **kwargs)

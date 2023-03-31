@@ -147,7 +147,8 @@ def create_remote_device_write_event(create_event):
 
 
 @pytest.mark.parametrize("conf", [
-    {'connection': {'modbus_type': 'TCP',
+    {'name': 'name',
+     'connection': {'modbus_type': 'TCP',
                     'transport': {'type': 'TCP',
                                   'host': '127.0.0.1',
                                   'port': 1502},
@@ -202,7 +203,8 @@ async def test_create(slave_addr, connection_conf):
     assert server.is_open
     assert slave_queue.empty()
 
-    conf = {'connection': connection_conf,
+    conf = {'name': 'name',
+            'connection': connection_conf,
             'remote_devices': []}
 
     event_client = EventClient()
@@ -225,7 +227,8 @@ async def test_reconnect(slave_addr, connection_conf):
     server = await modbus.create_tcp_server(modbus.ModbusType.TCP, slave_addr,
                                             slave_cb=slave_queue.put_nowait)
 
-    conf = {'connection': connection_conf,
+    conf = {'name': 'name',
+            'connection': connection_conf,
             'remote_devices': []}
 
     event_client = EventClient()
@@ -257,7 +260,8 @@ async def test_status(slave_addr, connection_conf):
     server = await modbus.create_tcp_server(modbus.ModbusType.TCP, slave_addr,
                                             slave_cb=slave_queue.put_nowait)
 
-    conf = {'connection': connection_conf,
+    conf = {'name': 'name',
+            'connection': connection_conf,
             'remote_devices': []}
 
     event_client = EventClient()
@@ -306,7 +310,8 @@ async def test_remote_device_status(slave_addr, connection_conf,
     server = await modbus.create_tcp_server(modbus.ModbusType.TCP, slave_addr,
                                             slave_cb=slave_queue.put_nowait)
 
-    conf = {'connection': connection_conf,
+    conf = {'name': 'name',
+            'connection': connection_conf,
             'remote_devices': [{'device_id': 1,
                                 'data': []}]}
 
@@ -413,7 +418,8 @@ async def test_read(slave_addr, connection_conf,
     server = await modbus.create_tcp_server(modbus.ModbusType.TCP, slave_addr,
                                             read_cb=on_read)
 
-    conf = {'connection': connection_conf,
+    conf = {'name': 'name',
+            'connection': connection_conf,
             'remote_devices': [{'device_id': 1,
                                 'data': [{'name': 'data',
                                           'interval': 1,
@@ -532,7 +538,8 @@ async def test_write(slave_addr, connection_conf,
                                             write_cb=on_write,
                                             write_mask_cb=on_write_mask)
 
-    conf = {'connection': connection_conf,
+    conf = {'name': 'name',
+            'connection': connection_conf,
             'remote_devices': [{'device_id': 1,
                                 'data': [{'name': 'data',
                                           'interval': None,

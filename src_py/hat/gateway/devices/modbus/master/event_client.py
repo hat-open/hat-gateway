@@ -1,3 +1,4 @@
+import contextlib
 import logging
 import typing
 
@@ -59,9 +60,11 @@ class EventClientProxy(aio.Resource):
 
     def __init__(self,
                  event_client: common.DeviceEventClient,
-                 event_type_prefix: common.EventTypePrefix):
+                 event_type_prefix: common.EventTypePrefix,
+                 log_prefix: str):
         self._event_client = event_client
         self._event_type_prefix = event_type_prefix
+        self._log_prefix = log_prefix
         self._async_group = event_client.async_group.create_subgroup()
         self._read_queue = aio.Queue()
         self.async_group.spawn(self._read_loop)
@@ -83,12 +86,34 @@ class EventClientProxy(aio.Resource):
         except aio.QueueClosedError:
             raise ConnectionError()
 
+    async def query_enabled_devices(self) -> typing.Set[int]:
+        self._log(logging.DEBUG, 'querying enabled devices')
+        enabled_devices = set()
+
+        events = await self._event_client.query(hat.event.common.QueryData(
+            event_types=[(*self._event_type_prefix, 'system', 'remote_device',
+                          '?', 'enable')],
+            unique_type=True))
+        self._log(logging.DEBUG, 'received %s events', len(events))
+
+        for event in events:
+            if not event.payload or not bool(event.payload.data):
+                continue
+
+            device_id_str = event.event_type[6]
+            with contextlib.suppress(ValueError):
+                enabled_devices.add(int(device_id_str))
+
+        self._log(logging.DEBUG, 'detected %s enabled devices',
+                  len(enabled_devices))
+        return enabled_devices
+
     async def _read_loop(self):
         try:
-            mlog.debug('starting read loop')
+            self._log(logging.DEBUG, 'starting read loop')
             while True:
                 events = await self._event_client.receive()
-                mlog.debug('received %s events', len(events))
+                self._log(logging.DEBUG, 'received %s events', len(events))
 
                 for event in events:
                     try:
@@ -96,18 +121,25 @@ class EventClientProxy(aio.Resource):
                         self._read_queue.put_nowait(req)
 
                     except Exception as e:
-                        mlog.info('received invalid event: %s', e, exc_info=e)
+                        self._log(logging.INFO, 'received invalid event: %s',
+                                  e, exc_info=e)
 
         except ConnectionError:
-            mlog.debug('connection closed')
+            self._log(logging.DEBUG, 'connection closed')
 
         except Exception as e:
-            mlog.error('read loop error: %s', e, exc_info=e)
+            self._log(logging.ERROR, 'read loop error: %s', e, exc_info=e)
 
         finally:
-            mlog.debug('closing read loop')
+            self._log(logging.DEBUG, 'closing read loop')
             self.close()
             self._read_queue.close()
+
+    def _log(self, level, msg, *args, **kwargs):
+        if not mlog.isEnabledFor(level):
+            return
+
+        mlog.log(level, f"{self._log_prefix}: {msg}", *args, **kwargs)
 
 
 def _request_from_event(event):
