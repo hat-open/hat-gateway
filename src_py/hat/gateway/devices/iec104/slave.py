@@ -14,7 +14,7 @@ from hat.drivers import tcp
 import hat.event.common
 
 from hat.gateway.devices.iec104 import common
-from hat.gateway.devices.iec104.ssl import create_ssl_ctx, check_cert
+from hat.gateway.devices.iec104 import ssl
 
 
 mlog: logging.Logger = logging.getLogger(__name__)
@@ -72,8 +72,7 @@ async def create(conf: common.DeviceConf,
         except Exception as e:
             mlog.debug('skipping initial data: %s', e, exc_info=e)
 
-    ssl_ctx = (create_ssl_ctx(conf['security'],
-                              tcp.SslProtocol.TLS_SERVER)
+    ssl_ctx = (ssl.create_ssl_ctx(conf['security'], ssl.SslProtocol.TLS_SERVER)
                if conf['security'] else None)
 
     device._srv = await iec104.listen(
@@ -111,18 +110,14 @@ class Iec104SlaveDevice(common.Device):
             conn.close()
             return
 
-        if (self._conf['security'] and
-                self._conf['security'].get('strict_mode')):
+        if self._conf['security']:
             try:
-                cert_bytes = conn.conn.ssl_object.getpeercert(True)
-                check_cert(cert_bytes)
+                ssl.init_security(self._conf['security'], conn)
 
             except Exception as e:
-                mlog.error('TLS check error: %s', exc_info=e)
+                mlog.error('init security error: %s', exc_info=e)
                 conn.close()
                 return
-
-            mlog.info('TLS session successfully established')
 
         conn_id = next(self._next_conn_ids)
 

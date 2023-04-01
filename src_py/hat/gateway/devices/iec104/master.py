@@ -14,7 +14,7 @@ from hat.drivers import tcp
 import hat.event.common
 
 from hat.gateway.devices.iec104 import common
-from hat.gateway.devices.iec104.ssl import create_ssl_ctx, check_cert
+from hat.gateway.devices.iec104 import ssl
 
 
 mlog: logging.Logger = logging.getLogger(__name__)
@@ -36,8 +36,7 @@ async def create(conf: common.DeviceConf,
     device._conn = None
     device._async_group = aio.Group()
 
-    ssl_ctx = (create_ssl_ctx(conf['security'],
-                              tcp.SslProtocol.TLS_CLIENT)
+    ssl_ctx = (ssl.create_ssl_ctx(conf['security'], ssl.SslProtocol.TLS_CLIENT)
                if conf['security'] else None)
 
     device.async_group.spawn(device._connection_loop, conf, ssl_ctx)
@@ -68,19 +67,14 @@ class Iec104MasterDevice(common.Device):
                             receive_window_size=conf['receive_window_size'],
                             ssl_ctx=ssl_ctx)
 
-                        if (conf['security'] and
-                                conf['security'].get('strict_mode')):
+                        if conf['security']:
                             try:
-                                ssl_object = self._conn.conn.ssl_object
-                                cert_bytes = ssl_object.getpeercert(True)
-                                check_cert(cert_bytes)
+                                ssl.init_security(conf['security'], self._conn)
 
-                            except BaseException:
+                            except Exception:
                                 await aio.uncancellable(
                                     self._conn.async_close())
                                 raise
-
-                            mlog.info('TLS session successfully established')
 
                         break
 

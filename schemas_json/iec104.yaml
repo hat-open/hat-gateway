@@ -808,4 +808,8 @@ definitions:
                     - string
             strict_mode:
                 type: boolean
+            renegotiate_delay:
+                type:
+                    - "null"
+                    - number
 ...

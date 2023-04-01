@@ -1,21 +1,26 @@
 from pathlib import Path
+import asyncio
 import logging
-import ssl
 
 import cryptography.hazmat.primitives.asymmetric.rsa
 import cryptography.x509
 
+from hat import aio
 from hat import json
-from hat.drivers import tcp
+from hat.drivers import iec104
+from hat.drivers import ssl
 
 
 mlog = logging.getLogger(__name__)
 
 
+SslProtocol = ssl.SslProtocol
+
+
 def create_ssl_ctx(conf: json.Data,
-                   protocol: tcp.SslProtocol
+                   protocol: ssl.SslProtocol
                    ) -> ssl.SSLContext:
-    ctx = tcp.create_ssl_ctx(
+    ctx = ssl.create_ssl_ctx(
         protocol=protocol,
         verify_cert=conf['verify_cert'],
         cert_path=(Path(conf['cert_path']) if conf['cert_path'] else None),
@@ -39,7 +44,21 @@ def create_ssl_ctx(conf: json.Data,
     return ctx
 
 
-def check_cert(cert_bytes: bytes):
+def init_security(conf: json.Data,
+                  conn: iec104.Connection):
+    if conf.get('strict_mode'):
+        cert_bytes = conn.conn.ssl_object.getpeercert(True)
+        _check_cert(cert_bytes)
+
+    mlog.info('TLS session successfully established')
+
+    renegotiate_delay = conf.get('renegotiate_delay')
+    if renegotiate_delay:
+        conn.async_group.spawn(_renegotiate_loop, conn.conn.ssl_object,
+                               renegotiate_delay)
+
+
+def _check_cert(cert_bytes):
     if len(cert_bytes) > 8192:
         mlog.warning('TLS certificate size exceeded')
 
@@ -52,3 +71,34 @@ def check_cert(cert_bytes: bytes):
 
         if key.key_size > 8192:
             mlog.warning('RSA key length greater than 8192')
+
+
+async def _renegotiate_loop(ssl_object, renegotiate_delay):
+    executor = aio.Executor()
+
+    try:
+        while True:
+            await asyncio.sleep(renegotiate_delay)
+
+            try:
+                await executor.spawn(_ext_renegotiate, ssl_object)
+
+            except Exception as e:
+                mlog.error('renegotiate error: %s', e, exc_info=e)
+
+    except Exception as e:
+        mlog.error('renegotiate loop error: %s', e, exc_info=e)
+
+    finally:
+        mlog.debug('closing renegotiate loop')
+        await aio.uncancellable(executor.async_close())
+
+
+def _ext_renegotiate(ssl_object):
+    if ssl_object.version() == 'TLSv1.3':
+        ssl.key_update(ssl_object, ssl.KeyUpdateType.UPDATE_REQUESTED)
+
+    else:
+        ssl.renegotiate(ssl_object)
+
+    ssl_object.do_handshake()
