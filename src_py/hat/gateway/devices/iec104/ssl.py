@@ -57,6 +57,10 @@ def init_security(conf: json.Data,
         conn.async_group.spawn(_renegotiate_loop, conn.conn.ssl_object,
                                renegotiate_delay)
 
+    if conf.get('strict_mode') and renegotiate_delay:
+        conn.async_group.spawn(_verify_loop, conn.conn.ssl_object,
+                               renegotiate_delay * 2)
+
 
 def _check_cert(cert_bytes):
     if len(cert_bytes) > 8192:
@@ -94,6 +98,27 @@ async def _renegotiate_loop(ssl_object, renegotiate_delay):
         await aio.uncancellable(executor.async_close())
 
 
+async def _verify_loop(ssl_object, renegotiate_delay):
+    executor = aio.Executor()
+
+    try:
+        while True:
+            await asyncio.sleep(renegotiate_delay)
+
+            try:
+                await executor.spawn(_ext_verify, ssl_object)
+
+            except Exception as e:
+                mlog.error('verify error: %s', e, exc_info=e)
+
+    except Exception as e:
+        mlog.error('verify loop error: %s', e, exc_info=e)
+
+    finally:
+        mlog.debug('closing verify loop')
+        await aio.uncancellable(executor.async_close())
+
+
 def _ext_renegotiate(ssl_object):
     if ssl_object.version() == 'TLSv1.3':
         ssl.key_update(ssl_object, ssl.KeyUpdateType.UPDATE_REQUESTED)
@@ -102,3 +127,8 @@ def _ext_renegotiate(ssl_object):
         ssl.renegotiate(ssl_object)
 
     ssl_object.do_handshake()
+
+
+def _ext_verify(ssl_object):
+    # TODO
+    pass
