@@ -135,5 +135,5 @@ def _ext_verify(ssl_object, ca_path):
 
     crl = cryptography.x509.load_pem_x509_crl(ca_path.read_bytes())
 
-    if not crl.is_signature_valid(cert.public_key()):
-        mlog.warning('...')
+    if crl.get_revoked_certificate_by_serial_number(cert.serial_number):
+        mlog.warning('current certificate in CRL')
