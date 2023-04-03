@@ -57,9 +57,9 @@ def init_security(conf: json.Data,
         conn.async_group.spawn(_renegotiate_loop, conn.conn.ssl_object,
                                renegotiate_delay)
 
-    if conf.get('strict_mode') and renegotiate_delay:
+    if conf.get('strict_mode') and renegotiate_delay and conf['ca_path']:
         conn.async_group.spawn(_verify_loop, conn.conn.ssl_object,
-                               renegotiate_delay * 2)
+                               renegotiate_delay * 2, Path(conf['ca_path']))
 
 
 def _check_cert(cert_bytes):
@@ -98,15 +98,15 @@ async def _renegotiate_loop(ssl_object, renegotiate_delay):
         await aio.uncancellable(executor.async_close())
 
 
-async def _verify_loop(ssl_object, renegotiate_delay):
+async def _verify_loop(ssl_object, verify_delay, ca_path):
     executor = aio.Executor()
 
     try:
         while True:
-            await asyncio.sleep(renegotiate_delay)
+            await asyncio.sleep(verify_delay)
 
             try:
-                await executor.spawn(_ext_verify, ssl_object)
+                await executor.spawn(_ext_verify, ssl_object, ca_path)
 
             except Exception as e:
                 mlog.error('verify error: %s', e, exc_info=e)
@@ -129,6 +129,11 @@ def _ext_renegotiate(ssl_object):
     ssl_object.do_handshake()
 
 
-def _ext_verify(ssl_object):
-    # TODO
-    pass
+def _ext_verify(ssl_object, ca_path):
+    cert_bytes = ssl_object.getpeercert(True)
+    cert = cryptography.x509.load_der_x509_certificate(cert_bytes)
+
+    crl = cryptography.x509.load_pem_x509_crl(ca_path.read_bytes())
+
+    if not crl.is_signature_valid(cert.public_key()):
+        mlog.warning('...')
