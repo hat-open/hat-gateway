@@ -179,7 +179,9 @@ class _Reader(aio.Resource):
         self._status = None
         self._is_connected = {}
         self._last_responses = {}
+        self._read_queue = aio.Queue()
 
+        self.async_group.spawn(self._connection_loop)
         self._start_read_loops(data_infos)
 
         self._async_group.spawn(aio.call_on_cancel, self._eval_status)
@@ -277,10 +279,10 @@ class _Reader(aio.Resource):
 
                 self._log(logging.DEBUG, 'reading data')
                 last_read_time = time.monotonic()
-                result = await self._conn.read(device_id=self._device_id,
-                                               data_type=data_type,
-                                               start_address=start_address,
-                                               quantity=quantity)
+                result = await self._read(device_id=self._device_id,
+                                          data_type=data_type,
+                                          start_address=start_address,
+                                          quantity=quantity)
 
                 for data_info in data_infos:
                     self._process_read_result(data_info, start_address, result)
@@ -299,6 +301,45 @@ class _Reader(aio.Resource):
         finally:
             self._log(logging.DEBUG, 'closing read loop')
             self.close()
+
+    async def _read(self, *args, **kwargs):
+        try:
+            future = asyncio.Future()
+            self._read_queue.put_nowait((future, args, kwargs))
+            return await future
+
+        except aio.QueueClosedError:
+            raise ConnectionError()
+
+    async def _connection_loop(self):
+        future = None
+
+        try:
+            while True:
+                future, args, kwargs = await self._read_queue.get()
+
+                result = await self._conn.read(*args, **kwargs)
+
+                if not future.done():
+                    future.set_result(result)
+
+        except ConnectionError:
+            self._log(logging.DEBUG, 'connection closed')
+
+        except Exception as e:
+            self._log(logging.ERROR, 'connection loop error: %s', e,
+                      exc_info=e)
+
+        finally:
+            self.close()
+            self._read_queue.close()
+
+            while True:
+                if future and not future.done():
+                    future.set_exception(ConnectionError())
+                if self._read_queue.empty():
+                    break
+                future, _, __ = self._read_queue.get_nowait()
 
     def _process_read_result(self, data_info, start_address, result):
         last_response = self._last_responses.get(data_info.name)
