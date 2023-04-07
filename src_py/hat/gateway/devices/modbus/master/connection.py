@@ -118,7 +118,7 @@ class Connection(aio.Resource):
         try:
             self._log(logging.DEBUG, 'starting request loop')
             while True:
-                fn, args, count, future = await self._request_queue.get()
+                fn, args, delayed_count, future = await self._request_queue.get()  # NOQA
                 self._log(logging.DEBUG, 'dequed request')
 
                 if result_t is not None and self._conf['request_delay'] > 0:
@@ -129,38 +129,50 @@ class Connection(aio.Resource):
                 if future.done():
                     continue
 
-                try:
-                    count -= 1
-                    result = await fn(*args)
-                    result_t = time.monotonic()
+                delayed_count -= 1
+                immediate_count = self._conf['request_retry_immediate_count']
 
-                    self._log(logging.DEBUG, 'received result %s', result)
-                    if isinstance(result, modbus.Error):
-                        result = Error[result.name]
+                while True:
+                    try:
+                        immediate_count -= 1
+                        result = await fn(*args)
+                        result_t = time.monotonic()
 
-                    if not future.done():
-                        self._log(logging.DEBUG, 'setting request result')
-                        future.set_result(result)
+                        self._log(logging.DEBUG, 'received result %s', result)
+                        if isinstance(result, modbus.Error):
+                            result = Error[result.name]
 
-                except TimeoutError:
-                    self._log(logging.DEBUG, 'single request timeout')
+                        if not future.done():
+                            self._log(logging.DEBUG, 'setting request result')
+                            future.set_result(result)
 
-                    if count > 0:
-                        self._log(logging.DEBUG, 'waiting for request retry')
-                        self.async_group.spawn(self._delay_request, fn, args,
-                                               count, future)
-                        future = None
+                        break
 
-                    elif not future.done():
-                        self._log(logging.DEBUG,
-                                  'request resulting in timeout')
-                        future.set_result(Error.TIMEOUT)
+                    except TimeoutError:
+                        self._log(logging.DEBUG, 'single request timeout')
 
-                except Exception as e:
-                    self._log(logging.DEBUG, 'setting request exception')
-                    if not future.done():
-                        future.set_exception(e)
-                    raise
+                        if immediate_count > 0:
+                            self._log(logging.DEBUG, 'immediate request retry')
+                            continue
+
+                        if delayed_count > 0:
+                            self._log(logging.DEBUG, 'delayed request retry')
+                            self.async_group.spawn(self._delay_request, fn,
+                                                   args, delayed_count, future)
+                            future = None
+
+                        elif not future.done():
+                            self._log(logging.DEBUG,
+                                      'request resulting in timeout')
+                            future.set_result(Error.TIMEOUT)
+
+                        break
+
+                    except Exception as e:
+                        self._log(logging.DEBUG, 'setting request exception')
+                        if not future.done():
+                            future.set_exception(e)
+                        raise
 
         except ConnectionError:
             self._log(logging.DEBUG, 'connection closed')
@@ -183,17 +195,17 @@ class Connection(aio.Resource):
     async def _request(self, fn, *args):
         try:
             future = asyncio.Future()
-            count = self._conf['request_retry_count']
-            self._request_queue.put_nowait((fn, args, count, future))
+            delayed_count = self._conf['request_retry_delayed_count']
+            self._request_queue.put_nowait((fn, args, delayed_count, future))
             return await future
 
         except aio.QueueClosedError:
             raise ConnectionError()
 
-    async def _delay_request(self, fn, args, count, future):
+    async def _delay_request(self, fn, args, delayed_count, future):
         try:
             await asyncio.sleep(self._conf['request_retry_delay'])
-            self._request_queue.put_nowait((fn, args, count, future))
+            self._request_queue.put_nowait((fn, args, delayed_count, future))
             future = None
 
         except aio.QueueClosedError:

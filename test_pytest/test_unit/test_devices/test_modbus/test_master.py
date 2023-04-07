@@ -100,7 +100,8 @@ def connection_conf(slave_addr):
             'connect_delay': 5,
             'request_timeout': 2,
             'request_delay': 0.001,
-            'request_retry_count': 3,
+            'request_retry_immediate_count': 1,
+            'request_retry_delayed_count': 3,
             'request_retry_delay': 1}
 
 
@@ -156,7 +157,8 @@ def create_remote_device_write_event(create_event):
                     'connect_delay': 5,
                     'request_timeout': 2,
                     'request_delay': 0,
-                    'request_retry_count': 3,
+                    'request_retry_immediate_count': 1,
+                    'request_retry_delayed_count': 3,
                     'request_retry_delay': 1},
      'remote_devices': [{'device_id': 1,
                          'data': [{'name': 'data1',
@@ -181,7 +183,8 @@ def create_remote_device_write_event(create_event):
                     'connect_delay': 5,
                     'request_timeout': 2,
                     'request_delay': 0.001,
-                    'request_retry_count': 3,
+                    'request_retry_immediate_count': 1,
+                    'request_retry_delayed_count': 3,
                     'request_retry_delay': 1},
      'remote_devices': [{'device_id': 1,
                          'data': [{'name': 'data1',
