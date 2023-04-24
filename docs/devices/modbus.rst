@@ -149,9 +149,6 @@ Available gateway events are:
         Payload is defined by
         ``hat-gateway://modbus.yaml#/definitions/events/master/gateway/read``.
 
-        .. note:: if data is not received within `request_timeout`
-          after polling, `read` event with result ``TIMEOUT`` is registered.
-
     * ..., 'remote_device', <device_id>, 'write', <data_name>
 
         Write response reporting resulting success value. Together with

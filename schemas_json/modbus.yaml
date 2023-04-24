@@ -162,12 +162,18 @@ definitions:
                     type: object
                     required:
                         - device_id
+                        - timeout_poll_delay
                         - data
                     properties:
                         device_id:
                             type: integer
                             description: |
                                 Modbus device identifier
+                        timeout_poll_delay:
+                            type: number
+                            description: |
+                                Delay (in seconds) after read timeout and
+                                before device polling is resumed
                         data:
                             type: array
                             items:
@@ -240,7 +246,6 @@ definitions:
                                 - INVALID_DATA_ADDRESS
                                 - INVALID_DATA_VALUE
                                 - FUNCTION_ERROR
-                                - TIMEOUT
                         value:
                             type: integer
                         cause:

@@ -1,5 +1,7 @@
 import asyncio
 import collections
+import enum
+import functools
 import itertools
 import logging
 import math
@@ -23,6 +25,13 @@ mlog = logging.getLogger(__name__)
 ResponseCb = typing.Callable[[Response], None]
 
 
+class _Status(enum.Enum):
+    CONNECTING = 'CONNECTING'
+    CONNECTED = 'CONNECTED'
+    DISCONNECTED = 'DISCONNECTED'
+    DISABLED = 'DISABLED'
+
+
 class _DataInfo(typing.NamedTuple):
     data_type: DataType
     register_size: int
@@ -34,6 +43,14 @@ class _DataInfo(typing.NamedTuple):
     name: str
 
 
+class _DataGroup(typing.NamedTuple):
+    data_infos: typing.List[_DataInfo]
+    interval: float
+    data_type: DataType
+    start_address: int
+    quantity: int
+
+
 class RemoteDevice:
 
     def __init__(self,
@@ -42,26 +59,11 @@ class RemoteDevice:
                  log_prefix: str):
         self._conn = conn
         self._device_id = conf['device_id']
+        self._timeout_poll_delay = conf['timeout_poll_delay']
         self._log_prefix = f"{log_prefix}: remote device id {self._device_id}"
-        self._data_infos = {}
-
-        for i in conf['data']:
-            data_type = DataType[i['data_type']]
-            register_size = _get_register_size(data_type)
-            start_address = i['start_address']
-            bit_count = i['bit_count']
-            bit_offset = i['bit_offset']
-            quantity = math.ceil((bit_count + bit_offset) / register_size)
-            interval = i['interval']
-            name = i['name']
-            self._data_infos[name] = _DataInfo(data_type=data_type,
-                                               register_size=register_size,
-                                               start_address=start_address,
-                                               bit_count=bit_count,
-                                               bit_offset=bit_offset,
-                                               quantity=quantity,
-                                               interval=interval,
-                                               name=name)
+        self._data_infos = {data_info.name: data_info
+                            for data_info in _get_data_infos(conf)}
+        self._data_groups = list(_group_data_infos(self._data_infos.values()))
 
     @property
     def conn(self) -> Connection:
@@ -74,7 +76,8 @@ class RemoteDevice:
     def create_reader(self, response_cb: ResponseCb) -> aio.Resource:
         return _Reader(conn=self._conn,
                        device_id=self._device_id,
-                       data_infos=self._data_infos.values(),
+                       timeout_poll_delay=self._timeout_poll_delay,
+                       data_groups=self._data_groups,
                        response_cb=response_cb,
                        log_prefix=self._log_prefix)
 
@@ -169,62 +172,201 @@ class RemoteDevice:
 
 class _Reader(aio.Resource):
 
-    def __init__(self, conn, device_id, data_infos, response_cb, log_prefix):
+    def __init__(self, conn, device_id, timeout_poll_delay, data_groups,
+                 response_cb, log_prefix):
         self._conn = conn
         self._device_id = device_id
+        self._timeout_poll_delay = timeout_poll_delay
         self._response_cb = response_cb
         self._log_prefix = log_prefix
-
-        self._async_group = conn.async_group.create_subgroup()
         self._status = None
-        self._is_connected = {}
-        self._last_responses = {}
-        self._read_queue = aio.Queue()
+        self._async_group = conn.async_group.create_subgroup()
 
-        self.async_group.spawn(self._connection_loop)
-        self._start_read_loops(data_infos)
-
-        self._async_group.spawn(aio.call_on_cancel, self._eval_status)
-        self._eval_status()
+        self.async_group.spawn(self._read_loop, data_groups)
 
     @property
     def async_group(self) -> aio.Group:
         return self._async_group
 
-    def _start_read_loops(self, data_infos):
-        type_interval_infos_dict = {}
+    async def _read_loop(self, data_groups):
+        try:
+            self._log(logging.DEBUG, 'starting read loop')
+            loop = asyncio.get_running_loop()
 
-        for data_info in data_infos:
-            data_type = data_info.data_type
-            interval = data_info.interval
+            if not data_groups:
+                self._set_status(_Status.CONNECTED)
+                await loop.create_future()
 
-            if interval is None:
-                continue
+            last_read_times = [None for _ in data_groups]
+            last_responses = {}
+            self._set_status(_Status.CONNECTING)
 
-            interval_infos_dict = type_interval_infos_dict.get(data_type)
-            if interval_infos_dict is None:
-                interval_infos_dict = {}
-                type_interval_infos_dict[data_type] = interval_infos_dict
+            while True:
+                now = time.monotonic()
+                sleep_dt = None
+                read_data_groups = collections.deque()
 
-            data_infos_queue = interval_infos_dict.get(interval)
-            if data_infos_queue is None:
-                data_infos_queue = collections.deque()
-                interval_infos_dict[interval] = data_infos_queue
+                for i, data_group in enumerate(data_groups):
+                    last_read_time = last_read_times[i]
+                    if last_read_time is not None:
+                        dt = data_group.interval - now + last_read_time
+                        if dt > 0:
+                            if sleep_dt is None or dt < sleep_dt:
+                                sleep_dt = dt
+                            continue
 
-            data_infos_queue.append(data_info)
+                    read_data_groups.append(data_group)
+                    last_read_times[i] = now
 
-        for data_type, interval_infos_dict in type_interval_infos_dict.items():
-            for interval, data_infos_queue in interval_infos_dict.items():
-                data_infos_queue = sorted(
-                    data_infos_queue,
-                    key=lambda i: (i.start_address, i.quantity))
-                data_infos_queue = collections.deque(data_infos_queue)
+                if not read_data_groups:
+                    await asyncio.sleep(sleep_dt)
+                    continue
 
-                while data_infos_queue:
-                    self._start_read_loop(data_infos_queue, interval,
-                                          data_type)
+                timeout = False
 
-    def _start_read_loop(self, data_infos_queue, interval, data_type):
+                self._log(logging.DEBUG, 'reading data')
+                for data_group in read_data_groups:
+                    result = await self._conn.read(
+                        device_id=self._device_id,
+                        data_type=data_group.data_type,
+                        start_address=data_group.start_address,
+                        quantity=data_group.quantity)
+
+                    if isinstance(result, Error) and result.name == 'TIMEOUT':
+                        timeout = True
+                        break
+
+                    for data_info in data_group.data_infos:
+                        last_response = last_responses.get(data_info.name)
+
+                        response = self._process_read_result(
+                            data_info, data_group.start_address,
+                            result, last_response)
+
+                        if response:
+                            last_responses[data_info.name] = response
+                            self._response_cb(response)
+
+                if timeout:
+                    self._set_status(_Status.DISCONNECTED)
+                    await asyncio.sleep(self._timeout_poll_delay)
+
+                    last_read_times = [None for _ in data_groups]
+                    last_responses = {}
+                    self._set_status(_Status.CONNECTING)
+
+                elif all(t is not None for t in last_read_times):
+                    self._set_status(_Status.CONNECTED)
+
+        except ConnectionError:
+            self._log(logging.DEBUG, 'connection closed')
+
+        except Exception as e:
+            self._log(logging.ERROR, 'read loop error: %s', e, exc_info=e)
+
+        finally:
+            self._log(logging.DEBUG, 'closing read loop')
+            self.close()
+            self._set_status(_Status.DISABLED)
+
+    def _process_read_result(self, data_info, start_address, result,
+                             last_response):
+        if isinstance(result, Error):
+            self._log(logging.DEBUG, 'data name %s: error response %s',
+                      data_info.name, result)
+            return RemoteDeviceReadRes(device_id=self._device_id,
+                                       data_name=data_info.name,
+                                       result=result.name,
+                                       value=None,
+                                       cause=None)
+
+        offset = data_info.start_address - start_address
+        value = _get_registers_value(
+            data_info.register_size, data_info.bit_offset,
+            data_info.bit_count,
+            result[offset:offset+data_info.quantity])
+
+        if last_response is None or last_response.result != 'SUCCESS':
+            self._log(logging.DEBUG, 'data name %s: initial value %s',
+                      data_info.name, value)
+            return RemoteDeviceReadRes(device_id=self._device_id,
+                                       data_name=data_info.name,
+                                       result='SUCCESS',
+                                       value=value,
+                                       cause='INTERROGATE')
+
+        if last_response.value != value:
+            self._log(logging.DEBUG, 'data name %s: value change %s -> %s',
+                      data_info.name, last_response.value, value)
+            return RemoteDeviceReadRes(device_id=self._device_id,
+                                       data_name=data_info.name,
+                                       result='SUCCESS',
+                                       value=value,
+                                       cause='CHANGE')
+
+        self._log(logging.DEBUG, 'data name %s: no value change',
+                  data_info.name)
+
+    def _set_status(self, status):
+        if self._status == status:
+            return
+
+        self._log(logging.DEBUG, 'changing remote device status %s -> %s',
+                  self._status, status)
+        self._status = status
+        self._response_cb(RemoteDeviceStatusRes(device_id=self._device_id,
+                                                status=status.name))
+
+    def _log(self, level, msg, *args, **kwargs):
+        if not mlog.isEnabledFor(level):
+            return
+
+        mlog.log(level, f"{self._log_prefix}: {msg}", *args, **kwargs)
+
+
+def _get_data_infos(conf):
+    for i in conf['data']:
+        data_type = DataType[i['data_type']]
+        register_size = _get_register_size(data_type)
+        bit_count = i['bit_count']
+        bit_offset = i['bit_offset']
+
+        yield _DataInfo(
+            data_type=data_type,
+            register_size=register_size,
+            start_address=i['start_address'],
+            bit_count=bit_count,
+            bit_offset=bit_offset,
+            quantity=math.ceil((bit_count + bit_offset) / register_size),
+            interval=i['interval'],
+            name=i['name'])
+
+
+def _group_data_infos(data_infos):
+    type_interval_infos_dict = collections.defaultdict(
+        functools.partial(collections.defaultdict, collections.deque))
+
+    for data_info in data_infos:
+        data_type = data_info.data_type
+        interval = data_info.interval
+
+        if interval is None:
+            continue
+
+        type_interval_infos_dict[data_type][interval].append(data_info)
+
+    for data_type, interval_infos_dict in type_interval_infos_dict.items():
+        for interval, data_infos_queue in interval_infos_dict.items():
+            yield from _group_data_infos_with_type_interval(
+                data_infos_queue, data_type, interval)
+
+
+def _group_data_infos_with_type_interval(data_infos, data_type, interval):
+    data_infos_queue = sorted(data_infos,
+                              key=lambda i: (i.start_address, i.quantity))
+    data_infos_queue = collections.deque(data_infos_queue)
+
+    while data_infos_queue:
         max_quantity = _get_max_quantity(data_type)
         start_address = None
         quantity = None
@@ -244,8 +386,9 @@ class _Reader(aio.Resource):
                 break
 
             else:
-                new_quantity = data_info.quantity + (data_info.start_address -
-                                                     start_address)
+                new_quantity = (data_info.quantity +
+                                data_info.start_address -
+                                start_address)
 
                 if new_quantity > max_quantity:
                     data_infos_queue.appendleft(data_info)
@@ -257,172 +400,13 @@ class _Reader(aio.Resource):
             data_infos.append(data_info)
 
         if start_address is None or quantity is None:
-            return
+            continue
 
-        is_connected_key = len(self._is_connected)
-        self._is_connected[is_connected_key] = False
-
-        self.async_group.spawn(self._read_loop, data_infos, interval,
-                               data_type, start_address, quantity,
-                               is_connected_key)
-
-    async def _read_loop(self, data_infos, interval, data_type, start_address,
-                         quantity, is_connected_key):
-        try:
-            self._log(logging.DEBUG, 'starting read loop')
-            last_read_time = time.monotonic() - interval
-
-            while True:
-                dt = time.monotonic() - last_read_time
-                if dt < interval:
-                    await asyncio.sleep(interval - dt)
-
-                self._log(logging.DEBUG, 'reading data')
-                last_read_time = time.monotonic()
-                result = await self._read(device_id=self._device_id,
-                                          data_type=data_type,
-                                          start_address=start_address,
-                                          quantity=quantity)
-
-                for data_info in data_infos:
-                    self._process_read_result(data_info, start_address, result)
-
-                is_connected = not (isinstance(result, Error) and
-                                    result.name == 'TIMEOUT')
-                self._is_connected[is_connected_key] = is_connected
-                self._eval_status()
-
-        except ConnectionError:
-            self._log(logging.DEBUG, 'connection closed')
-
-        except Exception as e:
-            self._log(logging.ERROR, 'read loop error: %s', e, exc_info=e)
-
-        finally:
-            self._log(logging.DEBUG, 'closing read loop')
-            self.close()
-
-    async def _read(self, *args, **kwargs):
-        try:
-            future = asyncio.Future()
-            self._read_queue.put_nowait((future, args, kwargs))
-            return await future
-
-        except aio.QueueClosedError:
-            raise ConnectionError()
-
-    async def _connection_loop(self):
-        future = None
-
-        try:
-            while True:
-                future, args, kwargs = await self._read_queue.get()
-
-                result = await self._conn.read(*args, **kwargs)
-
-                if not future.done():
-                    future.set_result(result)
-
-        except ConnectionError:
-            self._log(logging.DEBUG, 'connection closed')
-
-        except Exception as e:
-            self._log(logging.ERROR, 'connection loop error: %s', e,
-                      exc_info=e)
-
-        finally:
-            self.close()
-            self._read_queue.close()
-
-            while True:
-                if future and not future.done():
-                    future.set_exception(ConnectionError())
-                if self._read_queue.empty():
-                    break
-                future, _, __ = self._read_queue.get_nowait()
-
-    def _process_read_result(self, data_info, start_address, result):
-        last_response = self._last_responses.get(data_info.name)
-
-        if isinstance(result, Error):
-            value = None
-
-        else:
-            offset = data_info.start_address - start_address
-            value = _get_registers_value(
-                data_info.register_size, data_info.bit_offset,
-                data_info.bit_count,
-                result[offset:offset+data_info.quantity])
-
-        if isinstance(result, Error):
-            self._log(logging.DEBUG, 'received error response (device_id: %s; '
-                      'data_name: %s): %s',
-                      self._device_id, data_info.name, result)
-            response = RemoteDeviceReadRes(device_id=self._device_id,
-                                           data_name=data_info.name,
-                                           result=result.name,
-                                           value=None,
-                                           cause=None)
-
-        elif (last_response is None or
-                last_response.result != 'SUCCESS'):
-            self._log(logging.DEBUG, 'received initial value (device_id: %s; '
-                      'data_name: %s): %s',
-                      self._device_id, data_info.name, value)
-            response = RemoteDeviceReadRes(device_id=self._device_id,
-                                           data_name=data_info.name,
-                                           result='SUCCESS',
-                                           value=value,
-                                           cause='INTERROGATE')
-
-        elif last_response.value != value:
-            self._log(logging.DEBUG, 'data value change value (device_id: %s; '
-                      'data_name: %s): %s -> %s',
-                      self._device_id, data_info.name,
-                      last_response.value, value)
-            response = RemoteDeviceReadRes(device_id=self._device_id,
-                                           data_name=data_info.name,
-                                           result='SUCCESS',
-                                           value=value,
-                                           cause='CHANGE')
-
-        else:
-            self._log(logging.DEBUG, 'no data change')
-            response = None
-
-        if response:
-            self._last_responses[data_info.name] = response
-            self._response_cb(response)
-
-    def _eval_status(self):
-        if not self.is_open:
-            status = 'DISABLED'
-        elif all(self._is_connected.values()):
-            status = 'CONNECTED'
-        else:
-            status = 'CONNECTING'
-
-        if self._status == status:
-            return
-
-        if self._status == 'CONNECTED' and status == 'CONNECTING':
-            statuses = ['DISCONNECTED', status]
-
-        else:
-            statuses = [status]
-
-        for status in statuses:
-            self._log(logging.DEBUG, 'changing remote device status: %s -> %s',
-                      self._status, status)
-            self._status = status
-            self._response_cb(RemoteDeviceStatusRes(device_id=self._device_id,
-                                                    status=status))
-
-    def _log(self, level, msg, *args, **kwargs):
-        if not mlog.isEnabledFor(level):
-            return
-
-        mlog.log(level, f"{self._log_prefix}: {msg}", *args, **kwargs)
+        yield _DataGroup(data_infos=data_infos,
+                         interval=interval,
+                         data_type=data_type,
+                         start_address=start_address,
+                         quantity=quantity)
 
 
 def _get_register_size(data_type):
