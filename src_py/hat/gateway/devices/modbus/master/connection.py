@@ -130,7 +130,8 @@ class Connection(aio.Resource):
                     continue
 
                 delayed_count -= 1
-                immediate_count = self._conf['request_retry_immediate_count']
+                immediate_count = (
+                    self._conf['request_retry_immediate_count'] + 1)
 
                 while True:
                     try:
@@ -195,7 +196,7 @@ class Connection(aio.Resource):
     async def _request(self, fn, *args):
         try:
             future = asyncio.Future()
-            delayed_count = self._conf['request_retry_delayed_count']
+            delayed_count = self._conf['request_retry_delayed_count'] + 1
             self._request_queue.put_nowait((fn, args, delayed_count, future))
             return await future
 
