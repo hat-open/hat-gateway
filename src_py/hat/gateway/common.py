@@ -10,22 +10,24 @@ import hat.event.common
 import hat.monitor.common
 
 
-with importlib.resources.path(__package__, 'json_schema_repo.json') as _path:
+with importlib.resources.as_file(importlib.resources.files(__package__) /
+                                 'json_schema_repo.json') as _path:
     json_schema_repo: json.SchemaRepository = json.SchemaRepository(
         json.json_schema_repo,
         hat.monitor.common.json_schema_repo,
         json.SchemaRepository.from_json(_path))
     """JSON schema repository"""
 
-DeviceConf = json.Data
+DeviceConf: typing.TypeAlias = json.Data
 """Device configuration"""
 
-EventTypePrefix = hat.event.common.EventType
+EventTypePrefix: typing.TypeAlias = hat.event.common.EventType
 """Event type prefix"""
 
-CreateDevice = aio.AsyncCallable[
-    [DeviceConf, 'DeviceEventClient', EventTypePrefix],
-    'Device']
+CreateDevice: typing.TypeAlias = aio.AsyncCallable[[DeviceConf,
+                                                    'DeviceEventClient',
+                                                    EventTypePrefix],
+                                                   'Device']
 """Create device callable"""
 
 
@@ -55,17 +57,17 @@ class DeviceEventClient(aio.Resource):
     """Device's event client interface"""
 
     @abc.abstractmethod
-    async def receive(self) -> typing.List[hat.event.common.Event]:
+    async def receive(self) -> list[hat.event.common.Event]:
         """Receive device events"""
 
     @abc.abstractmethod
-    def register(self, events: typing.List[hat.event.common.RegisterEvent]):
+    def register(self, events: list[hat.event.common.RegisterEvent]):
         """Register device events"""
 
     @abc.abstractmethod
     async def register_with_response(self,
-                                     events: typing.List[hat.event.common.RegisterEvent]  # NOQA
-                                     ) -> typing.List[typing.Optional[hat.event.common.Event]]:  # NOQA
+                                     events: list[hat.event.common.RegisterEvent]  # NOQA
+                                     ) -> list[hat.event.common.Event | None]:
         """Register device events
 
         Each `RegisterEvent` from `events` is paired with results `Event` if
@@ -77,5 +79,5 @@ class DeviceEventClient(aio.Resource):
     @abc.abstractmethod
     async def query(self,
                     data: hat.event.common.QueryData
-                    ) -> typing.List[hat.event.common.Event]:
+                    ) -> list[hat.event.common.Event]:
         """Query device events from server"""

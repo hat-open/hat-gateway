@@ -14,6 +14,12 @@ durations = collections.deque()
 
 
 def pytest_addoption(parser):
+    parser.addoption("--unit",
+                     action="store_true",
+                     help="run unit tests")
+    parser.addoption("--sys",
+                     action="store_true",
+                     help="run system tests")
     parser.addoption("--perf",
                      action="store_true",
                      help="run performance tests")
@@ -21,21 +27,30 @@ def pytest_addoption(parser):
 
 def pytest_configure(config):
     aio.init_asyncio()
+    config.addinivalue_line("markers", "unit: mark unit test")
+    config.addinivalue_line("markers", "sys: mark system test")
     config.addinivalue_line("markers", "perf: mark performance test")
 
 
 def pytest_runtest_setup(item):
-    is_perf_run = item.config.getoption("--perf")
-    is_perf_test = any(item.iter_markers(name="perf"))
-    if is_perf_run and not is_perf_test:
-        pytest.skip("running only performance tests")
-    elif not is_perf_run and is_perf_test:
-        pytest.skip("not running performance tests")
+    options = {option for option in ['unit', 'sys', 'perf']
+               if item.config.getoption(f'--{option}')}
+    if not options:
+        options.add('unit')
+
+    marks = {mark for mark in ['unit', 'sys', 'perf']
+             if any(item.iter_markers(name=mark))}
+    if not marks:
+        marks.add('unit')
+
+    if options.isdisjoint(marks):
+        pytest.skip("test not marked for execution")
 
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
     if not durations:
         return
+
     terminalreporter.write('\nDuration report:\n')
     for i in durations:
         identifier = i['identifier']

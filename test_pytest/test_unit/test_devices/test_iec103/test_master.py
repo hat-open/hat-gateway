@@ -12,9 +12,10 @@ from hat.drivers import iec103
 from hat.drivers import serial
 from hat.drivers.iec60870 import link
 from hat.drivers.iec60870 import msgs as app
+import hat.event.common
+
 from hat.gateway import common
 from hat.gateway.devices.iec103 import master
-import hat.event.common
 
 
 gateway_name = 'gateway_name'

@@ -65,7 +65,7 @@ class Iec104MasterDevice(common.Device):
                             test_timeout=conf['test_timeout'],
                             send_window_size=conf['send_window_size'],
                             receive_window_size=conf['receive_window_size'],
-                            ssl_ctx=ssl_ctx)
+                            ssl=ssl_ctx)
 
                         if conf['security']:
                             try:
@@ -137,7 +137,7 @@ class Iec104MasterDevice(common.Device):
                                  len(msgs))
 
                 try:
-                    self._conn.send(list(msgs))
+                    await self._conn.send(list(msgs))
                     mlog.debug('%s messages sent', len(msg))
 
                 except ConnectionError as e:
@@ -203,7 +203,7 @@ class Iec104MasterDevice(common.Device):
                     time=time_iec104_now,
                     is_negative_confirm=False,
                     cause=iec104.ClockSyncReqCause.ACTIVATION)
-                conn.send([msg])
+                await conn.send([msg])
 
                 await conn.drain()
                 mlog.debug('time sync sent %s', time_iec104_now)

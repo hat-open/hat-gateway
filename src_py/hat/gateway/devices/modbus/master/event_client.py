@@ -3,8 +3,9 @@ import logging
 import typing
 
 from hat import aio
-from hat.gateway import common
 import hat.event.common
+
+from hat.gateway import common
 
 
 mlog = logging.getLogger(__name__)
@@ -22,8 +23,7 @@ class RemoteDeviceWriteReq(typing.NamedTuple):
     value: int
 
 
-Request = typing.Union[RemoteDeviceEnableReq,
-                       RemoteDeviceWriteReq]
+Request: typing.TypeAlias = RemoteDeviceEnableReq | RemoteDeviceWriteReq
 
 
 class StatusRes(typing.NamedTuple):
@@ -39,8 +39,8 @@ class RemoteDeviceReadRes(typing.NamedTuple):
     device_id: int
     data_name: str
     result: str
-    value: typing.Optional[int]
-    cause: typing.Optional[str]
+    value: int | None
+    cause: str | None
 
 
 class RemoteDeviceWriteRes(typing.NamedTuple):
@@ -50,10 +50,10 @@ class RemoteDeviceWriteRes(typing.NamedTuple):
     result: str
 
 
-Response = typing.Union[StatusRes,
-                        RemoteDeviceStatusRes,
-                        RemoteDeviceReadRes,
-                        RemoteDeviceWriteRes]
+Response: typing.TypeAlias = (StatusRes |
+                              RemoteDeviceStatusRes |
+                              RemoteDeviceReadRes |
+                              RemoteDeviceWriteRes)
 
 
 class EventClientProxy(aio.Resource):
@@ -73,7 +73,7 @@ class EventClientProxy(aio.Resource):
     def async_group(self) -> aio.Group:
         return self._async_group
 
-    def write(self, responses: typing.List[Response]):
+    def write(self, responses: list[Response]):
         register_events = [
             _response_to_register_event(self._event_type_prefix, i)
             for i in responses]
@@ -86,7 +86,7 @@ class EventClientProxy(aio.Resource):
         except aio.QueueClosedError:
             raise ConnectionError()
 
-    async def query_enabled_devices(self) -> typing.Set[int]:
+    async def query_enabled_devices(self) -> set[int]:
         self._log(logging.DEBUG, 'querying enabled devices')
         enabled_devices = set()
 

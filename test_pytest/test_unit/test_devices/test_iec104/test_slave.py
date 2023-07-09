@@ -12,9 +12,10 @@ from hat import aio
 from hat import util
 from hat.drivers import iec104
 from hat.drivers import tcp
+import hat.event.common
+
 from hat.gateway.devices.iec104 import common
 from hat.gateway.devices.iec104 import slave
-import hat.event.common
 
 
 gateway_name = 'gateway_name'
@@ -384,7 +385,7 @@ async def test_secure_connection(create_conf, create_connection, pem_path):
     ssl_ctx.check_hostname = False
     ssl_ctx.verify_mode = ssl.VerifyMode.CERT_NONE
     ssl_ctx.load_cert_chain(pem_path)
-    conn = await create_connection(ssl_ctx=ssl_ctx)
+    conn = await create_connection(ssl=ssl_ctx)
     assert conn.is_open
 
     event = await event_client.register_queue.get()
@@ -461,7 +462,7 @@ async def test_command_request(create_event_client_connection_pair, is_test,
                             is_negative_confirm=False,
                             time=time,
                             cause=cause)
-    conn.send([msg])
+    await conn.send([msg])
 
     event = await event_client.register_queue.get()
     assert_command_event(event, cmd_type, asdu_address, io_address, time,
@@ -763,7 +764,7 @@ async def test_interrogation(create_data_event,
                                   request=42,
                                   is_negative_confirm=False,
                                   cause=iec104.CommandReqCause.ACTIVATION)
-    conn.send([req])
+    await conn.send([req])
 
     msgs = await conn.receive()
     assert len(msgs) == 1
@@ -848,7 +849,7 @@ async def test_counter_interrogation(create_data_event,
         freeze=iec104.FreezeCode.READ,
         is_negative_confirm=False,
         cause=iec104.CommandReqCause.ACTIVATION)
-    conn.send([req])
+    await conn.send([req])
 
     msgs = await conn.receive()
     assert len(msgs) == 1

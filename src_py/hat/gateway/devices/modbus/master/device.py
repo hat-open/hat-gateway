@@ -3,6 +3,7 @@ import contextlib
 import logging
 
 from hat import aio
+
 from hat.gateway import common
 from hat.gateway.devices.modbus.master.connection import connect
 from hat.gateway.devices.modbus.master.event_client import (RemoteDeviceEnableReq,  # NOQA

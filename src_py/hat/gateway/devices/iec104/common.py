@@ -212,15 +212,15 @@ def command_from_json(cmd_type: CommandType,
     raise ValueError('unsupported command type')
 
 
-def time_to_source_timestamp(t: typing.Optional[iec104.Time]
-                             ) -> typing.Optional[hat.event.common.Timestamp]:
+def time_to_source_timestamp(t: iec104.Time | None
+                             ) -> hat.event.common.Timestamp | None:
     return (
         hat.event.common.timestamp_from_datetime(iec104.time_to_datetime(t))
         if t else None)
 
 
-def time_from_source_timestamp(t: typing.Optional[hat.event.common.Timestamp],
-                               ) -> typing.Optional[iec104.Time]:
+def time_from_source_timestamp(t: hat.event.common.Timestamp | None,
+                               ) -> iec104.Time | None:
     return (
         iec104.time_from_datetime(hat.event.common.timestamp_to_datetime(t))
         if t else None)

@@ -14,7 +14,7 @@ from hat.drivers import tcp
 mlog = logging.getLogger(__name__)
 
 
-DataType = modbus.DataType
+DataType: typing.TypeAlias = modbus.DataType
 
 
 Error = enum.Enum('Error', [
@@ -86,7 +86,7 @@ class Connection(aio.Resource):
                    data_type: modbus.DataType,
                    start_address: int,
                    quantity: int
-                   ) -> typing.Union[typing.List[int], Error]:
+                   ) -> list[int] | Error:
         self._log(logging.DEBUG, 'enqueuing read request')
         return await self._request(self._master.read, device_id, data_type,
                                    start_address, quantity)
@@ -95,8 +95,8 @@ class Connection(aio.Resource):
                     device_id: int,
                     data_type: modbus.DataType,
                     start_address: int,
-                    values: typing.List[int]
-                    ) -> typing.Optional[Error]:
+                    values: list[int]
+                    ) -> Error | None:
         self._log(logging.DEBUG, 'enqueuing write request')
         return await self._request(self._master.write, device_id, data_type,
                                    start_address, values)
@@ -106,7 +106,7 @@ class Connection(aio.Resource):
                          address: int,
                          and_mask: int,
                          or_mask: int
-                         ) -> typing.Optional[Error]:
+                         ) -> Error | None:
         self._log(logging.DEBUG, 'enqueuing write mask request')
         return await self._request(self._master.write_mask, device_id,
                                    address, and_mask, or_mask)

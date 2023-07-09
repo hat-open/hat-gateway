@@ -6,9 +6,10 @@ from hat import aio
 from hat import util
 from hat.drivers import snmp
 from hat.drivers import udp
+import hat.event.common
+
 from hat.gateway import common
 from hat.gateway.devices.snmp import manager
-import hat.event.common
 
 
 gateway_name = 'gateway_name'

@@ -10,9 +10,10 @@ from hat import aio
 from hat import util
 from hat.drivers import iec104
 from hat.drivers import tcp
+import hat.event.common
+
 from hat.gateway.devices.iec104 import common
 from hat.gateway.devices.iec104 import master
-import hat.event.common
 
 
 gateway_name = 'gateway_name'
@@ -422,7 +423,7 @@ async def test_secure_connection(create_conf, create_server, pem_path):
     ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     ssl_ctx.check_hostname = False
     ssl_ctx.load_cert_chain(pem_path)
-    server = await create_server(conn_queue.put_nowait, ssl_ctx=ssl_ctx)
+    server = await create_server(conn_queue.put_nowait, ssl=ssl_ctx)
 
     conf = create_conf(security={'enabled': True,
                                  'cert_path': pem_path,
@@ -734,7 +735,7 @@ async def test_data_response(event_client_connection_pair, asdu_address,
                          data=data,
                          time=time,
                          cause=cause)
-    conn.send([msg])
+    await conn.send([msg])
 
     event = await event_client.register_queue.get()
     assert_data_event(event, data_type, asdu_address, io_address, time,
@@ -811,7 +812,7 @@ async def test_command_response(event_client_connection_pair, is_test,
                             is_negative_confirm=is_negative_confirm,
                             time=time,
                             cause=cause)
-    conn.send([msg])
+    await conn.send([msg])
 
     event = await event_client.register_queue.get()
     assert_command_event(event, cmd_type, asdu_address, io_address, time,
@@ -835,7 +836,7 @@ async def test_interrogation_response(event_client_connection_pair,
                                   request=_request,
                                   is_negative_confirm=is_negative_confirm,
                                   cause=cause)
-    conn.send([msg])
+    await conn.send([msg])
 
     event = await event_client.register_queue.get()
     assert_interrogation_event(event, asdu_address, is_test,
@@ -863,7 +864,7 @@ async def test_counter_interrogation_response(event_client_connection_pair,
         freeze=freeze,
         is_negative_confirm=is_negative_confirm,
         cause=cause)
-    conn.send([msg])
+    await conn.send([msg])
 
     event = await event_client.register_queue.get()
     assert_counter_interrogation_event(event, asdu_address, is_test,

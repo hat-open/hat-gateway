@@ -8,6 +8,7 @@ import pytest
 
 from hat import aio
 import hat.event.common
+
 import hat.gateway.engine
 
 

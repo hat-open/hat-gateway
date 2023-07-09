@@ -1,6 +1,7 @@
 """Modbus master device"""
 
 from hat import json
+
 from hat.gateway import common
 from hat.gateway.devices.modbus.master import device
 

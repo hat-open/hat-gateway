@@ -6,9 +6,10 @@ from hat import aio
 from hat import util
 from hat.drivers import modbus
 from hat.drivers import tcp
+import hat.event.common
+
 from hat.gateway import common
 from hat.gateway.devices.modbus import master
-import hat.event.common
 
 
 gateway_name = 'gateway_name'

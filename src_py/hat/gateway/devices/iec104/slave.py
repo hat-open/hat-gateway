@@ -84,7 +84,7 @@ async def create(conf: common.DeviceConf,
         test_timeout=conf['test_timeout'],
         send_window_size=conf['send_window_size'],
         receive_window_size=conf['receive_window_size'],
-        ssl_ctx=ssl_ctx)
+        ssl=ssl_ctx)
 
     try:
         device._register_connections()
@@ -251,7 +251,7 @@ class Iec104SlaveDevice(common.Device):
         cmd_msg = _cmd_msg_from_event(cmd_key, event)
         conn_id = event.payload.data['connection_id']
         conn = self._conns[conn_id]
-        conn.send([cmd_msg])
+        await conn.send([cmd_msg])
 
     async def _process_msg(self, conn_id, conn, msg):
         if isinstance(msg, iec104.CommandMsg):
@@ -292,14 +292,14 @@ class Iec104SlaveDevice(common.Device):
         else:
             res = msg._replace(cause=iec104.CommandResCause.UNKNOWN_CAUSE,
                                is_negative_confirm=True)
-            conn.send([res])
+            await conn.send([res])
 
     async def _process_interrogation_msg(self, conn_id, conn, msg):
         if msg.cause == iec104.CommandReqCause.ACTIVATION:
             res = msg._replace(
                 cause=iec104.CommandResCause.ACTIVATION_CONFIRMATION,
                 is_negative_confirm=False)
-            conn.send([res])
+            await conn.send([res])
 
             data_msgs = [
                 data_msg._replace(
@@ -310,30 +310,30 @@ class Iec104SlaveDevice(common.Device):
                     (msg.asdu_address == 0xFFFF or
                      msg.asdu_address == data_msg.asdu_address) and
                     not isinstance(data_msg.data, iec104.BinaryCounterData))]
-            conn.send(data_msgs)
+            await conn.send(data_msgs)
 
             res = msg._replace(
                 cause=iec104.CommandResCause.ACTIVATION_TERMINATION,
                 is_negative_confirm=False)
-            conn.send([res])
+            await conn.send([res])
 
         elif msg.cause == iec104.CommandReqCause.DEACTIVATION:
             res = msg._replace(
                 cause=iec104.CommandResCause.DEACTIVATION_CONFIRMATION,
                 is_negative_confirm=True)
-            conn.send([res])
+            await conn.send([res])
 
         else:
             res = msg._replace(cause=iec104.CommandResCause.UNKNOWN_CAUSE,
                                is_negative_confirm=True)
-            conn.send([res])
+            await conn.send([res])
 
     async def _process_counter_interrogation_msg(self, conn_id, conn, msg):
         if msg.cause == iec104.CommandReqCause.ACTIVATION:
             res = msg._replace(
                 cause=iec104.CommandResCause.ACTIVATION_CONFIRMATION,
                 is_negative_confirm=False)
-            conn.send([res])
+            await conn.send([res])
 
             data_msgs = [
                 data_msg._replace(
@@ -344,56 +344,56 @@ class Iec104SlaveDevice(common.Device):
                     (msg.asdu_address == 0xFFFF or
                      msg.asdu_address == data_msg.asdu_address) and
                     isinstance(data_msg.data, iec104.BinaryCounterData))]
-            conn.send(data_msgs)
+            await conn.send(data_msgs)
 
             res = msg._replace(
                 cause=iec104.CommandResCause.ACTIVATION_TERMINATION,
                 is_negative_confirm=False)
-            conn.send([res])
+            await conn.send([res])
 
         elif msg.cause == iec104.CommandReqCause.DEACTIVATION:
             res = msg._replace(
                 cause=iec104.CommandResCause.DEACTIVATION_CONFIRMATION,
                 is_negative_confirm=True)
-            conn.send([res])
+            await conn.send([res])
 
         else:
             res = msg._replace(cause=iec104.CommandResCause.UNKNOWN_CAUSE,
                                is_negative_confirm=True)
-            conn.send([res])
+            await conn.send([res])
 
     async def _process_read_msg(self, conn_id, conn, msg):
         res = msg._replace(cause=iec104.ReadResCause.UNKNOWN_TYPE)
-        conn.send([res])
+        await conn.send([res])
 
     async def _process_clock_sync_msg(self, conn_id, conn, msg):
         if isinstance(msg.cause, iec104.ClockSyncReqCause):
             res = msg._replace(
                 cause=iec104.ClockSyncResCause.ACTIVATION_CONFIRMATION,
                 is_negative_confirm=True)
-            conn.send([res])
+            await conn.send([res])
 
         else:
             res = msg._replace(cause=iec104.ClockSyncResCause.UNKNOWN_CAUSE,
                                is_negative_confirm=True)
-            conn.send([res])
+            await conn.send([res])
 
     async def _process_test_msg(self, conn_id, conn, msg):
         res = msg._replace(cause=iec104.ActivationResCause.UNKNOWN_TYPE)
-        conn.send([res])
+        await conn.send([res])
 
     async def _process_reset_msg(self, conn_id, conn, msg):
         res = msg._replace(cause=iec104.ActivationResCause.UNKNOWN_TYPE)
-        conn.send([res])
+        await conn.send([res])
 
     async def _process_parameter_msg(self, conn_id, conn, msg):
         res = msg._replace(cause=iec104.ParameterResCause.UNKNOWN_TYPE)
-        conn.send([res])
+        await conn.send([res])
 
     async def _process_parameter_activation_msg(self, conn_id, conn, msg):
         res = msg._replace(
             cause=iec104.ParameterActivationResCause.UNKNOWN_TYPE)
-        conn.send([res])
+        await conn.send([res])
 
     def _send_data_msg(self, conn, buffer, event_id, data_msg):
         self.async_group.spawn(_send_data_msg, conn, buffer, event_id,
@@ -421,11 +421,11 @@ class _Buffer:
 async def _send_data_msg(conn, buffer, event_id, data_msg):
     try:
         if buffer:
-            await conn.send_wait_ack([data_msg])
+            await conn.send([data_msg], wait_ack=True)
             buffer.remove(event_id)
 
         else:
-            conn.send([data_msg])
+            await conn.send([data_msg])
 
     except ConnectionError:
         pass

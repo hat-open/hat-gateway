@@ -10,6 +10,7 @@ import typing
 
 from hat import aio
 from hat import json
+
 from hat.gateway.devices.modbus.master.connection import (DataType,
                                                           Error,
                                                           Connection)
@@ -22,7 +23,7 @@ from hat.gateway.devices.modbus.master.event_client import (RemoteDeviceStatusRe
 mlog = logging.getLogger(__name__)
 
 
-ResponseCb = typing.Callable[[Response], None]
+ResponseCb: typing.TypeAlias = typing.Callable[[Response], None]
 
 
 class _Status(enum.Enum):
@@ -39,12 +40,12 @@ class _DataInfo(typing.NamedTuple):
     bit_count: int
     bit_offset: int
     quantity: int
-    interval: typing.Optional[float]
+    interval: float | None
     name: str
 
 
 class _DataGroup(typing.NamedTuple):
-    data_infos: typing.List[_DataInfo]
+    data_infos: list[_DataInfo]
     interval: float
     data_type: DataType
     start_address: int
@@ -85,7 +86,7 @@ class RemoteDevice:
                     data_name: str,
                     request_id: str,
                     value: int
-                    ) -> typing.Optional[RemoteDeviceWriteRes]:
+                    ) -> RemoteDeviceWriteRes | None:
         data_info = self._data_infos.get(data_name)
         if not data_info:
             self._log(logging.DEBUG, 'data %s is not available', data_name)

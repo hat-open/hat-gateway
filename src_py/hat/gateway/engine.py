@@ -7,9 +7,10 @@ import logging
 
 from hat import aio
 from hat import json
-from hat.gateway import common
 import hat.event.eventer
 import hat.event.common
+
+from hat.gateway import common
 
 
 mlog: logging.Logger = logging.getLogger(__name__)

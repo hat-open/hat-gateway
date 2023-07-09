@@ -1,6 +1,7 @@
 from pathlib import Path
 import asyncio
 import logging
+import typing
 
 import cryptography.hazmat.primitives.asymmetric.rsa
 import cryptography.x509
@@ -14,7 +15,7 @@ from hat.drivers import ssl
 mlog = logging.getLogger(__name__)
 
 
-SslProtocol = ssl.SslProtocol
+SslProtocol: typing.TypeAlias = ssl.SslProtocol
 
 
 def create_ssl_ctx(conf: json.Data,
