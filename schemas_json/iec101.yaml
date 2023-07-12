@@ -129,7 +129,7 @@ definitions:
             device_addresses:
                 type: array
                 items:
-                    type: string
+                    type: integer
             port:
                 type: string
             baudrate:
