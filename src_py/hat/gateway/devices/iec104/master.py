@@ -250,8 +250,7 @@ def _msg_to_event(event_type_prefix, msg):
 
 def _data_to_event(event_type_prefix, msg):
     data_type = common.get_data_type(msg.data)
-    cause = (msg.cause.name if isinstance(msg.cause, iec104.DataResCause)
-             else msg.cause)
+    cause = _cause_to_json(iec104.DataResCause, msg.cause)
     if isinstance(cause, str) and cause.startswith('INTERROGATED_'):
         cause = 'INTERROGATED'
     data = common.data_to_json(msg.data)
@@ -271,9 +270,7 @@ def _data_to_event(event_type_prefix, msg):
 
 def _command_to_event(event_type_prefix, msg):
     command_type = common.get_command_type(msg.command)
-    cause = (msg.cause.name if isinstance(msg.cause, iec104.CommandResCause)
-             else msg.cause.value if isinstance(msg.cause, enum.Enum)
-             else msg.cause)
+    cause = _cause_to_json(iec104.CommandResCause, msg.cause)
     command = common.command_to_json(msg.command)
     event_type = (*event_type_prefix, 'gateway', 'command', command_type.value,
                   str(msg.asdu_address), str(msg.io_address))
@@ -291,9 +288,7 @@ def _command_to_event(event_type_prefix, msg):
 
 
 def _interrogation_to_event(event_type_prefix, msg):
-    cause = (msg.cause.name if isinstance(msg.cause, iec104.CommandResCause)
-             else msg.cause.value if isinstance(msg.cause, enum.Enum)
-             else msg.cause)
+    cause = _cause_to_json(iec104.CommandResCause, msg.cause)
     event_type = (*event_type_prefix, 'gateway', 'interrogation',
                   str(msg.asdu_address))
 
@@ -309,9 +304,7 @@ def _interrogation_to_event(event_type_prefix, msg):
 
 
 def _counter_interrogation_to_event(event_type_prefix, msg):
-    cause = (msg.cause.name if isinstance(msg.cause, iec104.CommandResCause)
-             else msg.cause.value if isinstance(msg.cause, enum.Enum)
-             else msg.cause)
+    cause = _cause_to_json(iec104.CommandResCause, msg.cause)
     event_type = (*event_type_prefix, 'gateway', 'counter_interrogation',
                   str(msg.asdu_address))
 
@@ -350,9 +343,8 @@ def _msg_from_event(event_type_prefix, event):
 
 def _command_from_event(cmd_key, event):
     time = common.time_from_source_timestamp(event.source_timestamp)
-    cause = (iec104.CommandReqCause[event.payload.data['cause']]
-             if isinstance(event.payload.data['cause'], str)
-             else event.payload.data['cause'])
+    cause = _cause_from_json(iec104.CommandReqCause,
+                             event.payload.data['cause'])
     command = common.command_from_json(cmd_key.cmd_type,
                                        event.payload.data['command'])
 
@@ -367,9 +359,8 @@ def _command_from_event(cmd_key, event):
 
 
 def _interrogation_from_event(asdu_address, event):
-    cause = (iec104.CommandReqCause[event.payload.data['cause']]
-             if isinstance(event.payload.data['cause'], str)
-             else event.payload.data['cause'])
+    cause = _cause_from_json(iec104.CommandReqCause,
+                             event.payload.data['cause'])
 
     return iec104.InterrogationMsg(is_test=event.payload.data['is_test'],
                                    originator_address=0,
@@ -381,9 +372,8 @@ def _interrogation_from_event(asdu_address, event):
 
 def _counter_interrogation_from_event(asdu_address, event):
     freeze = iec104.FreezeCode[event.payload.data['freeze']]
-    cause = (iec104.CommandReqCause[event.payload.data['cause']]
-             if isinstance(event.payload.data['cause'], str)
-             else event.payload.data['cause'])
+    cause = _cause_from_json(iec104.CommandReqCause,
+                             event.payload.data['cause'])
 
     return iec104.CounterInterrogationMsg(
         is_test=event.payload.data['is_test'],
@@ -393,3 +383,13 @@ def _counter_interrogation_from_event(asdu_address, event):
         freeze=freeze,
         is_negative_confirm=False,
         cause=cause)
+
+
+def _cause_to_json(cls, cause):
+    return (cause.name if isinstance(cause, cls) else
+            cause.value if isinstance(cause, enum.Enum) else
+            cause)
+
+
+def _cause_from_json(cls, cause):
+    return cls[cause] if isinstance(cause, str) else cause

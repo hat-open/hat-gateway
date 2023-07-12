@@ -1,5 +1,5 @@
 ---
-"$schema": "http://json-schema.org/schema#"
+$schema: "http://json-schema.org/schema#"
 id: "hat-gateway://iec101.yaml#"
 definitions:
     master:
@@ -232,31 +232,28 @@ definitions:
         master:
             gateway:
                 status:
-                    enum:
-                        - CONNECTING
-                        - CONNECTED
-                        - DISCONNECTED
+                    $ref: "hat-gateway://iec101.yaml#/definitions/messages/status"
                 data:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/messages/data/res"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/messages/data/res"
                 command:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/messages/command/res"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/messages/command/res"
                 interrogation:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/messages/interrogation/res"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/messages/interrogation/res"
                 counter_interrogation:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/messages/counter_interrogation/res"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/messages/counter_interrogation/res"
             system:
                 enable:
-                    type: boolean
+                    $ref: "hat-gateway://iec101.yaml#/definitions/messages/enable"
                 command:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/messages/command/req"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/messages/command/req"
                 interrogation:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/messages/interrogation/req"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/messages/interrogation/req"
                 counter_interrogation:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/messages/counter_interrogation/req"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/messages/counter_interrogation/req"
         slave:
             gateway:
                 connections:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/messages/connections"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/messages/connections"
                 command:
                     allOf:
                       - type: object
@@ -265,10 +262,10 @@ definitions:
                         properties:
                             connection_id:
                                 type: integer
-                      - "$ref": "hat-gateway://iec101.yaml#/definitions/messages/command/req"
+                      - $ref: "hat-gateway://iec101.yaml#/definitions/messages/command/req"
             system:
                 data:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/messages/data/res"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/messages/data/res"
                 command:
                     allOf:
                       - type: object
@@ -277,8 +274,15 @@ definitions:
                         properties:
                             connection_id:
                                 type: integer
-                      - "$ref": "hat-gateway://iec101.yaml#/definitions/messages/command/res"
+                      - $ref: "hat-gateway://iec101.yaml#/definitions/messages/command/res"
     messages:
+        enable:
+            type: boolean
+        status:
+            enum:
+                - CONNECTING
+                - CONNECTED
+                - DISCONNECTED
         connections:
             type: array
             items:
@@ -295,153 +299,134 @@ definitions:
             res:
                 type: object
                 required:
+                    - is_test
                     - cause
-                    - test
+                    - data
                 properties:
-                    cause:
-                        oneOf:
-                          - enum:
-                                - PERIODIC
-                                - BACKGROUND_SCAN
-                                - SPONTANEOUS
-                                - REQUEST
-                                - REMOTE_COMMAND
-                                - LOCAL_COMMAND
-                                - INTERROGATED
-                          - type: integer
-                            description: |
-                                other cause in range [0, 63]
-                    test:
+                    is_test:
                         type: boolean
-                oneOf:
-                    - "$ref": "hat-gateway://iec101.yaml#/definitions/data_types/single"
-                    - "$ref": "hat-gateway://iec101.yaml#/definitions/data_types/double"
-                    - "$ref": "hat-gateway://iec101.yaml#/definitions/data_types/step_position"
-                    - "$ref": "hat-gateway://iec101.yaml#/definitions/data_types/bitstring"
-                    - "$ref": "hat-gateway://iec101.yaml#/definitions/data_types/normalized"
-                    - "$ref": "hat-gateway://iec101.yaml#/definitions/data_types/scaled"
-                    - "$ref": "hat-gateway://iec101.yaml#/definitions/data_types/floating"
-                    - "$ref": "hat-gateway://iec101.yaml#/definitions/data_types/binary_counter"
-                    - "$ref": "hat-gateway://iec101.yaml#/definitions/data_types/protection"
-                    - "$ref": "hat-gateway://iec101.yaml#/definitions/data_types/protection_start"
-                    - "$ref": "hat-gateway://iec101.yaml#/definitions/data_types/protection_command"
-                    - "$ref": "hat-gateway://iec101.yaml#/definitions/data_types/status"
+                    cause:
+                        $ref: "hat-gateway://iec101.yaml#/definitions/causes/data/res"
+                    data:
+                        oneOf:
+                            - $ref: "hat-gateway://iec101.yaml#/definitions/data/single"
+                            - $ref: "hat-gateway://iec101.yaml#/definitions/data/double"
+                            - $ref: "hat-gateway://iec101.yaml#/definitions/data/step_position"
+                            - $ref: "hat-gateway://iec101.yaml#/definitions/data/bitstring"
+                            - $ref: "hat-gateway://iec101.yaml#/definitions/data/normalized"
+                            - $ref: "hat-gateway://iec101.yaml#/definitions/data/scaled"
+                            - $ref: "hat-gateway://iec101.yaml#/definitions/data/floating"
+                            - $ref: "hat-gateway://iec101.yaml#/definitions/data/binary_counter"
+                            - $ref: "hat-gateway://iec101.yaml#/definitions/data/protection"
+                            - $ref: "hat-gateway://iec101.yaml#/definitions/data/protection_start"
+                            - $ref: "hat-gateway://iec101.yaml#/definitions/data/protection_command"
+                            - $ref: "hat-gateway://iec101.yaml#/definitions/data/status"
         command:
             req:
                 type: object
                 required:
+                    - is_test
                     - cause
+                    - command
                 properties:
+                    is_test:
+                        type: boolean
                     cause:
+                        $ref: "hat-gateway://iec101.yaml#/definitions/causes/command/req"
+                    command:
                         oneOf:
-                          - enum:
-                                - ACTIVATION
-                                - DEACTIVATION
-                          - type: integer
-                            description: |
-                                other cause in range [0, 63]
-                oneOf:
-                    - "$ref": "hat-gateway://iec101.yaml#/definitions/command_types/single"
-                    - "$ref": "hat-gateway://iec101.yaml#/definitions/command_types/double"
-                    - "$ref": "hat-gateway://iec101.yaml#/definitions/command_types/regulating"
-                    - "$ref": "hat-gateway://iec101.yaml#/definitions/command_types/normalized"
-                    - "$ref": "hat-gateway://iec101.yaml#/definitions/command_types/scaled"
-                    - "$ref": "hat-gateway://iec101.yaml#/definitions/command_types/floating"
-                    - "$ref": "hat-gateway://iec101.yaml#/definitions/command_types/bitstring"
+                            - $ref: "hat-gateway://iec101.yaml#/definitions/commands/single"
+                            - $ref: "hat-gateway://iec101.yaml#/definitions/commands/double"
+                            - $ref: "hat-gateway://iec101.yaml#/definitions/commands/regulating"
+                            - $ref: "hat-gateway://iec101.yaml#/definitions/commands/normalized"
+                            - $ref: "hat-gateway://iec101.yaml#/definitions/commands/scaled"
+                            - $ref: "hat-gateway://iec101.yaml#/definitions/commands/floating"
+                            - $ref: "hat-gateway://iec101.yaml#/definitions/commands/bitstring"
             res:
                 type: object
                 required:
+                    - is_test
+                    - is_negative_confirm
                     - cause
-                    - success
+                    - command
                 properties:
-                    cause:
-                        oneOf:
-                          - enum:
-                                - ACTIVATION_CONFIRMATION
-                                - DEACTIVATION_CONFIRMATION
-                                - ACTIVATION_TERMINATION
-                                - UNKNOWN_TYPE
-                                - UNKNOWN_CAUSE
-                                - UNKNOWN_ASDU_ADDRESS
-                                - UNKNOWN_IO_ADDRESS
-                          - type: integer
-                            description: |
-                                other cause in range [0, 63]
-                    success:
+                    is_test:
                         type: boolean
-                oneOf:
-                    - "$ref": "hat-gateway://iec101.yaml#/definitions/command_types/single"
-                    - "$ref": "hat-gateway://iec101.yaml#/definitions/command_types/double"
-                    - "$ref": "hat-gateway://iec101.yaml#/definitions/command_types/regulating"
-                    - "$ref": "hat-gateway://iec101.yaml#/definitions/command_types/normalized"
-                    - "$ref": "hat-gateway://iec101.yaml#/definitions/command_types/scaled"
-                    - "$ref": "hat-gateway://iec101.yaml#/definitions/command_types/floating"
-                    - "$ref": "hat-gateway://iec101.yaml#/definitions/command_types/bitstring"
+                    is_negative_confirm:
+                        type: boolean
+                    cause:
+                        $ref: "hat-gateway://iec101.yaml#/definitions/causes/command/res"
+                    command:
+                        oneOf:
+                            - $ref: "hat-gateway://iec101.yaml#/definitions/commands/single"
+                            - $ref: "hat-gateway://iec101.yaml#/definitions/commands/double"
+                            - $ref: "hat-gateway://iec101.yaml#/definitions/commands/regulating"
+                            - $ref: "hat-gateway://iec101.yaml#/definitions/commands/normalized"
+                            - $ref: "hat-gateway://iec101.yaml#/definitions/commands/scaled"
+                            - $ref: "hat-gateway://iec101.yaml#/definitions/commands/floating"
+                            - $ref: "hat-gateway://iec101.yaml#/definitions/commands/bitstring"
         interrogation:
             req:
                 type: object
                 required:
+                    - is_test
                     - request
+                    - cause
                 properties:
+                    is_test:
+                        type: boolean
                     request:
                         type: integer
                         description: |
                             request in range [0, 255]
+                    cause:
+                        $ref: "hat-gateway://iec101.yaml#/definitions/causes/command/req"
             res:
                 type: object
                 required:
-                    - status
+                    - is_test
+                    - is_negative_confirm
                     - request
+                    - cause
                 properties:
-                    status:
-                        enum:
-                            - START
-                            - STOP
-                            - ERROR
+                    is_test:
+                        type: boolean
+                    is_negative_confirm:
+                        type: boolean
                     request:
                         type: integer
                         description: |
                             request in range [0, 255]
+                    cause:
+                        $ref: "hat-gateway://iec101.yaml#/definitions/causes/command/res"
         counter_interrogation:
             req:
-                type: object
-                required:
-                    - request
-                    - freeze
-                properties:
-                    request:
-                        type: integer
-                        description: |
-                            request in range [0, 255]
-                    freeze:
-                        enum:
-                            - READ
-                            - FREEZE
-                            - FREEZE_AND_RESET
-                            - RESET
+                allOf:
+                  - type: object
+                    required:
+                        - freeze
+                    properties:
+                        freeze:
+                            enum:
+                                - READ
+                                - FREEZE
+                                - FREEZE_AND_RESET
+                                - RESET
+                  - $ref: "hat-gateway://iec101.yaml#/definitions/messages/interrogation/req"
             res:
-                type: object
-                required:
-                    - status
-                    - request
-                    - freeze
-                properties:
-                    status:
-                        enum:
-                            - START
-                            - STOP
-                            - ERROR
-                    request:
-                        type: integer
-                        description: |
-                            request in range [0, 255]
-                    freeze:
-                        enum:
-                            - READ
-                            - FREEZE
-                            - FREEZE_AND_RESET
-                            - RESET
-    data_types:
+                allOf:
+                  - type: object
+                    required:
+                        - freeze
+                    properties:
+                        freeze:
+                            enum:
+                                - READ
+                                - FREEZE
+                                - FREEZE_AND_RESET
+                                - RESET
+                  - $ref: "hat-gateway://iec101.yaml#/definitions/messages/interrogation/res"
+    data:
         single:
             type: object
             required:
@@ -449,9 +434,9 @@ definitions:
                 - quality
             properties:
                 value:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/values/single"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/values/single"
                 quality:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/qualities/indication"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/qualities/indication"
         double:
             type: object
             required:
@@ -459,9 +444,9 @@ definitions:
                 - quality
             properties:
                 value:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/values/double"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/values/double"
                 quality:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/qualities/indication"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/qualities/indication"
         step_position:
             type: object
             required:
@@ -469,9 +454,9 @@ definitions:
                 - quality
             properties:
                 value:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/values/step_position"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/values/step_position"
                 quality:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/qualities/measurement"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/qualities/measurement"
         bitstring:
             type: object
             required:
@@ -479,9 +464,9 @@ definitions:
                 - quality
             properties:
                 value:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/values/bitstring"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/values/bitstring"
                 quality:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/qualities/measurement"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/qualities/measurement"
         normalized:
             type: object
             required:
@@ -489,11 +474,11 @@ definitions:
                 - quality
             properties:
                 value:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/values/normalized"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/values/normalized"
                 quality:
                     oneOf:
                       - type: "null"
-                      - "$ref": "hat-gateway://iec101.yaml#/definitions/qualities/measurement"
+                      - $ref: "hat-gateway://iec101.yaml#/definitions/qualities/measurement"
         scaled:
             type: object
             required:
@@ -501,9 +486,9 @@ definitions:
                 - quality
             properties:
                 value:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/values/scaled"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/values/scaled"
                 quality:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/qualities/measurement"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/qualities/measurement"
         floating:
             type: object
             required:
@@ -511,9 +496,9 @@ definitions:
                 - quality
             properties:
                 value:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/values/floating"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/values/floating"
                 quality:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/qualities/measurement"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/qualities/measurement"
         binary_counter:
             type: object
             required:
@@ -521,9 +506,9 @@ definitions:
                 - quality
             properties:
                 value:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/values/binary_counter"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/values/binary_counter"
                 quality:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/qualities/counter"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/qualities/counter"
         protection:
             type: object
             required:
@@ -532,9 +517,9 @@ definitions:
                 - elapsed_time
             properties:
                 value:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/values/protection"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/values/protection"
                 quality:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/qualities/protection"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/qualities/protection"
                 elapsed_time:
                     type: integer
                     description: |
@@ -547,9 +532,9 @@ definitions:
                 - duration_time
             properties:
                 value:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/values/protection_start"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/values/protection_start"
                 quality:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/qualities/protection"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/qualities/protection"
                 duration_time:
                     type: integer
                     description: |
@@ -562,9 +547,9 @@ definitions:
                 - operating_time
             properties:
                 value:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/values/protection_command"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/values/protection_command"
                 quality:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/qualities/protection"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/qualities/protection"
                 operating_time:
                     type: integer
                     description: |
@@ -576,10 +561,10 @@ definitions:
                 - quality
             properties:
                 value:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/values/status"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/values/status"
                 quality:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/qualities/measurement"
-    command_types:
+                    $ref: "hat-gateway://iec101.yaml#/definitions/qualities/measurement"
+    commands:
         single:
             type: object
             required:
@@ -588,7 +573,7 @@ definitions:
                 - qualifier
             properties:
                 value:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/values/single"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/values/single"
                 select:
                     type: boolean
                 qualifier:
@@ -603,7 +588,7 @@ definitions:
                 - qualifier
             properties:
                 value:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/values/double"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/values/double"
                 select:
                     type: boolean
                 qualifier:
@@ -618,7 +603,7 @@ definitions:
                 - qualifier
             properties:
                 value:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/values/regulating"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/values/regulating"
                 select:
                     type: boolean
                 qualifier:
@@ -632,7 +617,7 @@ definitions:
                 - select
             properties:
                 value:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/values/normalized"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/values/normalized"
                 select:
                     type: boolean
         scaled:
@@ -642,7 +627,7 @@ definitions:
                 - select
             properties:
                 value:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/values/scaled"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/values/scaled"
                 select:
                     type: boolean
         floating:
@@ -652,7 +637,7 @@ definitions:
                 - select
             properties:
                 value:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/values/floating"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/values/floating"
                 select:
                     type: boolean
         bitstring:
@@ -661,7 +646,7 @@ definitions:
                 - value
             properties:
                 value:
-                    "$ref": "hat-gateway://iec101.yaml#/definitions/values/bitstring"
+                    $ref: "hat-gateway://iec101.yaml#/definitions/values/bitstring"
     values:
         single:
             enum:
@@ -840,4 +825,41 @@ definitions:
                     type: boolean
                 time_invalid:
                     type: boolean
+    causes:
+        data:
+            res:
+                oneOf:
+                  - enum:
+                        - PERIODIC
+                        - BACKGROUND_SCAN
+                        - SPONTANEOUS
+                        - REQUEST
+                        - REMOTE_COMMAND
+                        - LOCAL_COMMAND
+                        - INTERROGATED
+                  - type: integer
+                    description: |
+                        other cause in range [0, 63]
+        command:
+            req:
+                oneOf:
+                  - enum:
+                        - ACTIVATION
+                        - DEACTIVATION
+                  - type: integer
+                    description: |
+                        other cause in range [0, 63]
+            res:
+                oneOf:
+                  - enum:
+                        - ACTIVATION_CONFIRMATION
+                        - DEACTIVATION_CONFIRMATION
+                        - ACTIVATION_TERMINATION
+                        - UNKNOWN_TYPE
+                        - UNKNOWN_CAUSE
+                        - UNKNOWN_ASDU_ADDRESS
+                        - UNKNOWN_IO_ADDRESS
+                  - type: integer
+                    description: |
+                        other cause in range [0, 63]
 ...
