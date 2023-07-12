@@ -108,6 +108,126 @@ definitions:
                             type:
                                 - "null"
                                 - number
+    slave:
+        type: object
+        required:
+            - device_addresses
+            - port
+            - baudrate
+            - bytesize
+            - parity
+            - stopbits
+            - flow_control
+            - silent_interval
+            - device_address_size
+            - cause_size
+            - asdu_address_size
+            - io_address_size
+            - buffers
+            - data
+        properties:
+            device_addresses:
+                type: array
+                items:
+                    type: string
+            port:
+                type: string
+            baudrate:
+                type: integer
+            bytesize:
+                enum:
+                    - FIVEBITS
+                    - SIXBITS
+                    - SEVENBITS
+                    - EIGHTBITS
+            parity:
+                enum:
+                    - NONE
+                    - EVEN
+                    - ODD
+                    - MARK
+                    - SPACE
+            stopbits:
+                enum:
+                    - ONE
+                    - ONE_POINT_FIVE
+                    - TWO
+            flow_control:
+                type: object
+                required:
+                    - xonxoff
+                    - rtscts
+                    - dsrdtr
+                properties:
+                    xonxoff:
+                        type: boolean
+                    rtscts:
+                        type: boolean
+                    dsrdtr:
+                        type: boolean
+            silent_interval:
+                type: number
+            device_address_size:
+                enum:
+                    - ONE
+                    - TWO
+            cause_size:
+                enum:
+                    - ONE
+                    - TWO
+            asdu_address_size:
+                enum:
+                    - ONE
+                    - TWO
+            io_address_size:
+                enum:
+                    - ONE
+                    - TWO
+                    - THREE
+            buffers:
+                type: array
+                items:
+                    type: object
+                    required:
+                        - name
+                        - size
+                    properties:
+                        name:
+                            type: string
+                        size:
+                            type: integer
+            data:
+                type: array
+                items:
+                    type: object
+                    required:
+                        - data_type
+                        - asdu_address
+                        - io_address
+                        - buffer
+                    properties:
+                        data_type:
+                            enum:
+                                - SINGLE
+                                - DOUBLE
+                                - STEP_POSITION
+                                - BITSTRING
+                                - NORMALIZED
+                                - SCALED
+                                - FLOATING
+                                - BINARY_COUNTER
+                                - PROTECTION
+                                - PROTECTION_START
+                                - PROTECTION_COMMAND
+                                - STATUS
+                        asdu_address:
+                            type: integer
+                        io_address:
+                            type: integer
+                        buffer:
+                            type:
+                                - "null"
+                                - string
     events:
         master:
             gateway:
@@ -133,7 +253,44 @@ definitions:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/messages/interrogation/req"
                 counter_interrogation:
                     "$ref": "hat-gateway://iec101.yaml#/definitions/messages/counter_interrogation/req"
+        slave:
+            gateway:
+                connections:
+                    "$ref": "hat-gateway://iec101.yaml#/definitions/messages/connections"
+                command:
+                    allOf:
+                      - type: object
+                        required:
+                            - connection_id
+                        properties:
+                            connection_id:
+                                type: integer
+                      - "$ref": "hat-gateway://iec101.yaml#/definitions/messages/command/req"
+            system:
+                data:
+                    "$ref": "hat-gateway://iec101.yaml#/definitions/messages/data/res"
+                command:
+                    allOf:
+                      - type: object
+                        required:
+                            - connection_id
+                        properties:
+                            connection_id:
+                                type: integer
+                      - "$ref": "hat-gateway://iec101.yaml#/definitions/messages/command/res"
     messages:
+        connections:
+            type: array
+            items:
+                type: object
+                required:
+                    - connection_id
+                    - device_address
+                properties:
+                    connection_id:
+                        type: integer
+                    device_address:
+                        type: integer
         data:
             res:
                 type: object

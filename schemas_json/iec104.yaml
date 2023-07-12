@@ -129,14 +129,14 @@ definitions:
                                 - PROTECTION_START
                                 - PROTECTION_COMMAND
                                 - STATUS
-                            asdu_address:
-                                type: integer
-                            io_address:
-                                type: integer
-                            buffer:
-                                type:
-                                    - "null"
-                                    - string
+                        asdu_address:
+                            type: integer
+                        io_address:
+                            type: integer
+                        buffer:
+                            type:
+                                - "null"
+                                - string
     events:
         master:
             gateway:
