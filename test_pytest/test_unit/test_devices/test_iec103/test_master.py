@@ -11,7 +11,7 @@ from hat import util
 from hat.drivers import iec103
 from hat.drivers import serial
 from hat.drivers.iec60870 import link
-from hat.drivers.iec60870 import msgs as app
+from hat.drivers.iec60870.encodings import iec103 as encoding
 import hat.event.common
 
 from hat.gateway import common
@@ -72,7 +72,7 @@ class Connection(aio.Resource):
 
     def __init__(self, conn):
         self._conn = conn
-        self._encoder = app.iec103.encoder.Encoder()
+        self._encoder = encoding.Encoder()
 
     @property
     def async_group(self):
@@ -234,15 +234,15 @@ def assert_io_element_equal(io_element1, io_element2):
     assert type(io_element1) == type(io_element2)
 
     if isinstance(io_element1,
-                  app.iec103.common.IoElement_TIME_SYNCHRONIZATION):
+                  encoding.IoElement_TIME_SYNCHRONIZATION):
         assert_time_equal(io_element1.time, io_element2.time)
 
     elif isinstance(io_element1,
-                    app.iec103.common.IoElement_GENERAL_INTERROGATION):
+                    encoding.IoElement_GENERAL_INTERROGATION):
         assert io_element1 == io_element2
 
     elif isinstance(io_element1,
-                    app.iec103.common.IoElement_GENERAL_COMMAND):
+                    encoding.IoElement_GENERAL_COMMAND):
         assert io_element1 == io_element2
 
     else:
@@ -560,18 +560,18 @@ async def test_time_sync(serial_conns, create_enable_event, address):
     for _ in range(10):
         asdu = await conn.receive()
 
-        assert asdu.type == app.iec103.common.AsduType.TIME_SYNCHRONIZATION
-        assert asdu.cause == app.iec103.common.Cause.TIME_SYNCHRONIZATION
+        assert asdu.type == encoding.AsduType.TIME_SYNCHRONIZATION
+        assert asdu.cause == encoding.Cause.TIME_SYNCHRONIZATION
         assert asdu.address == 0xFF
 
         assert len(asdu.ios) == 1
         io = asdu.ios[0]
-        assert io.address == app.iec103.common.IoAddress(255, 0)
+        assert io.address == encoding.IoAddress(255, 0)
 
         assert len(io.elements) == 1
         element = io.elements[0]
         assert isinstance(element,
-                          app.iec103.common.IoElement_TIME_SYNCHRONIZATION)
+                          encoding.IoElement_TIME_SYNCHRONIZATION)
 
         new_datetime = iec103.time_to_datetime(element.time)
         assert new_datetime >= last_datetime
@@ -588,7 +588,7 @@ async def test_time_sync(serial_conns, create_enable_event, address):
 @pytest.mark.parametrize("io_information", [24])
 @pytest.mark.parametrize("session_id", [1])
 @pytest.mark.parametrize("success", [True, False])
-@pytest.mark.parametrize("value", list(app.iec103.common.DoubleValue))
+@pytest.mark.parametrize("value", list(encoding.DoubleValue))
 async def test_command(create_event_client_connection_pair,
                        create_command_event, address, asdu_address,
                        io_function, io_information, session_id, success,
@@ -605,30 +605,30 @@ async def test_command(create_event_client_connection_pair,
         asdu = await conn.receive()
         return_identifier = asdu.ios[0].elements[0].return_identifier
 
-        assert_asdu_equal(asdu, app.iec103.common.ASDU(
-            type=app.iec103.common.AsduType.GENERAL_COMMAND,
-            cause=app.iec103.common.Cause.GENERAL_COMMAND,
+        assert_asdu_equal(asdu, encoding.ASDU(
+            type=encoding.AsduType.GENERAL_COMMAND,
+            cause=encoding.Cause.GENERAL_COMMAND,
             address=asdu_address,
-            ios=[app.iec103.common.IO(
-                address=app.iec103.common.IoAddress(
+            ios=[encoding.IO(
+                address=encoding.IoAddress(
                     io_function,
                     io_information),
-                elements=[app.iec103.common.IoElement_GENERAL_COMMAND(
+                elements=[encoding.IoElement_GENERAL_COMMAND(
                     value=value,
                     return_identifier=return_identifier)])]))
 
-        cause = (app.iec103.common.Cause.GENERAL_COMMAND if success
-                 else app.iec103.common.Cause.GENERAL_COMMAND_NACK)
-        asdu = app.iec103.common.ASDU(
-            type=app.iec103.common.AsduType.TIME_TAGGED_MESSAGE,
+        cause = (encoding.Cause.GENERAL_COMMAND if success
+                 else encoding.Cause.GENERAL_COMMAND_NACK)
+        asdu = encoding.ASDU(
+            type=encoding.AsduType.TIME_TAGGED_MESSAGE,
             cause=cause,
             address=asdu_address,
-            ios=[app.iec103.common.IO(
-                address=app.iec103.common.IoAddress(
+            ios=[encoding.IO(
+                address=encoding.IoAddress(
                     io_function,
                     io_information),
-                elements=[app.iec103.common.IoElement_TIME_TAGGED_MESSAGE(
-                    app.iec103.common.DoubleWithTimeValue(
+                elements=[encoding.IoElement_TIME_TAGGED_MESSAGE(
+                    encoding.DoubleWithTimeValue(
                         value=value,
                         time=default_time,
                         supplementary=return_identifier))])])
@@ -654,22 +654,22 @@ async def test_interrogation(create_event_client_connection_pair,
         asdu = await conn.receive()
         scan_number = asdu.ios[0].elements[0].scan_number
 
-        assert_asdu_equal(asdu, app.iec103.common.ASDU(
-            type=app.iec103.common.AsduType.GENERAL_INTERROGATION,
-            cause=app.iec103.common.Cause.GENERAL_INTERROGATION,
+        assert_asdu_equal(asdu, encoding.ASDU(
+            type=encoding.AsduType.GENERAL_INTERROGATION,
+            cause=encoding.Cause.GENERAL_INTERROGATION,
             address=asdu_address,
-            ios=[app.iec103.common.IO(
-                address=app.iec103.common.IoAddress(255, 0),
-                elements=[app.iec103.common.IoElement_GENERAL_INTERROGATION(
+            ios=[encoding.IO(
+                address=encoding.IoAddress(255, 0),
+                elements=[encoding.IoElement_GENERAL_INTERROGATION(
                     scan_number=scan_number)])]))
 
-        asdu = app.iec103.common.ASDU(
-            type=app.iec103.common.AsduType.GENERAL_INTERROGATION_TERMINATION,
-            cause=app.iec103.common.Cause.TERMINATION_OF_GENERAL_INTERROGATION,
+        asdu = encoding.ASDU(
+            type=encoding.AsduType.GENERAL_INTERROGATION_TERMINATION,
+            cause=encoding.Cause.TERMINATION_OF_GENERAL_INTERROGATION,
             address=asdu_address,
-            ios=[app.iec103.common.IO(
-                address=app.iec103.common.IoAddress(255, 0),
-                elements=[app.iec103.common.IoElement_GENERAL_INTERROGATION_TERMINATION(  # NOQA
+            ios=[encoding.IO(
+                address=encoding.IoAddress(255, 0),
+                elements=[encoding.IoElement_GENERAL_INTERROGATION_TERMINATION(  # NOQA
                     scan_number=scan_number)])])
         await conn.send(asdu)
 
@@ -683,7 +683,7 @@ async def test_interrogation(create_event_client_connection_pair,
 @pytest.mark.parametrize("io_information", [24])
 @pytest.mark.parametrize("time", [default_time])
 @pytest.mark.parametrize("cause", list(iec103.DataCause))
-@pytest.mark.parametrize("value", list(app.iec103.common.DoubleValue))
+@pytest.mark.parametrize("value", list(encoding.DoubleValue))
 async def test_double_data(create_event_client_connection_pair, address,
                            asdu_address, io_function, io_information, time,
                            cause, value):
@@ -691,15 +691,14 @@ async def test_double_data(create_event_client_connection_pair, address,
         event_client, conn = pair
         await wait_remote_device_connected_event(event_client, address)
 
-        asdu = app.iec103.common.ASDU(
-            type=app.iec103.common.AsduType.TIME_TAGGED_MESSAGE,
-            cause=app.iec103.common.Cause(cause.value),
+        asdu = encoding.ASDU(
+            type=encoding.AsduType.TIME_TAGGED_MESSAGE,
+            cause=encoding.Cause(cause.value),
             address=asdu_address,
-            ios=[app.iec103.common.IO(
-                address=app.iec103.common.IoAddress(io_function,
-                                                    io_information),
-                elements=[app.iec103.common.IoElement_TIME_TAGGED_MESSAGE(
-                    app.iec103.common.DoubleWithTimeValue(
+            ios=[encoding.IO(
+                address=encoding.IoAddress(io_function, io_information),
+                elements=[encoding.IoElement_TIME_TAGGED_MESSAGE(
+                    encoding.DoubleWithTimeValue(
                         value=value,
                         time=time,
                         supplementary=0))])])
@@ -709,15 +708,14 @@ async def test_double_data(create_event_client_connection_pair, address,
         assert_data_event(event, address, 'double', asdu_address, io_function,
                           io_information, time, cause, value.name)
 
-        asdu = app.iec103.common.ASDU(
-            type=app.iec103.common.AsduType.TIME_TAGGED_MESSAGE_WITH_RELATIVE_TIME,  # NOQA
-            cause=app.iec103.common.Cause(cause.value),
+        asdu = encoding.ASDU(
+            type=encoding.AsduType.TIME_TAGGED_MESSAGE_WITH_RELATIVE_TIME,  # NOQA
+            cause=encoding.Cause(cause.value),
             address=asdu_address,
-            ios=[app.iec103.common.IO(
-                address=app.iec103.common.IoAddress(io_function,
-                                                    io_information),
-                elements=[app.iec103.common.IoElement_TIME_TAGGED_MESSAGE_WITH_RELATIVE_TIME(  # NOQA
-                    app.iec103.common.DoubleWithRelativeTimeValue(
+            ios=[encoding.IO(
+                address=encoding.IoAddress(io_function, io_information),
+                elements=[encoding.IoElement_TIME_TAGGED_MESSAGE_WITH_RELATIVE_TIME(  # NOQA
+                    encoding.DoubleWithRelativeTimeValue(
                         value=value,
                         relative_time=123,
                         fault_number=321,
@@ -759,18 +757,17 @@ async def test_m1_data(create_event_client_connection_pair, address,
         await wait_remote_device_connected_event(event_client, address)
 
         elements = [
-            app.iec103.common.IoElement_MEASURANDS_1(
-                app.iec103.common.MeasurandValue(overflow=overflow,
-                                                 invalid=invalid,
-                                                 value=value))
+            encoding.IoElement_MEASURANDS_1(
+                encoding.MeasurandValue(overflow=overflow,
+                                        invalid=invalid,
+                                        value=value))
             for overflow, invalid, value in zip(overflows, invalids, values)]
-        asdu = app.iec103.common.ASDU(
-            type=app.iec103.common.AsduType.MEASURANDS_1,
-            cause=app.iec103.common.Cause(cause.value),
+        asdu = encoding.ASDU(
+            type=encoding.AsduType.MEASURANDS_1,
+            cause=encoding.Cause(cause.value),
             address=asdu_address,
-            ios=[app.iec103.common.IO(
-                address=app.iec103.common.IoAddress(io_function,
-                                                    io_information),
+            ios=[encoding.IO(
+                address=encoding.IoAddress(io_function, io_information),
                 elements=elements)])
         await conn.send(asdu)
 
@@ -829,18 +826,17 @@ async def test_m2_data(create_event_client_connection_pair, address,
         await wait_remote_device_connected_event(event_client, address)
 
         elements = [
-            app.iec103.common.IoElement_MEASURANDS_2(
-                app.iec103.common.MeasurandValue(overflow=overflow,
-                                                 invalid=invalid,
-                                                 value=value))
+            encoding.IoElement_MEASURANDS_2(
+                encoding.MeasurandValue(overflow=overflow,
+                                        invalid=invalid,
+                                        value=value))
             for overflow, invalid, value in zip(overflows, invalids, values)]
-        asdu = app.iec103.common.ASDU(
-            type=app.iec103.common.AsduType.MEASURANDS_2,
-            cause=app.iec103.common.Cause(cause.value),
+        asdu = encoding.ASDU(
+            type=encoding.AsduType.MEASURANDS_2,
+            cause=encoding.Cause(cause.value),
             address=asdu_address,
-            ios=[app.iec103.common.IO(
-                address=app.iec103.common.IoAddress(io_function,
-                                                    io_information),
+            ios=[encoding.IO(
+                address=encoding.IoAddress(io_function, io_information),
                 elements=elements)])
         await conn.send(asdu)
 

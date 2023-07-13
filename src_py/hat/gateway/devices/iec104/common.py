@@ -1,1 +1,1 @@
-from hat.gateway.iec101.common import *  # NOQA
+from hat.gateway.devices.iec101.common import *  # NOQA

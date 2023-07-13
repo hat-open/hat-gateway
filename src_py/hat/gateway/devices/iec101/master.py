@@ -15,7 +15,7 @@ from hat.drivers import serial
 from hat.drivers.iec60870 import link
 import hat.event.common
 
-from hat.gateway.devices import common
+from hat.gateway.devices.iec101 import common
 
 
 mlog: logging.Logger = logging.getLogger(__name__)

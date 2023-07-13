@@ -13,7 +13,7 @@ from hat.drivers import serial
 from hat.drivers.iec60870 import link
 import hat.event.common
 
-from hat.gateway import common
+from hat.gateway.devices.iec101 import common
 from hat.gateway.devices.iec101 import master
 
 
@@ -167,62 +167,70 @@ def assert_status_event(event, status, address=None):
 
 
 def assert_data_event(event, address, data_type, asdu_address, io_address,
-                      time, test, cause, payload):
+                      time, is_test, cause, data_json):
     assert event.event_type == (*event_type_prefix, 'gateway', 'remote_device',
-                                str(address), 'data', data_type,
+                                str(address), 'data', data_type.value,
                                 str(asdu_address), str(io_address))
 
     assert_time_equal(time, time_from_event_timestamp(event.source_timestamp))
 
-    payload = {'cause': ('INTERROGATED'
-                         if cause.name.startswith('INTERROGATED_')
-                         else cause.name),
-               'test': test,
-               **payload}
+    cause_str = ('INTERROGATED' if cause.name.startswith('INTERROGATED_')
+                 else cause.name)
 
-    for key in {*payload.keys(), *event.payload.data.keys()}:
-        if data_type in ('normalized', 'floating') and key == 'value':
-            assert_float_equal(payload[key], event.payload.data[key])
+    assert is_test == event.payload.data['is_test']
+    assert cause_str == event.payload.data['cause']
+
+    for key in {*data_json.keys(), *event.payload.data['data'].keys()}:
+        if data_type in (common.DataType.NORMALIZED,
+                         common.DataType.FLOATING) and key == 'value':
+            assert_float_equal(data_json[key], event.payload.data['data'][key])
         else:
-            assert payload[key] == event.payload.data[key]
+            assert data_json[key] == event.payload.data['data'][key]
 
 
-def assert_command_event(event, address, command_type, asdu_address,
-                         io_address, cause, success, payload):
+def assert_command_event(event, address, cmd_type, asdu_address, io_address,
+                         is_test, is_negative_confirm, cause, cmd_json):
     assert event.event_type == (*event_type_prefix, 'gateway', 'remote_device',
-                                str(address), 'command', command_type,
+                                str(address), 'command', cmd_type.value,
                                 str(asdu_address), str(io_address))
     assert event.source_timestamp is None
 
-    payload = {'cause': cause.name,
-               'success': success,
-               **payload}
+    assert is_test == event.payload.data['is_test']
+    assert is_negative_confirm == event.payload.data['is_negative_confirm']
+    assert cause.name == event.payload.data['cause']
 
-    for key in {*payload.keys(), *event.payload.data.keys()}:
-        if command_type in ('normalized', 'floating') and key == 'value':
-            assert_float_equal(payload[key], event.payload.data[key])
+    for key in {*cmd_json.keys(), *event.payload.data['command'].keys()}:
+        if cmd_type in (common.CommandType.NORMALIZED,
+                        common.CommandType.FLOATING) and key == 'value':
+            assert_float_equal(cmd_json[key],
+                               event.payload.data['command'][key])
         else:
-            assert payload[key] == event.payload.data[key]
+            assert cmd_json[key] == event.payload.data['command'][key]
 
 
-def assert_interrogation_event(event, address, asdu_address, status,
-                               interrogation_request):
+def assert_interrogation_event(event, address, asdu_address, is_test,
+                               is_negative_confirm, request, cause):
     assert event.event_type == (*event_type_prefix, 'gateway', 'remote_device',
                                 str(address), 'interrogation',
                                 str(asdu_address))
     assert event.source_timestamp is None
-    assert event.payload.data == {'status': status,
-                                  'request': interrogation_request}
+    assert event.payload.data == {'is_test': is_test,
+                                  'is_negative_confirm': is_negative_confirm,
+                                  'request': request,
+                                  'cause': cause.name}
 
 
-def assert_counter_interrogation_event(event, address, asdu_address, status,
-                                       interrogation_request, freeze):
+def assert_counter_interrogation_event(event, address, asdu_address, is_test,
+                                       is_negative_confirm, request, cause,
+                                       freeze):
     assert event.event_type == (*event_type_prefix, 'gateway', 'remote_device',
                                 str(address), 'counter_interrogation',
                                 str(asdu_address))
     assert event.source_timestamp is None
-    assert event.payload.data == {'status': status,
-                                  'request': interrogation_request,
+    assert event.payload.data == {'is_test': is_test,
+                                  'is_negative_confirm': is_negative_confirm,
+                                  'request': request,
+                                  'cause': cause.name,
                                   'freeze': freeze.name}
 
 
@@ -309,10 +317,13 @@ def create_enable_event(create_event):
 @pytest.fixture
 def create_interrogation_event(create_event):
 
-    def create_interrogation_event(address, asdu_addr, request):
+    def create_interrogation_event(address, asdu_addr, is_test, request,
+                                   cause):
         return create_event((*event_type_prefix, 'system', 'remote_device',
                              str(address), 'interrogation', str(asdu_addr)),
-                            {'request': request})
+                            {'is_test': is_test,
+                             'request': request,
+                             'cause': cause.name})
 
     return create_interrogation_event
 
@@ -320,13 +331,15 @@ def create_interrogation_event(create_event):
 @pytest.fixture
 def create_counter_interrogation_event(create_event):
 
-    def create_counter_interrogation_event(address, asdu_addr, request,
-                                           freeze):
+    def create_counter_interrogation_event(address, asdu_addr, is_test,
+                                           request, cause, freeze):
         return create_event((*event_type_prefix, 'system', 'remote_device',
                              str(address), 'counter_interrogation',
                              str(asdu_addr)),
-                            {'request': request,
-                             'freeze': freeze})
+                            {'is_test': is_test,
+                             'request': request,
+                             'cause': cause.name,
+                             'freeze': freeze.name})
 
     return create_counter_interrogation_event
 
@@ -334,12 +347,14 @@ def create_counter_interrogation_event(create_event):
 @pytest.fixture
 def create_command_event(create_event):
 
-    def create_command_event(address, command_type, asdu_addr, io_address,
-                             payload):
+    def create_command_event(address, cmd_type, asdu_addr, io_address,
+                             is_test, cause, cmd_json):
         return create_event((*event_type_prefix, 'system', 'remote_device',
-                             str(address), 'command', command_type,
+                             str(address), 'command', cmd_type.value,
                              str(asdu_addr), str(io_address)),
-                            payload)
+                            {'is_test': is_test,
+                             'cause': cause.name,
+                             'command': cmd_json})
 
     return create_command_event
 
@@ -612,15 +627,16 @@ async def test_time_sync(serial_conns, create_enable_event, address,
     await event_client.async_close()
 
 
+@pytest.mark.parametrize("is_test", [False, True])
 @pytest.mark.parametrize("address", [0])
 @pytest.mark.parametrize("asdu_address", [123])
 @pytest.mark.parametrize("io_address", [321])
 @pytest.mark.parametrize("cause", list(iec101.CommandReqCause))
-@pytest.mark.parametrize("command, command_type, payload", [
+@pytest.mark.parametrize("command, cmd_type, cmd_json", [
     (iec101.SingleCommand(value=iec101.SingleValue.ON,
                           select=False,
                           qualifier=0),
-     'single',
+     common.CommandType.SINGLE,
      {'value': 'ON',
       'select': False,
       'qualifier': 0}),
@@ -628,7 +644,7 @@ async def test_time_sync(serial_conns, create_enable_event, address,
     (iec101.DoubleCommand(value=iec101.DoubleValue.OFF,
                           select=True,
                           qualifier=1),
-     'double',
+     common.CommandType.DOUBLE,
      {'value': 'OFF',
       'select': True,
       'qualifier': 1}),
@@ -636,50 +652,49 @@ async def test_time_sync(serial_conns, create_enable_event, address,
     (iec101.RegulatingCommand(value=iec101.RegulatingValue.HIGHER,
                               select=False,
                               qualifier=2),
-     'regulating',
+     common.CommandType.REGULATING,
      {'value': 'HIGHER',
       'select': False,
       'qualifier': 2}),
 
     (iec101.NormalizedCommand(value=iec101.NormalizedValue(0.5),
                               select=True),
-     'normalized',
+     common.CommandType.NORMALIZED,
      {'value': 0.5,
       'select': True}),
 
     (iec101.ScaledCommand(value=iec101.ScaledValue(42),
                           select=False),
-     'scaled',
+     common.CommandType.SCALED,
      {'value': 42,
       'select': False}),
 
     (iec101.FloatingCommand(value=iec101.FloatingValue(42.5),
                             select=True),
-     'floating',
+     common.CommandType.FLOATING,
      {'value': 42.5,
       'select': True}),
 
     (iec101.BitstringCommand(value=iec101.BitstringValue(b'\x01\x02\x03\x04')),
-     'bitstring',
+     common.CommandType.BITSTRING,
      {'value': [1, 2, 3, 4]}),
 ])
 async def test_command_request(create_event_client_connection_pair,
-                               create_command_event, address, asdu_address,
-                               io_address, cause, command, command_type,
-                               payload):
+                               create_command_event, is_test, address,
+                               asdu_address, io_address, cause, command,
+                               cmd_type, cmd_json):
     async with create_event_client_connection_pair(address) as pair:
         event_client, conn = pair
         await wait_remote_device_connected_event(event_client, address)
 
-        event = create_command_event(address, command_type, asdu_address,
-                                     io_address,
-                                     {'cause': cause.name, **payload})
+        event = create_command_event(address, cmd_type, asdu_address,
+                                     io_address, is_test, cause, cmd_json)
         event_client.receive_queue.put_nowait([event])
 
         msgs = await conn.receive()
         assert len(msgs) == 1
         msg = msgs[0]
-        assert_msg_equal(msg, iec101.CommandMsg(is_test=False,
+        assert_msg_equal(msg, iec101.CommandMsg(is_test=is_test,
                                                 originator_address=0,
                                                 asdu_address=asdu_address,
                                                 io_address=io_address,
@@ -688,126 +703,129 @@ async def test_command_request(create_event_client_connection_pair,
                                                 cause=cause))
 
 
+@pytest.mark.parametrize("is_test", [False, True])
 @pytest.mark.parametrize("address", [0])
 @pytest.mark.parametrize("asdu_address", [123])
-@pytest.mark.parametrize("interrogation_request", [42])
+@pytest.mark.parametrize("_request", [42])
+@pytest.mark.parametrize("cause", list(iec101.CommandReqCause))
 async def test_interrogation_request(create_event_client_connection_pair,
-                                     create_interrogation_event,
-                                     address, asdu_address,
-                                     interrogation_request):
+                                     create_interrogation_event, is_test,
+                                     address, asdu_address, _request, cause):
     async with create_event_client_connection_pair(address) as pair:
         event_client, conn = pair
         await wait_remote_device_connected_event(event_client, address)
 
-        event = create_interrogation_event(address, asdu_address,
-                                           interrogation_request)
+        event = create_interrogation_event(address, asdu_address, is_test,
+                                           _request, cause)
         event_client.receive_queue.put_nowait([event])
 
         msgs = await conn.receive()
         assert len(msgs) == 1
         msg = msgs[0]
         assert_msg_equal(msg, iec101.InterrogationMsg(
-            is_test=False,
+            is_test=is_test,
             originator_address=0,
             asdu_address=asdu_address,
-            request=interrogation_request,
+            request=_request,
             is_negative_confirm=False,
-            cause=iec101.CommandReqCause.ACTIVATION))
+            cause=cause))
 
 
+@pytest.mark.parametrize("is_test", [False, True])
 @pytest.mark.parametrize("address", [0])
 @pytest.mark.parametrize("asdu_address", [123])
-@pytest.mark.parametrize("interrogation_request", [42])
+@pytest.mark.parametrize("_request", [42])
+@pytest.mark.parametrize("cause", list(iec101.CommandReqCause))
 @pytest.mark.parametrize("freeze", list(iec101.FreezeCode))
 async def test_counter_interrogation_request(
         create_event_client_connection_pair,
         create_counter_interrogation_event,
-        address, asdu_address, interrogation_request, freeze):
+        is_test, address, asdu_address, _request, cause, freeze):
     async with create_event_client_connection_pair(address) as pair:
         event_client, conn = pair
         await wait_remote_device_connected_event(event_client, address)
 
         event = create_counter_interrogation_event(
-            address, asdu_address, interrogation_request, freeze.name)
+            address, asdu_address, is_test, _request, cause, freeze)
         event_client.receive_queue.put_nowait([event])
 
         msgs = await conn.receive()
         assert len(msgs) == 1
         msg = msgs[0]
         assert_msg_equal(msg, iec101.CounterInterrogationMsg(
-            is_test=False,
+            is_test=is_test,
             originator_address=0,
             asdu_address=asdu_address,
-            request=interrogation_request,
+            request=_request,
             freeze=freeze,
             is_negative_confirm=False,
-            cause=iec101.CommandReqCause.ACTIVATION))
+            cause=cause))
 
 
 @pytest.mark.parametrize("address", [0])
 @pytest.mark.parametrize("asdu_address", [123])
 @pytest.mark.parametrize("io_address", [321])
 @pytest.mark.parametrize("time", [None, default_time])
-@pytest.mark.parametrize("test", [True, False])
+@pytest.mark.parametrize("is_test", [False, True])
 @pytest.mark.parametrize("cause", [
     i for i in iec101.DataResCause
     if not (i.name.startswith('INTERROGATED_GROUP') or
             i.name.startswith('INTERROGATED_COUNTER0'))
 ])
-@pytest.mark.parametrize("data, data_type, payload", [
+@pytest.mark.parametrize("data, data_type, data_json", [
     (iec101.SingleData(value=iec101.SingleValue.ON,
                        quality=default_indication_quality),
-     'single',
+     common.DataType.SINGLE,
      {'value': 'ON',
       'quality': default_indication_quality._asdict()}),
 
     (iec101.DoubleData(value=iec101.DoubleValue.OFF,
                        quality=default_indication_quality),
-     'double',
+     common.DataType.DOUBLE,
      {'value': 'OFF',
       'quality': default_indication_quality._asdict()}),
 
     (iec101.StepPositionData(value=iec101.StepPositionValue(42, False),
                              quality=default_measurement_quality),
-     'step_position',
+     common.DataType.STEP_POSITION,
      {'value': {'value': 42,
                 'transient': False},
       'quality': default_measurement_quality._asdict()}),
 
     (iec101.BitstringData(value=iec101.BitstringValue(b'\x01\x02\x03\x04'),
                           quality=default_measurement_quality),
-     'bitstring',
+     common.DataType.BITSTRING,
      {'value': [1, 2, 3, 4],
       'quality': default_measurement_quality._asdict()}),
 
     (iec101.NormalizedData(value=iec101.NormalizedValue(0.5),
                            quality=default_measurement_quality),
-     'normalized',
+     common.DataType.NORMALIZED,
      {'value': 0.5,
       'quality': default_measurement_quality._asdict()}),
 
     (iec101.ScaledData(value=iec101.ScaledValue(42),
                        quality=default_measurement_quality),
-     'scaled',
+     common.DataType.SCALED,
      {'value': 42,
       'quality': default_measurement_quality._asdict()}),
 
     (iec101.FloatingData(value=iec101.FloatingValue(42.5),
                          quality=default_measurement_quality),
-     'floating',
+     common.DataType.FLOATING,
      {'value': 42.5,
       'quality': default_measurement_quality._asdict()}),
 
     (iec101.BinaryCounterData(value=iec101.BinaryCounterValue(123),
                               quality=default_counter_quality),
-     'binary_counter',
+     common.DataType.BINARY_COUNTER,
      {'value': 123,
       'quality': default_counter_quality._asdict()}),
 
     (iec101.ProtectionData(value=iec101.ProtectionValue.ON,
                            quality=default_protection_quality,
                            elapsed_time=42),
-     'protection',
+     common.DataType.PROTECTION,
      {'value': 'ON',
       'quality': default_protection_quality._asdict(),
       'elapsed_time': 42}),
@@ -817,7 +835,7 @@ async def test_counter_interrogation_request(
                                                                   True, False),
                                 quality=default_protection_quality,
                                 duration_time=42),
-     'protection_start',
+     common.DataType.PROTECTION_START,
      {'value': {'general': True,
                 'l1': False,
                 'l2': True,
@@ -833,7 +851,7 @@ async def test_counter_interrogation_request(
                                                                       False),
                                   quality=default_protection_quality,
                                   operating_time=42),
-     'protection_command',
+     common.DataType.PROTECTION_COMMAND,
      {'value': {'general': True,
                 'l1': False,
                 'l2': True,
@@ -844,18 +862,21 @@ async def test_counter_interrogation_request(
     (iec101.StatusData(value=iec101.StatusValue([True, False] * 8,
                                                 [False, True] * 8),
                        quality=default_measurement_quality),
-     'status',
+     common.DataType.STATUS,
      {'value': {'value': [True, False] * 8,
                 'change': [False, True] * 8},
       'quality': default_measurement_quality._asdict()}),
 ])
 async def test_data_response(create_event_client_connection_pair, address,
-                             asdu_address, io_address, time, test, cause, data,
-                             data_type, payload):
-    if data_type in ('protection', 'protection_start', 'protection_command'):
+                             asdu_address, io_address, time, is_test, cause,
+                             data, data_type, data_json):
+    if data_type in (common.DataType.PROTECTION,
+                     common.DataType.PROTECTION_START,
+                     common.DataType.PROTECTION_COMMAND):
         if time is None:
             return
-    elif data_type == 'status':
+
+    elif data_type == common.DataType.STATUS:
         if time is not None:
             return
 
@@ -863,7 +884,7 @@ async def test_data_response(create_event_client_connection_pair, address,
         event_client, conn = pair
         await wait_remote_device_connected_event(event_client, address)
 
-        msg = iec101.DataMsg(is_test=test,
+        msg = iec101.DataMsg(is_test=is_test,
                              originator_address=0,
                              asdu_address=asdu_address,
                              io_address=io_address,
@@ -874,19 +895,20 @@ async def test_data_response(create_event_client_connection_pair, address,
 
         event = await event_client.register_queue.get()
         assert_data_event(event, address, data_type, asdu_address, io_address,
-                          time, test, cause, payload)
+                          time, is_test, cause, data_json)
 
 
+@pytest.mark.parametrize("is_test", [False, True])
 @pytest.mark.parametrize("address", [0])
 @pytest.mark.parametrize("asdu_address", [123])
 @pytest.mark.parametrize("io_address", [321])
 @pytest.mark.parametrize("cause", list(iec101.CommandResCause))
-@pytest.mark.parametrize("success", [True, False])
-@pytest.mark.parametrize("command, command_type, payload", [
+@pytest.mark.parametrize("is_negative_confirm", [True, False])
+@pytest.mark.parametrize("command, cmd_type, cmd_json", [
     (iec101.SingleCommand(value=iec101.SingleValue.ON,
                           select=False,
                           qualifier=0),
-     'single',
+     common.CommandType.SINGLE,
      {'value': 'ON',
       'select': False,
       'qualifier': 0}),
@@ -894,7 +916,7 @@ async def test_data_response(create_event_client_connection_pair, address,
     (iec101.DoubleCommand(value=iec101.DoubleValue.OFF,
                           select=True,
                           qualifier=0),
-     'double',
+     common.CommandType.DOUBLE,
      {'value': 'OFF',
       'select': True,
       'qualifier': 0}),
@@ -902,104 +924,101 @@ async def test_data_response(create_event_client_connection_pair, address,
     (iec101.RegulatingCommand(value=iec101.RegulatingValue.LOWER,
                               select=False,
                               qualifier=0),
-     'regulating',
+     common.CommandType.REGULATING,
      {'value': 'LOWER',
       'select': False,
       'qualifier': 0}),
 
     (iec101.NormalizedCommand(value=iec101.NormalizedValue(0.5),
                               select=True),
-     'normalized',
+     common.CommandType.NORMALIZED,
      {'value': 0.5,
       'select': True}),
 
     (iec101.ScaledCommand(value=iec101.ScaledValue(42),
                           select=False),
-     'scaled',
+     common.CommandType.SCALED,
      {'value': 42,
       'select': False}),
 
     (iec101.FloatingCommand(value=iec101.FloatingValue(42.5),
                             select=True),
-     'floating',
+     common.CommandType.FLOATING,
      {'value': 42.5,
       'select': True}),
 
     (iec101.BitstringCommand(value=iec101.BitstringValue(b'\x04\x03\x02\x01')),
-     'bitstring',
+     common.CommandType.BITSTRING,
      {'value': [4, 3, 2, 1]}),
 ])
-async def test_command_response(create_event_client_connection_pair, address,
-                                asdu_address, io_address, cause, success,
-                                command, command_type, payload):
+async def test_command_response(create_event_client_connection_pair, is_test,
+                                address, asdu_address, io_address, cause,
+                                is_negative_confirm, command,
+                                cmd_type, cmd_json):
     async with create_event_client_connection_pair(address) as pair:
         event_client, conn = pair
         await wait_remote_device_connected_event(event_client, address)
 
-        msg = iec101.CommandMsg(is_test=False,
+        msg = iec101.CommandMsg(is_test=is_test,
                                 originator_address=0,
                                 asdu_address=asdu_address,
                                 io_address=io_address,
                                 command=command,
-                                is_negative_confirm=not success,
+                                is_negative_confirm=is_negative_confirm,
                                 cause=cause)
         await conn.send([msg])
 
         event = await event_client.register_queue.get()
-        assert_command_event(event, address, command_type, asdu_address,
-                             io_address, cause, success, payload)
+        assert_command_event(event, address, cmd_type, asdu_address,
+                             io_address, is_test, is_negative_confirm, cause,
+                             cmd_json)
 
 
+@pytest.mark.parametrize("is_test", [False, True])
 @pytest.mark.parametrize("address", [0])
 @pytest.mark.parametrize("asdu_address", [123])
-@pytest.mark.parametrize("interrogation_request", [42])
-@pytest.mark.parametrize("is_negative_confirm, cause, status", [
-    (False, iec101.CommandResCause.ACTIVATION_CONFIRMATION, 'START'),
-    (False, iec101.CommandResCause.ACTIVATION_TERMINATION, 'STOP'),
-    (True, iec101.CommandResCause.ACTIVATION_CONFIRMATION, 'ERROR')
-])
+@pytest.mark.parametrize("_request", [42])
+@pytest.mark.parametrize("is_negative_confirm", [False, True])
+@pytest.mark.parametrize("cause", list(iec101.CommandResCause))
 async def test_interrogation_response(create_event_client_connection_pair,
-                                      address, asdu_address,
-                                      interrogation_request,
-                                      is_negative_confirm, cause, status):
+                                      is_test, address, asdu_address,
+                                      _request, is_negative_confirm, cause):
     async with create_event_client_connection_pair(address) as pair:
         event_client, conn = pair
         await wait_remote_device_connected_event(event_client, address)
 
-        msg = iec101.InterrogationMsg(is_test=False,
+        msg = iec101.InterrogationMsg(is_test=is_test,
                                       originator_address=0,
                                       asdu_address=asdu_address,
-                                      request=interrogation_request,
+                                      request=_request,
                                       is_negative_confirm=is_negative_confirm,
                                       cause=cause)
         await conn.send([msg])
 
         event = await event_client.register_queue.get()
-        assert_interrogation_event(event, address, asdu_address, status,
-                                   interrogation_request)
+        assert_interrogation_event(event, address, asdu_address, is_test,
+                                   is_negative_confirm, _request, cause)
 
 
+@pytest.mark.parametrize("is_test", [False, True])
 @pytest.mark.parametrize("address", [0])
 @pytest.mark.parametrize("asdu_address", [123])
-@pytest.mark.parametrize("interrogation_request", [42])
 @pytest.mark.parametrize("freeze", list(iec101.FreezeCode))
-@pytest.mark.parametrize("is_negative_confirm, cause, status", [
-    (False, iec101.CommandResCause.ACTIVATION_CONFIRMATION, 'START'),
-    (False, iec101.CommandResCause.ACTIVATION_TERMINATION, 'STOP'),
-    (True, iec101.CommandResCause.ACTIVATION_CONFIRMATION, 'ERROR')
-])
+@pytest.mark.parametrize("_request", [42])
+@pytest.mark.parametrize("is_negative_confirm", [False, True])
+@pytest.mark.parametrize("cause", list(iec101.CommandResCause))
 async def test_counter_interrogation_response(
-        create_event_client_connection_pair, address, asdu_address,
-        interrogation_request, freeze, is_negative_confirm, cause, status):
+        create_event_client_connection_pair, is_test, address, asdu_address,
+        freeze, _request, is_negative_confirm, cause):
     async with create_event_client_connection_pair(address) as pair:
         event_client, conn = pair
         await wait_remote_device_connected_event(event_client, address)
 
         msg = iec101.CounterInterrogationMsg(
-            is_test=False,
+            is_test=is_test,
             originator_address=0,
             asdu_address=asdu_address,
-            request=interrogation_request,
+            request=_request,
             freeze=freeze,
             is_negative_confirm=is_negative_confirm,
             cause=cause)
@@ -1007,5 +1026,5 @@ async def test_counter_interrogation_response(
 
         event = await event_client.register_queue.get()
         assert_counter_interrogation_event(event, address, asdu_address,
-                                           status, interrogation_request,
-                                           freeze)
+                                           is_test, is_negative_confirm,
+                                           _request, cause, freeze)
