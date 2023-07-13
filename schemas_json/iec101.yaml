@@ -111,8 +111,8 @@ definitions:
     slave:
         type: object
         required:
-            - device_addresses
             - port
+            - addresses
             - baudrate
             - bytesize
             - parity
@@ -120,18 +120,19 @@ definitions:
             - flow_control
             - silent_interval
             - device_address_size
+            - keep_alive_timeout
             - cause_size
             - asdu_address_size
             - io_address_size
             - buffers
             - data
         properties:
-            device_addresses:
+            port:
+                type: string
+            addresses:
                 type: array
                 items:
                     type: integer
-            port:
-                type: string
             baudrate:
                 type: integer
             bytesize:
@@ -171,6 +172,8 @@ definitions:
                 enum:
                     - ONE
                     - TWO
+            keep_alive_timeout:
+                type: number
             cause_size:
                 enum:
                     - ONE
@@ -289,11 +292,11 @@ definitions:
                 type: object
                 required:
                     - connection_id
-                    - device_address
+                    - address
                 properties:
                     connection_id:
                         type: integer
-                    device_address:
+                    address:
                         type: integer
         data:
             res:

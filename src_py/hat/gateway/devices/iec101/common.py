@@ -291,6 +291,20 @@ def get_command_type(cmd: iec101.Command) -> CommandType:
     raise ValueError('unsupported command')
 
 
+def cause_to_json(cls: typing.Type[enum.Enum],
+                  cause: enum.Enum | int
+                  ) -> json.Data:
+    return (cause.name if isinstance(cause, cls) else
+            cause.value if isinstance(cause, enum.Enum) else
+            cause)
+
+
+def cause_from_json(cls: typing.Type[enum.Enum],
+                    cause: json.Data
+                    ) -> enum.Enum | int:
+    return cls[cause] if isinstance(cause, str) else cause
+
+
 def _value_to_json(value):
     if isinstance(value, (iec101.SingleValue,
                           iec101.DoubleValue,

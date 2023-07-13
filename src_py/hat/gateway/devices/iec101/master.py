@@ -4,7 +4,6 @@ import asyncio
 import collections
 import contextlib
 import datetime
-import enum
 import functools
 import logging
 
@@ -402,7 +401,7 @@ def _msg_to_event(event_type_prefix, address, msg):
 
 def _data_to_event(event_type_prefix, address, msg):
     data_type = common.get_data_type(msg.data)
-    cause = _cause_to_json(iec101.DataResCause, msg.cause)
+    cause = common.cause_to_json(iec101.DataResCause, msg.cause)
     if isinstance(cause, str) and cause.startswith('INTERROGATED_'):
         cause = 'INTERROGATED'
     data = common.data_to_json(msg.data)
@@ -423,7 +422,7 @@ def _data_to_event(event_type_prefix, address, msg):
 
 def _command_to_event(event_type_prefix, address, msg):
     command_type = common.get_command_type(msg.command)
-    cause = _cause_to_json(iec101.CommandResCause, msg.cause)
+    cause = common.cause_to_json(iec101.CommandResCause, msg.cause)
     command = common.command_to_json(msg.command)
     event_type = (*event_type_prefix, 'gateway', 'remote_device', str(address),
                   'command', command_type.value, str(msg.asdu_address),
@@ -441,7 +440,7 @@ def _command_to_event(event_type_prefix, address, msg):
 
 
 def _interrogation_to_event(event_type_prefix, address, msg):
-    cause = _cause_to_json(iec101.CommandResCause, msg.cause)
+    cause = common.cause_to_json(iec101.CommandResCause, msg.cause)
     event_type = (*event_type_prefix, 'gateway', 'remote_device', str(address),
                   'interrogation', str(msg.asdu_address))
 
@@ -457,7 +456,7 @@ def _interrogation_to_event(event_type_prefix, address, msg):
 
 
 def _counter_interrogation_to_event(event_type_prefix, address, msg):
-    cause = _cause_to_json(iec101.CommandResCause, msg.cause)
+    cause = common.cause_to_json(iec101.CommandResCause, msg.cause)
     event_type = (*event_type_prefix, 'gateway', 'remote_device', str(address),
                   'counter_interrogation', str(msg.asdu_address))
 
@@ -474,8 +473,8 @@ def _counter_interrogation_to_event(event_type_prefix, address, msg):
 
 
 def _command_from_event(cmd_key, event):
-    cause = _cause_from_json(iec101.CommandReqCause,
-                             event.payload.data['cause'])
+    cause = common.cause_from_json(iec101.CommandReqCause,
+                                   event.payload.data['cause'])
     command = common.command_from_json(cmd_key.cmd_type,
                                        event.payload.data['command'])
 
@@ -489,8 +488,8 @@ def _command_from_event(cmd_key, event):
 
 
 def _interrogation_from_event(asdu_address, event):
-    cause = _cause_from_json(iec101.CommandReqCause,
-                             event.payload.data['cause'])
+    cause = common.cause_from_json(iec101.CommandReqCause,
+                                   event.payload.data['cause'])
 
     return iec101.InterrogationMsg(is_test=event.payload.data['is_test'],
                                    originator_address=0,
@@ -502,8 +501,8 @@ def _interrogation_from_event(asdu_address, event):
 
 def _counter_interrogation_from_event(asdu_address, event):
     freeze = iec101.FreezeCode[event.payload.data['freeze']]
-    cause = _cause_from_json(iec101.CommandReqCause,
-                             event.payload.data['cause'])
+    cause = common.cause_from_json(iec101.CommandReqCause,
+                                   event.payload.data['cause'])
 
     return iec101.CounterInterrogationMsg(
         is_test=event.payload.data['is_test'],
@@ -513,13 +512,3 @@ def _counter_interrogation_from_event(asdu_address, event):
         freeze=freeze,
         is_negative_confirm=False,
         cause=cause)
-
-
-def _cause_to_json(cls, cause):
-    return (cause.name if isinstance(cause, cls) else
-            cause.value if isinstance(cause, enum.Enum) else
-            cause)
-
-
-def _cause_from_json(cls, cause):
-    return cls[cause] if isinstance(cause, str) else cause

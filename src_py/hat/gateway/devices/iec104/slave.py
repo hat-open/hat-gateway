@@ -1,8 +1,6 @@
 """IEC 60870-5-104 slave device"""
 
-import collections
 import contextlib
-import enum
 import functools
 import itertools
 import logging
@@ -13,6 +11,7 @@ from hat.drivers import iec104
 from hat.drivers import tcp
 import hat.event.common
 
+from hat.gateway.devices.iec101 import slave as iec101_slave
 from hat.gateway.devices.iec104 import common
 from hat.gateway.devices.iec104 import ssl
 
@@ -39,38 +38,19 @@ async def create(conf: common.DeviceConf,
     device._conns = {}
     device._remote_hosts = (set(conf['remote_hosts'])
                             if conf['remote_hosts'] is not None else None)
-
     device._buffers = {}
-    for buffer in conf['buffers']:
-        device._buffers[buffer['name']] = _Buffer(buffer['size'])
-
     device._data_msgs = {}
     device._data_buffers = {}
-    for data in conf['data']:
-        data_key = common.DataKey(data_type=common.DataType[data['data_type']],
-                                  asdu_address=data['asdu_address'],
-                                  io_address=data['io_address'])
-        device._data_msgs[data_key] = None
-        if data['buffer']:
-            device._data_buffers[data_key] = device._buffers[data['buffer']]
 
-    events = await event_client.query(hat.event.common.QueryData(
-        event_types=[(*event_type_prefix, 'system', 'data', '*')],
-        unique_type=True))
-    for event in events:
-        try:
-            data_type_str, asdu_address_str, io_address_str = \
-                event.event_type[len(event_type_prefix)+2:]
-            data_key = common.DataKey(data_type=common.DataType(data_type_str),
-                                      asdu_address=int(asdu_address_str),
-                                      io_address=int(io_address_str))
-            if data_key not in device._data_msgs:
-                raise Exception(f'data {data_key} not configured')
+    iec101_slave.init_buffers(buffers_conf=conf['buffers'],
+                              buffers=device._buffers)
 
-            device._data_msgs[data_key] = _data_msg_from_event(data_key, event)
-
-        except Exception as e:
-            mlog.debug('skipping initial data: %s', e, exc_info=e)
+    await iec101_slave.init_data(data_conf=conf['data'],
+                                 data_msgs=device._data_msgs,
+                                 data_buffers=device._data_buffers,
+                                 buffers=device._buffers,
+                                 event_client=event_client,
+                                 event_type_prefix=event_type_prefix)
 
     ssl_ctx = (ssl.create_ssl_ctx(conf['security'], ssl.SslProtocol.TLS_SERVER)
                if conf['security'] else None)
@@ -400,24 +380,6 @@ class Iec104SlaveDevice(common.Device):
                                data_msg)
 
 
-class _Buffer:
-
-    def __init__(self, size):
-        self._size = size
-        self._data = collections.OrderedDict()
-
-    def add(self, event_id, data_msg):
-        self._data[event_id] = data_msg
-        while len(self._data) > self._size:
-            self._data.popitem(last=False)
-
-    def remove(self, event_id):
-        self._data.pop(event_id, None)
-
-    def get_event_id_data_msgs(self):
-        return self._data.items()
-
-
 async def _send_data_msg(conn, buffer, event_id, data_msg):
     try:
         if buffer:
@@ -435,62 +397,17 @@ async def _send_data_msg(conn, buffer, event_id, data_msg):
 
 
 def _cmd_msg_to_event(event_type_prefix, conn_id, msg):
-    command_type = common.get_command_type(msg.command)
-    cause = (msg.cause.name if isinstance(msg.cause, iec104.CommandReqCause)
-             else msg.cause.value if isinstance(msg.cause, enum.Enum)
-             else msg.cause)
-    command = common.command_to_json(msg.command)
-    event_type = (*event_type_prefix, 'gateway', 'command', command_type.value,
-                  str(msg.asdu_address), str(msg.io_address))
+    event = iec101_slave.cmd_msg_to_event(event_type_prefix, conn_id, msg)
     source_timestamp = common.time_to_source_timestamp(msg.time)
-
-    return hat.event.common.RegisterEvent(
-        event_type=event_type,
-        source_timestamp=source_timestamp,
-        payload=hat.event.common.EventPayload(
-            type=hat.event.common.EventPayloadType.JSON,
-            data={'connection_id': conn_id,
-                  'is_test': msg.is_test,
-                  'cause': cause,
-                  'command': command}))
+    return event._replace(source_timestamp=source_timestamp)
 
 
 def _data_msg_from_event(data_key, event):
-    time = common.time_from_source_timestamp(event.source_timestamp)
-    if event.payload.data['cause'] == 'INTERROGATED':
-        cause = (iec104.DataResCause.INTERROGATED_STATION
-                 if data_key.data_type != common.DataType.BINARY_COUNTER
-                 else iec104.DataResCause.INTERROGATED_COUNTER)
-    elif isinstance(event.payload.data['cause'], str):
-        cause = iec104.DataResCause[event.payload.data['cause']]
-    else:
-        cause = event.payload.data['cause']
-    data = common.data_from_json(data_key.data_type,
-                                 event.payload.data['data'])
-
-    return iec104.DataMsg(is_test=event.payload.data['is_test'],
-                          originator_address=0,
-                          asdu_address=data_key.asdu_address,
-                          io_address=data_key.io_address,
-                          data=data,
-                          time=time,
-                          cause=cause)
+    return iec101_slave.data_msg_from_event(data_key, event)
 
 
 def _cmd_msg_from_event(cmd_key, event):
+    msg = iec101_slave.cmd_msg_from_event(cmd_key, event)
     time = common.time_from_source_timestamp(event.source_timestamp)
-    cause = (iec104.CommandResCause[event.payload.data['cause']]
-             if isinstance(event.payload.data['cause'], str)
-             else event.payload.data['cause'])
-    command = common.command_from_json(cmd_key.cmd_type,
-                                       event.payload.data['command'])
-    is_negative_confirm = event.payload.data['is_negative_confirm']
-
-    return iec104.CommandMsg(is_test=event.payload.data['is_test'],
-                             originator_address=0,
-                             asdu_address=cmd_key.asdu_address,
-                             io_address=cmd_key.io_address,
-                             command=command,
-                             is_negative_confirm=is_negative_confirm,
-                             time=time,
-                             cause=cause)
+    return iec104.CommandMsg(**msg._asdict(),
+                             time=time)
