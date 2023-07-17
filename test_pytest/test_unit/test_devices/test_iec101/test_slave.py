@@ -169,6 +169,7 @@ async def test_create(conf, serial_conns):
 
 
 async def test_connections(conf, serial_conns):
+    conf = {**conf, 'keep_alive_timeout': 0.05}
     register_queue = aio.Queue()
 
     eventer_client = EventerClient(register_queue=register_queue)
