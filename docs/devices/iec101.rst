@@ -206,7 +206,7 @@ notified with IEC101 data messages each time locally cached data state is
 changed. When slave receives IEC101 interrogation or counter interrogation
 message, it will immediately respond with IEC101 interrogation/data messages
 based on current state of local data cache. Interrogation deactivation
-is not supported (slave responds with UNKNOWN_CAUSE).
+is not supported (slave responds with negative confirmation).
 
 In addition to local cache of last data states, IEC101 slave device can be
 configured with arbitrary number of circular data buffers, each configured

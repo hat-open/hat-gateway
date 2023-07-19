@@ -2,6 +2,7 @@
 
 import collections
 import contextlib
+import functools
 import itertools
 import logging
 import typing
@@ -141,11 +142,14 @@ class Iec101SlaveDevice(common.Device):
     def async_group(self) -> aio.Group:
         return self._slave.async_group
 
-    async def _on_connection(self, conn):
+    def _on_connection(self, conn):
+        self.async_group.spawn(self._connection_loop, conn)
+
+    async def _connection_loop(self, conn):
         conn_id = next(self._next_conn_ids)
 
         try:
-            conn = iec101.Connection(
+            conn = iec101.SlaveConnection(
                 conn=conn,
                 cause_size=iec101.CauseSize[self._conf['cause_size']],
                 asdu_address_size=iec101.AsduAddressSize[self._conf['asdu_address_size']],  # NOQA
@@ -264,7 +268,7 @@ class Iec101SlaveDevice(common.Device):
         cmd_msg = cmd_msg_from_event(cmd_key, event)
         conn_id = event.payload.data['connection_id']
         conn = self._conns[conn_id]
-        self._send_msgs(conn, [cmd_msg])
+        conn.send([cmd_msg])
 
     def _process_msg(self, conn_id, conn, msg):
         if isinstance(msg, iec101.CommandMsg):
@@ -305,14 +309,14 @@ class Iec101SlaveDevice(common.Device):
         else:
             res = msg._replace(cause=iec101.CommandResCause.UNKNOWN_CAUSE,
                                is_negative_confirm=True)
-            self._send_msgs(conn, [res])
+            conn.send([res])
 
     def _process_interrogation_msg(self, conn_id, conn, msg):
         if msg.cause == iec101.CommandReqCause.ACTIVATION:
             res = msg._replace(
                 cause=iec101.CommandResCause.ACTIVATION_CONFIRMATION,
                 is_negative_confirm=False)
-            self._send_msgs(conn, [res])
+            conn.send([res])
 
             data_msgs = [
                 data_msg._replace(
@@ -323,30 +327,30 @@ class Iec101SlaveDevice(common.Device):
                     (msg.asdu_address == 0xFFFF or
                      msg.asdu_address == data_msg.asdu_address) and
                     not isinstance(data_msg.data, iec101.BinaryCounterData))]
-            self._send_msgs(conn, data_msgs)
+            conn.send(data_msgs)
 
             res = msg._replace(
                 cause=iec101.CommandResCause.ACTIVATION_TERMINATION,
                 is_negative_confirm=False)
-            self._send_msgs(conn, [res])
+            conn.send([res])
 
         elif msg.cause == iec101.CommandReqCause.DEACTIVATION:
             res = msg._replace(
                 cause=iec101.CommandResCause.DEACTIVATION_CONFIRMATION,
                 is_negative_confirm=True)
-            self._send_msgs(conn, [res])
+            conn.send([res])
 
         else:
             res = msg._replace(cause=iec101.CommandResCause.UNKNOWN_CAUSE,
                                is_negative_confirm=True)
-            self._send_msgs(conn, [res])
+            conn.send([res])
 
     def _process_counter_interrogation_msg(self, conn_id, conn, msg):
         if msg.cause == iec101.CommandReqCause.ACTIVATION:
             res = msg._replace(
                 cause=iec101.CommandResCause.ACTIVATION_CONFIRMATION,
                 is_negative_confirm=False)
-            self._send_msgs(conn, [res])
+            conn.send([res])
 
             data_msgs = [
                 data_msg._replace(
@@ -357,63 +361,61 @@ class Iec101SlaveDevice(common.Device):
                     (msg.asdu_address == 0xFFFF or
                      msg.asdu_address == data_msg.asdu_address) and
                     isinstance(data_msg.data, iec101.BinaryCounterData))]
-            self._send_msgs(conn, data_msgs)
+            conn.send(data_msgs)
 
             res = msg._replace(
                 cause=iec101.CommandResCause.ACTIVATION_TERMINATION,
                 is_negative_confirm=False)
-            self._send_msgs(conn, [res])
+            conn.send([res])
 
         elif msg.cause == iec101.CommandReqCause.DEACTIVATION:
             res = msg._replace(
                 cause=iec101.CommandResCause.DEACTIVATION_CONFIRMATION,
                 is_negative_confirm=True)
-            self._send_msgs(conn, [res])
+            conn.send([res])
 
         else:
             res = msg._replace(cause=iec101.CommandResCause.UNKNOWN_CAUSE,
                                is_negative_confirm=True)
-            self._send_msgs(conn, [res])
+            conn.send([res])
 
     def _process_read_msg(self, conn_id, conn, msg):
         res = msg._replace(cause=iec101.ReadResCause.UNKNOWN_TYPE)
-        self._send_msgs(conn, [res])
+        conn.send([res])
 
     def _process_clock_sync_msg(self, conn_id, conn, msg):
         if isinstance(msg.cause, iec101.ClockSyncReqCause):
             res = msg._replace(
                 cause=iec101.ClockSyncResCause.ACTIVATION_CONFIRMATION,
                 is_negative_confirm=True)
-            self._send_msgs(conn, [res])
+            conn.send([res])
 
         else:
             res = msg._replace(cause=iec101.ClockSyncResCause.UNKNOWN_CAUSE,
                                is_negative_confirm=True)
-            self._send_msgs(conn, [res])
+            conn.send([res])
 
     def _process_test_msg(self, conn_id, conn, msg):
         res = msg._replace(cause=iec101.ActivationResCause.UNKNOWN_TYPE)
-        self._send_msgs(conn, [res])
+        conn.send([res])
 
     def _process_reset_msg(self, conn_id, conn, msg):
         res = msg._replace(cause=iec101.ActivationResCause.UNKNOWN_TYPE)
-        self._send_msgs(conn, [res])
+        conn.send([res])
 
     def _process_parameter_msg(self, conn_id, conn, msg):
         res = msg._replace(cause=iec101.ParameterResCause.UNKNOWN_TYPE)
-        self._send_msgs(conn, [res])
+        conn.send([res])
 
     def _process_parameter_activation_msg(self, conn_id, conn, msg):
         res = msg._replace(
             cause=iec101.ParameterActivationResCause.UNKNOWN_TYPE)
-        self._send_msgs(conn, [res])
+        conn.send([res])
 
     def _send_data_msg(self, conn, buffer, event_id, data_msg):
-        self.async_group.spawn(_send_data_msg, conn, buffer, event_id,
-                               data_msg)
-
-    def _send_msgs(self, conn, msgs):
-        self.async_group.spawn(_send_msgs, conn, msgs)
+        sent_cb = (functools.partial(buffer.remove, event_id)
+                   if buffer else None)
+        conn.send([data_msg], sent_cb=sent_cb)
 
 
 def cmd_msg_to_event(event_type_prefix: hat.event.common.EventType,
@@ -476,28 +478,3 @@ def cmd_msg_from_event(cmd_key: common.CommandKey,
                              command=command,
                              is_negative_confirm=is_negative_confirm,
                              cause=cause)
-
-
-async def _send_data_msg(conn, buffer, event_id, data_msg):
-    try:
-        await conn.send([data_msg])
-
-        if buffer:
-            buffer.remove(event_id)
-
-    except ConnectionError:
-        pass
-
-    except Exception as e:
-        mlog.warning('send data message error: %s', e, exc_info=e)
-
-
-async def _send_msgs(conn, msgs):
-    try:
-        await conn.send(msgs)
-
-    except ConnectionError:
-        pass
-
-    except Exception as e:
-        mlog.warning('send messages error: %s', e, exc_info=e)

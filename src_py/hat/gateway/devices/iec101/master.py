@@ -184,7 +184,7 @@ class Iec101MasterDevice(common.Device):
 
                 self._register_rmt_status(address, 'CONNECTED')
 
-                conn = iec101.Connection(
+                conn = iec101.MasterConnection(
                     conn=master_conn,
                     cause_size=iec101.CauseSize[self._conf['cause_size']],
                     asdu_address_size=iec101.AsduAddressSize[

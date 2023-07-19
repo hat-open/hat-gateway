@@ -108,7 +108,7 @@ def get_conf(remote_addresses=[],
 async def create_slave(conf, connection_cb):
 
     async def on_connection(conn):
-        conn = iec101.Connection(
+        conn = iec101.SlaveConnection(
             conn=conn,
             cause_size=iec101.CauseSize[conf['cause_size']],
             asdu_address_size=iec101.AsduAddressSize[conf['asdu_address_size']],  # NOQA
@@ -891,7 +891,7 @@ async def test_data_response(create_event_client_connection_pair, address,
                              data=data,
                              time=time,
                              cause=cause)
-        await conn.send([msg])
+        conn.send([msg])
 
         event = await event_client.register_queue.get()
         assert_data_event(event, address, data_type, asdu_address, io_address,
@@ -966,7 +966,7 @@ async def test_command_response(create_event_client_connection_pair, is_test,
                                 command=command,
                                 is_negative_confirm=is_negative_confirm,
                                 cause=cause)
-        await conn.send([msg])
+        conn.send([msg])
 
         event = await event_client.register_queue.get()
         assert_command_event(event, address, cmd_type, asdu_address,
@@ -993,7 +993,7 @@ async def test_interrogation_response(create_event_client_connection_pair,
                                       request=_request,
                                       is_negative_confirm=is_negative_confirm,
                                       cause=cause)
-        await conn.send([msg])
+        conn.send([msg])
 
         event = await event_client.register_queue.get()
         assert_interrogation_event(event, address, asdu_address, is_test,
@@ -1022,7 +1022,7 @@ async def test_counter_interrogation_response(
             freeze=freeze,
             is_negative_confirm=is_negative_confirm,
             cause=cause)
-        await conn.send([msg])
+        conn.send([msg])
 
         event = await event_client.register_queue.get()
         assert_counter_interrogation_event(event, address, asdu_address,

@@ -155,7 +155,7 @@ async def master_conn_factory(conf):
         addr = addr if addr is not None else conf['addresses'][0]
         conn = await master.connect(addr)
 
-        conn101 = iec101.Connection(
+        conn101 = iec101.MasterConnection(
             conn=conn,
             cause_size=iec101.CauseSize[conf['cause_size']],
             asdu_address_size=iec101.AsduAddressSize[
@@ -473,7 +473,7 @@ async def test_interrogate_deactivation(conf, serial_conns,
     msgs = await conn101.receive()
     msg = msgs[0]
     assert isinstance(msg, iec101.InterrogationMsg)
-    assert msg.cause == iec101.CommandResCause.UNKNOWN_CAUSE
+    assert msg.cause == iec101.CommandResCause.DEACTIVATION_CONFIRMATION
     assert msg.is_negative_confirm
 
     await device.async_close()
