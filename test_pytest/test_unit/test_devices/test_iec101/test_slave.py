@@ -70,8 +70,7 @@ def conf():
         "asdu_address_size": "TWO",
         "io_address_size": "THREE",
         "buffers": [],
-        "data": []
-    }
+        "data": []}
 
 
 @pytest.fixture
@@ -204,20 +203,6 @@ def assert_quality(quality_json, quality_iec101):
     for quality_param in quality_json:
         assert getattr(quality_iec101, quality_param) == \
             quality_json[quality_param]
-
-
-def assert_value(value_json, value_iec101):
-    if isinstance(value_json, str):
-        assert value_json == value_iec101.name
-        return
-    elif isinstance(value_json, float):
-        math.isclose(value_json, value_iec101, rel_tol=1e-3)
-        assert value_json == value_iec101
-        return
-    elif isinstance(value_json, dict):
-        assert value_json == value_iec101._asdict()
-        return
-    assert value_json == value_iec101
 
 
 def test_device_type():
@@ -752,8 +737,8 @@ async def test_data(conf, serial_conns, master_conn_factory, data_type,
     assert data_msg.asdu_address == int(data_event.event_type[7])
     assert data_msg.io_address == int(data_event.event_type[8])
     if data_type in ['NORMALIZED', 'FLOATING']:
-        math.isclose(event_data['value'], data_msg.data.value.value,
-                     rel_tol=1e-3)
+        assert math.isclose(event_data['value'], data_msg.data.value.value,
+                            rel_tol=1e-3)
         assert_quality(event_data['quality'], data_msg.data.quality)
     else:
         assert data_msg.data == exp_data
@@ -814,7 +799,56 @@ async def test_data_bulk(conf, serial_conns, master_conn_factory):
     await eventer_client.async_close()
 
 
-async def test_command(conf, serial_conns, master_conn_factory):
+@pytest.mark.parametrize("command_type, command, command_json", [
+    ('single',
+     iec101.SingleCommand(value=iec101.SingleValue.ON,
+                          select=False,
+                          qualifier=14),
+     {'value': 'ON',
+      'select': False,
+      'qualifier': 14}),
+
+    ('double',
+     iec101.DoubleCommand(value=iec101.DoubleValue.FAULT,
+                          select=True,
+                          qualifier=11),
+     {'value': 'FAULT',
+      'select': True,
+      'qualifier': 11}),
+
+    ('regulating',
+     iec101.RegulatingCommand(value=iec101.RegulatingValue.HIGHER,
+                              select=False,
+                              qualifier=2),
+     {'value': 'HIGHER',
+      'select': False,
+      'qualifier': 2}),
+
+    ('normalized',
+     iec101.NormalizedCommand(value=iec101.NormalizedValue(0.5),
+                              select=True),
+     {'value': 0.5,
+      'select': True}),
+
+    ('scaled',
+     iec101.ScaledCommand(value=iec101.ScaledValue(42),
+                          select=False),
+     {'value': 42,
+      'select': False}),
+
+    ('floating',
+     iec101.FloatingCommand(value=iec101.FloatingValue(42.5),
+                            select=True),
+     {'value': 42.5,
+      'select': True}),
+
+    ('bitstring',
+     iec101.BitstringCommand(value=iec101.BitstringValue(b'\x01\x02\x03\x04')),
+     {'value': [1, 2, 3, 4]})
+    ])
+@pytest.mark.parametrize("negative_resp", [True, False])
+async def test_command(conf, serial_conns, master_conn_factory,
+                       command_type, command, command_json, negative_resp):
     register_queue = aio.Queue()
     receive_queue = aio.Queue()
 
@@ -832,10 +866,7 @@ async def test_command(conf, serial_conns, master_conn_factory):
                                 originator_address=0,
                                 asdu_address=asdu,
                                 io_address=io,
-                                command=iec101.SingleCommand(
-                                    value=iec101.SingleValue.ON,
-                                    select=False,
-                                    qualifier=14),
+                                command=command,
                                 is_negative_confirm=False,
                                 cause=iec101.CommandReqCause.ACTIVATION)
     await conn101.send([cmd_msg])
@@ -843,27 +874,31 @@ async def test_command(conf, serial_conns, master_conn_factory):
     events = await register_queue.get()
     cmd_req_event = events[0]
     assert cmd_req_event.event_type == (
-        *event_type_prefix, 'gateway', 'command', 'single', str(asdu), str(io))
-    cmd_id = cmd_req_event.payload.data['connection_id']
+        *event_type_prefix, 'gateway', 'command', command_type,
+        str(asdu), str(io))
+    conn_id = cmd_req_event.payload.data['connection_id']
     assert isinstance(cmd_req_event.payload.data['connection_id'], int)
-    assert cmd_req_event.payload.data == {
-        'is_test': cmd_msg.is_test,
-        'cause': cmd_msg.cause.name,
-        'command': {'value': cmd_msg.command.value.name,
-                    'select': cmd_msg.command.select,
-                    'qualifier': cmd_msg.command.qualifier},
-        'connection_id': cmd_id}
+    assert len(cmd_req_event.payload.data) == 4
+    assert cmd_req_event.payload.data['is_test'] == cmd_msg.is_test
+    assert cmd_req_event.payload.data['cause'] == cmd_msg.cause.name
+    assert cmd_req_event.payload.data['connection_id'] == conn_id
+    if command_type == 'normalized':
+        command_event = cmd_req_event.payload.data['command']
+        assert math.isclose(command_event['value'],
+                            command_json['value'],
+                            rel_tol=1e-3)
+        assert command_event['select'] == command_json['select']
+    else:
+        assert cmd_req_event.payload.data['command'] == command_json
 
     cmd_res_payload = {
-        'connection_id': cmd_id,
-        'is_test': False,
-        'is_negative_confirm': False,
+        'connection_id': conn_id,
+        'is_test': cmd_msg.is_test,
+        'is_negative_confirm': negative_resp,
         'cause': 'ACTIVATION_CONFIRMATION',
-        'command': {'value': cmd_msg.command.value.name,
-                    'select': cmd_msg.command.select,
-                    'qualifier': cmd_msg.command.qualifier}}
+        'command': command_json}
     cmd_res_event = create_event(
-        (*event_type_prefix, 'system', 'command', 'single',
+        (*event_type_prefix, 'system', 'command', command_type,
             str(asdu), str(io)),
         cmd_res_payload)
     receive_queue.put_nowait([cmd_res_event])
@@ -875,14 +910,64 @@ async def test_command(conf, serial_conns, master_conn_factory):
     assert cmd_res_msg.is_test == cmd_res_payload['is_test']
     assert cmd_res_msg.asdu_address == asdu
     assert cmd_res_msg.io_address == io
-    assert cmd_res_msg.is_negative_confirm == \
-        cmd_res_payload['is_negative_confirm']
+    assert cmd_res_msg.is_negative_confirm == negative_resp
     assert cmd_res_msg.cause.name == cmd_res_payload['cause']
-    assert cmd_res_msg.command.value.name == \
-        cmd_res_payload['command']['value']
-    assert cmd_res_msg.command.select == cmd_res_payload['command']['select']
-    assert cmd_res_msg.command.qualifier == \
-        cmd_res_payload['command']['qualifier']
+    if command_type == 'normalized':
+        assert math.isclose(cmd_res_msg.command.value.value,
+                            command.value.value, rel_tol=1e-3)
+    else:
+        assert cmd_res_msg.command == command
+
+    await device.async_close()
+    await eventer_client.async_close()
+
+
+async def test_command_wrong_conn_id(conf, serial_conns, master_conn_factory):
+    register_queue = aio.Queue()
+    receive_queue = aio.Queue()
+
+    eventer_client = EventerClient(register_queue=register_queue,
+                                   receive_queue=receive_queue)
+    device = await slave.create(conf, eventer_client, event_type_prefix)
+
+    conn101 = await master_conn_factory()
+
+    await register_queue.get_until_empty()
+
+    asdu = 1
+    io = 2
+    command = iec101.SingleCommand(value=iec101.SingleValue.ON,
+                                   select=False,
+                                   qualifier=14)
+    cmd_msg = iec101.CommandMsg(is_test=False,
+                                originator_address=0,
+                                asdu_address=asdu,
+                                io_address=io,
+                                command=command,
+                                is_negative_confirm=False,
+                                cause=iec101.CommandReqCause.ACTIVATION)
+    await conn101.send([cmd_msg])
+
+    events = await register_queue.get()
+    cmd_req_event = events[0]
+    conn_id = cmd_req_event.payload.data['connection_id']
+
+    cmd_res_payload = {
+        'connection_id': conn_id + 1,
+        'is_test': cmd_msg.is_test,
+        'is_negative_confirm': False,
+        'cause': 'ACTIVATION_CONFIRMATION',
+        'command': {'value': 'ON',
+                    'select': False,
+                    'qualifier': 14}}
+    cmd_res_event = create_event(
+        (*event_type_prefix, 'system', 'command', 'single',
+            str(asdu), str(io)),
+        cmd_res_payload)
+    receive_queue.put_nowait([cmd_res_event])
+
+    with pytest.raises(asyncio.TimeoutError):
+        await aio.wait_for(conn101.receive(), 0.1)
 
     await device.async_close()
     await eventer_client.async_close()
@@ -890,7 +975,9 @@ async def test_command(conf, serial_conns, master_conn_factory):
 
 async def test_buffer(conf, serial_conns, master_conn_factory):
     receive_queue = aio.Queue()
-    eventer_client = EventerClient(receive_queue=receive_queue)
+    register_queue = aio.Queue()
+    eventer_client = EventerClient(receive_queue=receive_queue,
+                                   register_queue=register_queue)
     data_conf = [
         {'data_type': 'DOUBLE',
          'asdu_address': 1,
@@ -906,6 +993,7 @@ async def test_buffer(conf, serial_conns, master_conn_factory):
          'buffer': None}]
     conf = json.set_(conf, ["buffers"], [{'name': 'b1', 'size': 100}])
     conf = json.set_(conf, ["data"], data_conf)
+    conf = json.set_(conf, 'keep_alive_timeout', 0.05)
     device = await slave.create(conf, eventer_client, event_type_prefix)
 
     data_events = []
@@ -935,7 +1023,77 @@ async def test_buffer(conf, serial_conns, master_conn_factory):
         msgs = await conn.receive()
         data_msg = msgs[0]
         assert data_msg.is_test == data_event.payload.data['is_test']
-        assert data_msg.cause == iec101.DataResCause.SPONTANEOUS
+        assert data_msg.cause.name == data_event.payload.data['cause']
+        assert data_msg.asdu_address == int(data_event.event_type[7])
+        assert data_msg.io_address == int(data_event.event_type[8])
+        assert data_msg.data.value.name == \
+            data_event.payload.data['data']['value']
+        assert_quality(data_event.payload.data['data']['quality'],
+                       data_msg.data.quality)
+        assert_time(data_event.source_timestamp, data_msg.time)
+
+    with pytest.raises(asyncio.TimeoutError):
+        await aio.wait_for(conn.receive(), 0.01)
+
+    # check buffer is empty for another master
+    conn2 = await master_conn_factory()
+    with pytest.raises(asyncio.TimeoutError):
+        await aio.wait_for(conn2.receive(), 0.01)
+
+    await device.async_close()
+    await eventer_client.async_close()
+
+
+async def test_buffer_size(conf, serial_conns, master_conn_factory):
+    receive_queue = aio.Queue()
+    eventer_client = EventerClient(receive_queue=receive_queue)
+    data_confs = [
+        {'data_type': 'DOUBLE',
+         'asdu_address': 1,
+         'io_address': 2,
+         'buffer': 'b1'},
+        {'data_type': 'DOUBLE',
+         'asdu_address': 1,
+         'io_address': 3,
+         'buffer': 'b2'}]
+    conf = json.set_(conf, ["buffers"], [{'name': 'b1', 'size': 100},
+                                         {'name': 'b2', 'size': 25}])
+    conf = json.set_(conf, ["data"], data_confs)
+    device = await slave.create(conf, eventer_client, event_type_prefix)
+
+    data_events = []
+    buffered_events = {'b1': [], 'b2': []}
+    for data_conf in data_confs:
+        for i in range(100):
+            for value in ['INTERMEDIATE', 'OFF', 'ON', 'FAULT']:
+                data_event = create_event(
+                    (*event_type_prefix, 'system', 'data',
+                     data_conf['data_type'].lower(),
+                     str(data_conf['asdu_address']),
+                     str(data_conf['io_address'])),
+                    {'is_test': False,
+                     'cause': 'SPONTANEOUS',
+                     'data': {'value': value,
+                              'quality': {'invalid': bool(i % 2),
+                                          'not_topical': bool(i % 2),
+                                          'substituted': bool(i % 2),
+                                          'blocked': bool(i % 2)}}},
+                    hat.event.common.now())
+                data_events.append(data_event)
+                buffered_events[data_conf['buffer']].append(data_event)
+
+    receive_queue.put_nowait(data_events)
+
+    conn = await master_conn_factory()
+
+    # ordered notification of data from buffers is assumed
+    exp_buffered_events = itertools.chain(buffered_events['b1'][-100:],
+                                          buffered_events['b2'][-25:])
+    for data_event in exp_buffered_events:
+        msgs = await conn.receive()
+        data_msg = msgs[0]
+        assert data_msg.is_test == data_event.payload.data['is_test']
+        assert data_msg.cause.name == data_event.payload.data['cause']
         assert data_msg.asdu_address == int(data_event.event_type[7])
         assert data_msg.io_address == int(data_event.event_type[8])
         assert data_msg.data.value.name == \
