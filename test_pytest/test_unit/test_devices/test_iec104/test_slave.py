@@ -120,7 +120,7 @@ def assert_command_event(event, cmd_type, asdu_address, io_address, time,
 
 
 def assert_msg_equal(msg1, msg2):
-    assert type(msg1) == type(msg2)
+    assert type(msg1) == type(msg2)  # NOQA
     assert msg1.is_test == msg2.is_test
     assert msg1.originator_address == msg2.originator_address
     assert msg1.asdu_address == msg2.asdu_address

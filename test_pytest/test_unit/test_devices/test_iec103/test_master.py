@@ -231,7 +231,7 @@ def assert_asdu_equal(asdu1, asdu2):
 
 
 def assert_io_element_equal(io_element1, io_element2):
-    assert type(io_element1) == type(io_element2)
+    assert type(io_element1) == type(io_element2)  # NOQA
 
     if isinstance(io_element1,
                   encoding.IoElement_TIME_SYNCHRONIZATION):

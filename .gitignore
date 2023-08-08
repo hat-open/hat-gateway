@@ -1,6 +1,4 @@
 /.doit.db
 /build
 /src_py/**/json_schema_repo.json
-/test_pytest/.coverage
-/test_pytest/profile
 __pycache__
