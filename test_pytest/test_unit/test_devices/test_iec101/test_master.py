@@ -417,6 +417,12 @@ async def serial_conns(monkeypatch):
                 for i in data:
                     conn._data.put_nowait(i)
 
+        async def drain(self):
+            pass
+
+        async def reset_input_buffer(self):
+            return 0
+
     monkeypatch.setattr(hat.drivers.serial, 'create', create)
     return conns
 

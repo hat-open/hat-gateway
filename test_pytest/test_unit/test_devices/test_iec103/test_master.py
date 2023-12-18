@@ -78,8 +78,8 @@ class Connection(aio.Resource):
     def async_group(self):
         return self._conn.async_group
 
-    async def send(self, asdu):
-        await self._conn.send(self._encoder.encode_asdu(asdu))
+    def send(self, asdu):
+        self._conn.send(self._encoder.encode_asdu(asdu))
 
     async def receive(self):
         asdu_bytes = await self._conn.receive()
@@ -372,6 +372,12 @@ async def serial_conns(monkeypatch):
                 for i in data:
                     conn._data.put_nowait(i)
 
+        async def drain(self):
+            pass
+
+        async def reset_input_buffer(self):
+            return 0
+
     monkeypatch.setattr(hat.drivers.serial, 'create', create)
     return conns
 
@@ -632,7 +638,7 @@ async def test_command(create_event_client_connection_pair,
                         value=value,
                         time=default_time,
                         supplementary=return_identifier))])])
-        await conn.send(asdu)
+        conn.send(asdu)
 
         event = await event_client.register_queue.get()
         assert_command_event(event, address, asdu_address, io_function,
@@ -671,7 +677,7 @@ async def test_interrogation(create_event_client_connection_pair,
                 address=encoding.IoAddress(255, 0),
                 elements=[encoding.IoElement_GENERAL_INTERROGATION_TERMINATION(  # NOQA
                     scan_number=scan_number)])])
-        await conn.send(asdu)
+        conn.send(asdu)
 
         event = await event_client.register_queue.get()
         assert_interrogation_event(event, address, asdu_address)
@@ -702,7 +708,7 @@ async def test_double_data(create_event_client_connection_pair, address,
                         value=value,
                         time=time,
                         supplementary=0))])])
-        await conn.send(asdu)
+        conn.send(asdu)
 
         event = await event_client.register_queue.get()
         assert_data_event(event, address, 'double', asdu_address, io_function,
@@ -721,7 +727,7 @@ async def test_double_data(create_event_client_connection_pair, address,
                         fault_number=321,
                         time=time,
                         supplementary=0))])])
-        await conn.send(asdu)
+        conn.send(asdu)
 
         event = await event_client.register_queue.get()
         assert_data_event(event, address, 'double', asdu_address, io_function,
@@ -769,7 +775,7 @@ async def test_m1_data(create_event_client_connection_pair, address,
             ios=[encoding.IO(
                 address=encoding.IoAddress(io_function, io_information),
                 elements=elements)])
-        await conn.send(asdu)
+        conn.send(asdu)
 
         events = collections.deque()
         for _ in data_types:
@@ -838,7 +844,7 @@ async def test_m2_data(create_event_client_connection_pair, address,
             ios=[encoding.IO(
                 address=encoding.IoAddress(io_function, io_information),
                 elements=elements)])
-        await conn.send(asdu)
+        conn.send(asdu)
 
         events = collections.deque()
         for _ in data_types:

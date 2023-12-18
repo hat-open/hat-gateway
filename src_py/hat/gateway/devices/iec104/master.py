@@ -157,7 +157,12 @@ class Iec104MasterDevice(common.Device):
     async def _receive_loop(self, conn):
         try:
             while True:
-                msgs = await conn.receive()
+                try:
+                    msgs = await conn.receive()
+
+                except iec104.AsduTypeError as e:
+                    mlog.warning("asdu type error: %s", e)
+                    continue
 
                 events = collections.deque()
                 for msg in msgs:
