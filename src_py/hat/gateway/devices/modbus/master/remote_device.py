@@ -1,5 +1,6 @@
 import asyncio
 import collections
+import contextlib
 import enum
 import functools
 import itertools
@@ -14,16 +15,16 @@ from hat import json
 from hat.gateway.devices.modbus.master.connection import (DataType,
                                                           Error,
                                                           Connection)
-from hat.gateway.devices.modbus.master.event_client import (RemoteDeviceStatusRes,  # NOQA
-                                                            RemoteDeviceReadRes,  # NOQA
-                                                            RemoteDeviceWriteRes,  # NOQA
-                                                            Response)
+from hat.gateway.devices.modbus.master.eventer_client import (RemoteDeviceStatusRes,  # NOQA
+                                                              RemoteDeviceReadRes,  # NOQA
+                                                              RemoteDeviceWriteRes,  # NOQA
+                                                              Response)
 
 
 mlog = logging.getLogger(__name__)
 
 
-ResponseCb: typing.TypeAlias = typing.Callable[[Response], None]
+ResponseCb: typing.TypeAlias = aio.AsyncCallable[[Response], None]
 
 
 class _Status(enum.Enum):
@@ -195,12 +196,12 @@ class _Reader(aio.Resource):
             loop = asyncio.get_running_loop()
 
             if not data_groups:
-                self._set_status(_Status.CONNECTED)
+                await self._set_status(_Status.CONNECTED)
                 await loop.create_future()
 
             last_read_times = [None for _ in data_groups]
             last_responses = {}
-            self._set_status(_Status.CONNECTING)
+            await self._set_status(_Status.CONNECTING)
 
             while True:
                 now = time.monotonic()
@@ -246,18 +247,18 @@ class _Reader(aio.Resource):
 
                         if response:
                             last_responses[data_info.name] = response
-                            self._response_cb(response)
+                            await aio.call(self._response_cb, response)
 
                 if timeout:
-                    self._set_status(_Status.DISCONNECTED)
+                    await self._set_status(_Status.DISCONNECTED)
                     await asyncio.sleep(self._timeout_poll_delay)
 
                     last_read_times = [None for _ in data_groups]
                     last_responses = {}
-                    self._set_status(_Status.CONNECTING)
+                    await self._set_status(_Status.CONNECTING)
 
                 elif all(t is not None for t in last_read_times):
-                    self._set_status(_Status.CONNECTED)
+                    await self._set_status(_Status.CONNECTED)
 
         except ConnectionError:
             self._log(logging.DEBUG, 'connection closed')
@@ -268,7 +269,9 @@ class _Reader(aio.Resource):
         finally:
             self._log(logging.DEBUG, 'closing read loop')
             self.close()
-            self._set_status(_Status.DISABLED)
+
+            with contextlib.suppress(Exception):
+                await aio.uncancellable(self._set_status(_Status.DISABLED))
 
     def _process_read_result(self, data_info, start_address, result,
                              last_response):
@@ -308,15 +311,17 @@ class _Reader(aio.Resource):
         self._log(logging.DEBUG, 'data name %s: no value change',
                   data_info.name)
 
-    def _set_status(self, status):
+    async def _set_status(self, status):
         if self._status == status:
             return
 
         self._log(logging.DEBUG, 'changing remote device status %s -> %s',
                   self._status, status)
         self._status = status
-        self._response_cb(RemoteDeviceStatusRes(device_id=self._device_id,
-                                                status=status.name))
+
+        res = RemoteDeviceStatusRes(device_id=self._device_id,
+                                    status=status.name)
+        await aio.call(self._response_cb, res)
 
     def _log(self, level, msg, *args, **kwargs):
         if not mlog.isEnabledFor(level):

@@ -38,11 +38,9 @@ def task_clean_all():
 
 def task_build():
     """Build"""
-    return get_task_build_wheel(
-        src_dir=src_py_dir,
-        build_dir=build_py_dir,
-        scripts={'hat-gateway': 'hat.gateway.main:main'},
-        task_dep=['json_schema_repo'])
+    return get_task_build_wheel(src_dir=src_py_dir,
+                                build_dir=build_py_dir,
+                                task_dep=['json_schema_repo'])
 
 
 def task_check():

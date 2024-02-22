@@ -1,15 +1,16 @@
 """IEC 60870-5-104 slave device"""
 
+from collections.abc import Collection
 import contextlib
 import functools
 import itertools
 import logging
 
 from hat import aio
-from hat import json
 from hat.drivers import iec104
 from hat.drivers import tcp
 import hat.event.common
+import hat.event.eventer
 
 from hat.gateway.devices.iec101 import slave as iec101_slave
 from hat.gateway.devices.iec104 import common
@@ -18,20 +19,14 @@ from hat.gateway.devices.iec104 import ssl
 
 mlog: logging.Logger = logging.getLogger(__name__)
 
-device_type: str = 'iec104_slave'
-
-json_schema_id: str = "hat-gateway://iec104.yaml#/definitions/slave"
-
-json_schema_repo: json.SchemaRepository = common.json_schema_repo
-
 
 async def create(conf: common.DeviceConf,
-                 event_client: common.DeviceEventClient,
+                 eventer_client: hat.event.eventer.Client,
                  event_type_prefix: common.EventTypePrefix
                  ) -> 'Iec104SlaveDevice':
     device = Iec104SlaveDevice()
     device._conf = conf
-    device._event_client = event_client
+    device._eventer_client = eventer_client
     device._event_type_prefix = event_type_prefix
     device._max_connections = conf['max_connections']
     device._next_conn_ids = itertools.count(1)
@@ -49,7 +44,7 @@ async def create(conf: common.DeviceConf,
                                  data_msgs=device._data_msgs,
                                  data_buffers=device._data_buffers,
                                  buffers=device._buffers,
-                                 event_client=event_client,
+                                 eventer_client=eventer_client,
                                  event_type_prefix=event_type_prefix)
 
     ssl_ctx = (ssl.create_ssl_ctx(conf['security'], ssl.SslProtocol.TLS_SERVER)
@@ -67,8 +62,7 @@ async def create(conf: common.DeviceConf,
         ssl=ssl_ctx)
 
     try:
-        device._register_connections()
-        device.async_group.spawn(device._event_loop)
+        await device._register_connections()
 
     except BaseException:
         await aio.uncancellable(device.async_close())
@@ -77,11 +71,27 @@ async def create(conf: common.DeviceConf,
     return device
 
 
+info: common.DeviceInfo = common.DeviceInfo(
+    type="iec104_slave",
+    create=create,
+    json_schema_id="hat-gateway://iec104.yaml#/definitions/slave",
+    json_schema_repo=common.json_schema_repo)
+
+
 class Iec104SlaveDevice(common.Device):
 
     @property
     def async_group(self) -> aio.Group:
         return self._srv.async_group
+
+    async def process_events(self, events: Collection[hat.event.common.Event]):
+        for event in events:
+            try:
+                mlog.debug('received event: %s', event)
+                await self._process_event(event)
+
+            except Exception as e:
+                mlog.warning('error processing event: %s', e, exc_info=e)
 
     async def _on_connection(self, conn):
         if (self._max_connections is not None and
@@ -108,7 +118,7 @@ class Iec104SlaveDevice(common.Device):
                     raise Exception(f'remote host {remote_host} not allowed')
 
             self._conns[conn_id] = conn
-            self._register_connections()
+            await self._register_connections()
 
             enabled_cb = functools.partial(self._on_enabled, conn)
             with conn.register_enabled_cb(enabled_cb):
@@ -138,7 +148,7 @@ class Iec104SlaveDevice(common.Device):
 
             with contextlib.suppress(Exception):
                 self._conns.pop(conn_id)
-                self._register_connections()
+                await aio.uncancellable(self._register_connections())
 
     def _on_enabled(self, conn, enabled):
         if not enabled:
@@ -149,31 +159,7 @@ class Iec104SlaveDevice(common.Device):
                 for event_id, data_msg in buffer.get_event_id_data_msgs():
                     self._send_data_msg(conn, buffer, event_id, data_msg)
 
-    async def _event_loop(self):
-        try:
-            while True:
-                events = await self._event_client.receive()
-
-                for event in events:
-                    try:
-                        mlog.debug('received event: %s', event)
-                        await self._process_event(event)
-
-                    except Exception as e:
-                        mlog.warning('error processing event: %s',
-                                     e, exc_info=e)
-
-        except ConnectionError:
-            mlog.debug('event client closed')
-
-        except Exception as e:
-            mlog.error('event loop error: %s', e, exc_info=e)
-
-        finally:
-            mlog.debug('closing event loop')
-            self.close()
-
-    def _register_connections(self):
+    async def _register_connections(self):
         payload = [{'connection_id': conn_id,
                     'local': {'host': conn.info.local_addr.host,
                               'port': conn.info.local_addr.port},
@@ -182,16 +168,14 @@ class Iec104SlaveDevice(common.Device):
                    for conn_id, conn in self._conns.items()]
 
         event = hat.event.common.RegisterEvent(
-            event_type=(*self._event_type_prefix, 'gateway', 'connections'),
+            type=(*self._event_type_prefix, 'gateway', 'connections'),
             source_timestamp=None,
-            payload=hat.event.common.EventPayload(
-                type=hat.event.common.EventPayloadType.JSON,
-                data=payload))
+            payload=hat.event.common.EventPayloadJson(payload))
 
-        self._event_client.register([event])
+        await self._eventer_client.register([event])
 
     async def _process_event(self, event):
-        suffix = event.event_type[len(self._event_type_prefix):]
+        suffix = event.type[len(self._event_type_prefix):]
 
         if suffix[:2] == ('system', 'data'):
             data_type_str, asdu_address_str, io_address_str = suffix[2:]
@@ -222,10 +206,10 @@ class Iec104SlaveDevice(common.Device):
 
         buffer = self._data_buffers.get(data_key)
         if buffer:
-            buffer.add(event.event_id, data_msg)
+            buffer.add(event.id, data_msg)
 
         for conn in self._conns.values():
-            self._send_data_msg(conn, buffer, event.event_id, data_msg)
+            self._send_data_msg(conn, buffer, event.id, data_msg)
 
     async def _process_command_event(self, cmd_key, event):
         cmd_msg = _cmd_msg_from_event(cmd_key, event)
@@ -267,7 +251,7 @@ class Iec104SlaveDevice(common.Device):
     async def _process_command_msg(self, conn_id, conn, msg):
         if isinstance(msg.cause, iec104.CommandReqCause):
             event = _cmd_msg_to_event(self._event_type_prefix, conn_id, msg)
-            self._event_client.register([event])
+            await self._eventer_client.register([event])
 
         else:
             res = msg._replace(cause=iec104.CommandResCause.UNKNOWN_CAUSE,

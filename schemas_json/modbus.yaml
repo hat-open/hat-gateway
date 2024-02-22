@@ -1,5 +1,3 @@
----
-"$schema": "http://json-schema.org/schema#"
 id: "hat-gateway://modbus.yaml#"
 title: Modbus devices
 definitions:
@@ -281,4 +279,3 @@ definitions:
                             type: string
                         value:
                             type: integer
-...

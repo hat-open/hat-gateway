@@ -1,5 +1,6 @@
 """IEC 60870-5-104 master device"""
 
+from collections.abc import Collection
 import asyncio
 import collections
 import contextlib
@@ -8,10 +9,10 @@ import enum
 import logging
 
 from hat import aio
-from hat import json
 from hat.drivers import iec104
 from hat.drivers import tcp
 import hat.event.common
+import hat.event.eventer
 
 from hat.gateway.devices.iec104 import common
 from hat.gateway.devices.iec104 import ssl
@@ -19,42 +20,67 @@ from hat.gateway.devices.iec104 import ssl
 
 mlog: logging.Logger = logging.getLogger(__name__)
 
-device_type: str = 'iec104_master'
-
-json_schema_id: str = "hat-gateway://iec104.yaml#/definitions/master"
-
-json_schema_repo: json.SchemaRepository = common.json_schema_repo
-
-
-async def create(conf: common.DeviceConf,
-                 event_client: common.DeviceEventClient,
-                 event_type_prefix: common.EventTypePrefix
-                 ) -> 'Iec104MasterDevice':
-    device = Iec104MasterDevice()
-    device._event_client = event_client
-    device._event_type_prefix = event_type_prefix
-    device._conn = None
-    device._async_group = aio.Group()
-
-    ssl_ctx = (ssl.create_ssl_ctx(conf['security'], ssl.SslProtocol.TLS_CLIENT)
-               if conf['security'] else None)
-
-    device.async_group.spawn(device._connection_loop, conf, ssl_ctx)
-    device.async_group.spawn(device._event_loop)
-
-    return device
-
 
 class Iec104MasterDevice(common.Device):
+
+    def __init__(self,
+                 conf: common.DeviceConf,
+                 eventer_client: hat.event.eventer.Client,
+                 event_type_prefix: common.EventTypePrefix):
+        self._eventer_client = eventer_client
+        self._event_type_prefix = event_type_prefix
+        self._conn = None
+        self._async_group = aio.Group()
+
+        ssl_ctx = (
+            ssl.create_ssl_ctx(conf['security'], ssl.SslProtocol.TLS_CLIENT)
+            if conf['security'] else None)
+
+        self.async_group.spawn(self._connection_loop, conf, ssl_ctx)
 
     @property
     def async_group(self) -> aio.Group:
         return self._async_group
 
+    async def process_events(self, events: Collection[hat.event.common.Event]):
+        msgs = collections.deque()
+        for event in events:
+            try:
+                mlog.debug('received event: %s', event)
+                msg = _msg_from_event(self._event_type_prefix, event)
+                msgs.append(msg)
+
+            except Exception as e:
+                mlog.warning('error processing event: %s',
+                             e, exc_info=e)
+                continue
+
+        if not msgs:
+            return
+
+        if not self._conn or not self._conn.is_open:
+            mlog.warning('connection closed: %s events ignored',
+                         len(msgs))
+
+        try:
+            await self._conn.send(msgs)
+            mlog.debug('%s messages sent', len(msgs))
+
+        except ConnectionError as e:
+            mlog.warning('error sending messages: %s', e, exc_info=e)
+
     async def _connection_loop(self, conf, ssl_ctx):
+
+        async def cleanup():
+            with contextlib.suppress(ConnectionError):
+                await self._register_status('DISCONNECTED')
+
+            if self._conn:
+                await self._conn.async_close()
+
         try:
             while True:
-                self._register_status('CONNECTING')
+                await self._register_status('CONNECTING')
                 for address in conf['remote_addresses']:
                     try:
                         self._conn = await iec104.connect(
@@ -82,18 +108,18 @@ class Iec104MasterDevice(common.Device):
                         mlog.warning('connection failed: %s', e, exc_info=e)
 
                 else:
-                    self._register_status('DISCONNECTED')
+                    await self._register_status('DISCONNECTED')
                     await asyncio.sleep(conf['reconnect_delay'])
                     continue
 
-                self._register_status('CONNECTED')
+                await self._register_status('CONNECTED')
                 self.async_group.spawn(self._receive_loop, self._conn)
                 if conf['time_sync_delay'] is not None:
                     self.async_group.spawn(self._time_sync_loop, self._conn,
                                            conf['time_sync_delay'])
 
                 await self._conn.wait_closed()
-                self._register_status('DISCONNECTED')
+                await self._register_status('DISCONNECTED')
                 self._conn = None
 
         except ConnectionError:
@@ -105,54 +131,7 @@ class Iec104MasterDevice(common.Device):
         finally:
             mlog.debug('closing connection loop')
             self.close()
-
-            with contextlib.suppress(ConnectionError):
-                self._register_status('DISCONNECTED')
-
-            if self._conn:
-                await aio.uncancellable(self._conn.async_close())
-
-    async def _event_loop(self):
-        try:
-            while True:
-                events = await self._event_client.receive()
-
-                msgs = collections.deque()
-                for event in events:
-                    try:
-                        mlog.debug('received event: %s', event)
-                        msg = _msg_from_event(self._event_type_prefix, event)
-                        msgs.append(msg)
-
-                    except Exception as e:
-                        mlog.warning('error processing event: %s',
-                                     e, exc_info=e)
-                        continue
-
-                if not msgs:
-                    continue
-
-                if not self._conn or not self._conn.is_open:
-                    mlog.warning('connection closed: %s events ignored',
-                                 len(msgs))
-
-                try:
-                    await self._conn.send(list(msgs))
-                    mlog.debug('%s messages sent', len(msg))
-
-                except ConnectionError as e:
-                    mlog.warning('error sending messages: %s', e, exc_info=e)
-                    continue
-
-        except ConnectionError:
-            mlog.debug('event client closed')
-
-        except Exception as e:
-            mlog.error('event loop error: %s', e, exc_info=e)
-
-        finally:
-            mlog.debug('closing event loop')
-            self.close()
+            await aio.uncancellable(cleanup())
 
     async def _receive_loop(self, conn):
         try:
@@ -182,7 +161,7 @@ class Iec104MasterDevice(common.Device):
                 if not events:
                     continue
 
-                self._event_client.register(list(events))
+                await self._eventer_client.register(events)
                 mlog.debug('%s events registered', len(events))
 
         except ConnectionError:
@@ -225,16 +204,21 @@ class Iec104MasterDevice(common.Device):
             mlog.debug('closing time sync loop')
             conn.close()
 
-    def _register_status(self, status):
+    async def _register_status(self, status):
         event = hat.event.common.RegisterEvent(
-            event_type=(*self._event_type_prefix, 'gateway', 'status'),
+            type=(*self._event_type_prefix, 'gateway', 'status'),
             source_timestamp=None,
-            payload=hat.event.common.EventPayload(
-                type=hat.event.common.EventPayloadType.JSON,
-                data=status))
+            payload=hat.event.common.EventPayloadJson(status))
 
-        self._event_client.register([event])
+        await self._eventer_client.register([event])
         mlog.debug('registered status %s', status)
+
+
+info: common.DeviceInfo = common.DeviceInfo(
+    type="iec104_master",
+    create=Iec104MasterDevice,
+    json_schema_id="hat-gateway://iec104.yaml#/definitions/master",
+    json_schema_repo=common.json_schema_repo)
 
 
 def _msg_to_event(event_type_prefix, msg):
@@ -264,13 +248,12 @@ def _data_to_event(event_type_prefix, msg):
     source_timestamp = common.time_to_source_timestamp(msg.time)
 
     return hat.event.common.RegisterEvent(
-        event_type=event_type,
+        type=event_type,
         source_timestamp=source_timestamp,
-        payload=hat.event.common.EventPayload(
-            type=hat.event.common.EventPayloadType.JSON,
-            data={'is_test': msg.is_test,
-                  'cause': cause,
-                  'data': data}))
+        payload=hat.event.common.EventPayloadJson({
+            'is_test': msg.is_test,
+            'cause': cause,
+            'data': data}))
 
 
 def _command_to_event(event_type_prefix, msg):
@@ -282,14 +265,13 @@ def _command_to_event(event_type_prefix, msg):
     source_timestamp = common.time_to_source_timestamp(msg.time)
 
     return hat.event.common.RegisterEvent(
-        event_type=event_type,
+        type=event_type,
         source_timestamp=source_timestamp,
-        payload=hat.event.common.EventPayload(
-            type=hat.event.common.EventPayloadType.JSON,
-            data={'is_test': msg.is_test,
-                  'is_negative_confirm': msg.is_negative_confirm,
-                  'cause': cause,
-                  'command': command}))
+        payload=hat.event.common.EventPayloadJson({
+            'is_test': msg.is_test,
+            'is_negative_confirm': msg.is_negative_confirm,
+            'cause': cause,
+            'command': command}))
 
 
 def _interrogation_to_event(event_type_prefix, msg):
@@ -298,14 +280,13 @@ def _interrogation_to_event(event_type_prefix, msg):
                   str(msg.asdu_address))
 
     return hat.event.common.RegisterEvent(
-        event_type=event_type,
+        type=event_type,
         source_timestamp=None,
-        payload=hat.event.common.EventPayload(
-            type=hat.event.common.EventPayloadType.JSON,
-            data={'is_test': msg.is_test,
-                  'is_negative_confirm': msg.is_negative_confirm,
-                  'request': msg.request,
-                  'cause': cause}))
+        payload=hat.event.common.EventPayloadJson({
+            'is_test': msg.is_test,
+            'is_negative_confirm': msg.is_negative_confirm,
+            'request': msg.request,
+            'cause': cause}))
 
 
 def _counter_interrogation_to_event(event_type_prefix, msg):
@@ -314,19 +295,18 @@ def _counter_interrogation_to_event(event_type_prefix, msg):
                   str(msg.asdu_address))
 
     return hat.event.common.RegisterEvent(
-        event_type=event_type,
+        type=event_type,
         source_timestamp=None,
-        payload=hat.event.common.EventPayload(
-            type=hat.event.common.EventPayloadType.JSON,
-            data={'is_test': msg.is_test,
-                  'is_negative_confirm': msg.is_negative_confirm,
-                  'request': msg.request,
-                  'freeze': msg.freeze.name,
-                  'cause': cause}))
+        payload=hat.event.common.EventPayloadJson({
+            'is_test': msg.is_test,
+            'is_negative_confirm': msg.is_negative_confirm,
+            'request': msg.request,
+            'freeze': msg.freeze.name,
+            'cause': cause}))
 
 
 def _msg_from_event(event_type_prefix, event):
-    suffix = event.event_type[len(event_type_prefix):]
+    suffix = event.type[len(event_type_prefix):]
 
     if suffix[:2] == ('system', 'command'):
         cmd_type_str, asdu_address_str, io_address_str = suffix[2:]

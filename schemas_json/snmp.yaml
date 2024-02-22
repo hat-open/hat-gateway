@@ -1,5 +1,3 @@
----
-"$schema": "http://json-schema.org/schema#"
 id: "hat-gateway://snmp.yaml#"
 definitions:
     manager:
@@ -183,4 +181,3 @@ definitions:
                         - NO_SUCH_OBJECT
                         - NO_SUCH_INSTANCE
                         - END_OF_MIB_VIEW
-...

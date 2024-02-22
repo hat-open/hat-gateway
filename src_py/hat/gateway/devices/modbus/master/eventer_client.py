@@ -1,9 +1,11 @@
+from collections.abc import Collection, Iterable
 import contextlib
 import logging
 import typing
 
 from hat import aio
 import hat.event.common
+import hat.event.eventer
 
 from hat.gateway import common
 
@@ -56,84 +58,58 @@ Response: typing.TypeAlias = (StatusRes |
                               RemoteDeviceWriteRes)
 
 
-class EventClientProxy(aio.Resource):
+class EventerClientProxy(aio.Resource):
 
     def __init__(self,
-                 event_client: common.DeviceEventClient,
+                 eventer_client: hat.event.eventer.Client,
                  event_type_prefix: common.EventTypePrefix,
                  log_prefix: str):
-        self._event_client = event_client
+        self._eventer_client = eventer_client
         self._event_type_prefix = event_type_prefix
         self._log_prefix = log_prefix
-        self._async_group = event_client.async_group.create_subgroup()
-        self._read_queue = aio.Queue()
-        self.async_group.spawn(self._read_loop)
 
     @property
     def async_group(self) -> aio.Group:
-        return self._async_group
+        return self._eventer_client.async_group
 
-    def write(self, responses: list[Response]):
-        register_events = [
-            _response_to_register_event(self._event_type_prefix, i)
-            for i in responses]
-        self._event_client.register(register_events)
+    def process_events(self,
+                       events: Collection[hat.event.common.Event]
+                       ) -> Iterable[Request]:
+        self._log(logging.DEBUG, 'received %s events', len(events))
+        for event in events:
+            try:
+                yield _request_from_event(event)
 
-    async def read(self) -> Request:
-        try:
-            return await self._read_queue.get()
+            except Exception as e:
+                self._log(logging.INFO, 'received invalid event: %s', e,
+                          exc_info=e)
 
-        except aio.QueueClosedError:
-            raise ConnectionError()
+    async def write(self, responses: Iterable[Response]):
+        events = [_response_to_register_event(self._event_type_prefix, i)
+                  for i in responses]
+        await self._eventer_client.register(events)
 
     async def query_enabled_devices(self) -> set[int]:
         self._log(logging.DEBUG, 'querying enabled devices')
         enabled_devices = set()
 
-        events = await self._event_client.query(hat.event.common.QueryData(
-            event_types=[(*self._event_type_prefix, 'system', 'remote_device',
-                          '?', 'enable')],
-            unique_type=True))
-        self._log(logging.DEBUG, 'received %s events', len(events))
+        event_type = (*self._event_type_prefix, 'system', 'remote_device',
+                      '?', 'enable')
+        params = hat.event.common.QueryLatestParams([event_type])
+        result = await self._eventer_client.query(params)
+        self._log(logging.DEBUG, 'received %s events', len(result.events))
 
-        for event in events:
+        for event in result.events:
             if not event.payload or not bool(event.payload.data):
                 continue
 
-            device_id_str = event.event_type[6]
+            device_id_str = event.type[6]
             with contextlib.suppress(ValueError):
                 enabled_devices.add(int(device_id_str))
 
         self._log(logging.DEBUG, 'detected %s enabled devices',
                   len(enabled_devices))
         return enabled_devices
-
-    async def _read_loop(self):
-        try:
-            self._log(logging.DEBUG, 'starting read loop')
-            while True:
-                events = await self._event_client.receive()
-                self._log(logging.DEBUG, 'received %s events', len(events))
-
-                for event in events:
-                    try:
-                        req = _request_from_event(event)
-                        self._read_queue.put_nowait(req)
-
-                    except Exception as e:
-                        self._log(logging.INFO, 'received invalid event: %s',
-                                  e, exc_info=e)
-
-        except ConnectionError:
-            self._log(logging.DEBUG, 'connection closed')
-
-        except Exception as e:
-            self._log(logging.ERROR, 'read loop error: %s', e, exc_info=e)
-
-        finally:
-            self._log(logging.DEBUG, 'closing read loop')
-            self.close()
-            self._read_queue.close()
 
     def _log(self, level, msg, *args, **kwargs):
         if not mlog.isEnabledFor(level):
@@ -143,7 +119,7 @@ class EventClientProxy(aio.Resource):
 
 
 def _request_from_event(event):
-    event_type_suffix = event.event_type[5:]
+    event_type_suffix = event.type[5:]
 
     if event_type_suffix[0] != 'remote_device':
         raise Exception('unsupported event type')
@@ -196,8 +172,6 @@ def _response_to_register_event(event_type_prefix, res):
         raise ValueError('invalid response type')
 
     return hat.event.common.RegisterEvent(
-        event_type=event_type,
+        type=event_type,
         source_timestamp=None,
-        payload=hat.event.common.EventPayload(
-            type=hat.event.common.EventPayloadType.JSON,
-            data=payload))
+        payload=hat.event.common.EventPayloadJson(payload))

@@ -20,7 +20,7 @@ Running
 By installing Gateway from `hat-gateway` package, executable `hat-gateway`
 becomes available and can be used for starting this component.
 
-    .. program-output:: python -m hat.gateway --help
+.. program-output:: python -m hat.gateway --help
 
 
 Overview
@@ -60,6 +60,10 @@ will repeatedly try to establish new connection with currently active Event
 Server. If connection to Monitor Server could not be established or is closed,
 Gateway terminates it's process execution.
 
+Gateway can also run independently of Monitor Server. In this case,
+Gateway connects to predefined Event Server address. If this connection could
+not be established or is broken, Gateway terminates it's process execution.
+
 
 Event Server communication
 --------------------------
@@ -72,38 +76,38 @@ by Event Server.
 All events, consumed and registered by Gateway's request, have event type
 prefixed with::
 
-    'gateway', <gateway_name>, <device_type>, <device_name>, <source>, ...
+    gateway/<gateway_name>/<device_type>/<device_name>/<source>/...
 
 where:
 
-    * `<gateway_name>` - gateway instance identifier
-    * `<device_type>` - device type identifier
-    * `<device_name>` - device instance identifier
-    * `<source>` - ``gateway`` for events registered by Gateway and
-      ``system`` for events registered by other components
+* `<gateway_name>` - gateway instance identifier
+* `<device_type>` - device type identifier
+* `<device_name>` - device instance identifier
+* `<source>` - ``gateway`` for events registered by Gateway and ``system``
+  for events registered by other components
 
 While establishing connection with Event Server, Gateway subscribes for events
 that match::
 
-    'gateway', <gateway_name>, '?', '?', 'system', '*'
+    gateway/<gateway_name>/?/?/system/*
 
 All devices, regardless of device type, support following events:
 
-    * 'gateway', <gateway_name>, <device_type>, <device_name>, 'system', 'enable'
+* `gateway/<gateway_name>/<device_type>/<device_name>/system/enable`
 
-        * `source timestamp` - optional timestamp when component issued event
-          register request
+  * `source timestamp` - optional timestamp when component issued event
+    register request
 
-        * `payload` - JSON payload encoding boolean value which represents
-          device's enabled status
+  * `payload` - JSON payload encoding boolean value which represents
+    device's enabled status
 
-    * 'gateway', <gateway_name>, <device_type>, <device_name>, 'gateway', 'running'
+* `gateway/<gateway_name>/<device_type>/<device_name>/gateway/running`
 
-        * `source timestamp` - required timestamp when Device is successfully
-          created (started) or destroyed (stopped)
+  * `source timestamp` - required timestamp when Device is successfully
+    created (started) or destroyed (stopped)
 
-        * `payload` - JSON payload encoding boolean value set to ``true`` when
-          Device is successfully created (started) or destroyed (stopped)
+  * `payload` - JSON payload encoding boolean value set to ``true`` when
+    Device is successfully created (started) or destroyed (stopped)
 
 All other Gateway events are specified in dependence of `<device_type>`.
 
@@ -126,11 +130,6 @@ destroy associated device instance and continue waiting for new `enable` event.
 When device is successfully destroyed, engine will try to register new
 `running` event with payload ``false``. Once engine is destroyed, all devices
 are also destroyed.
-
-Prior to new device instance initialization, responsibility of engine is to
-create interface for event server communication appropriate for associated
-device. This interface provides event filtering (based on event type) specific
-for associated device.
 
 
 Device

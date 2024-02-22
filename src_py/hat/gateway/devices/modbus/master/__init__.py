@@ -1,15 +1,11 @@
 """Modbus master device"""
 
-from hat import json
-
 from hat.gateway import common
-from hat.gateway.devices.modbus.master import device
+from hat.gateway.devices.modbus.master.device import ModbusMasterDevice
 
 
-device_type: str = "modbus_master"
-
-json_schema_id: str = "hat-gateway://modbus.yaml#/definitions/master"
-
-json_schema_repo: json.SchemaRepository = common.json_schema_repo
-
-create: common.CreateDevice = device.create
+info: common.DeviceInfo = common.DeviceInfo(
+    type="modbus_master",
+    create=ModbusMasterDevice,
+    json_schema_id="hat-gateway://modbus.yaml#/definitions/master",
+    json_schema_repo=common.json_schema_repo)

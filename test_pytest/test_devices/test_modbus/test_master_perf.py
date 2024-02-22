@@ -1,17 +1,17 @@
 import asyncio
+import atexit
 import itertools
+import subprocess
 import sys
 import time
-import subprocess
-import atexit
 
 import pytest
 
 from hat import aio
 from hat.drivers import modbus
-from hat.gateway import common
-from hat.gateway.devices.modbus import master
 import hat.event.common
+
+import hat.gateway.devices.modbus.master
 
 
 pytestmark = [pytest.mark.skipif(sys.platform == 'win32',
@@ -21,40 +21,50 @@ pytestmark = [pytest.mark.skipif(sys.platform == 'win32',
 
 gateway_name = 'gateway_name'
 device_name = 'device_name'
-event_type_prefix = ('gateway', gateway_name, master.device_type, device_name)
+event_type_prefix = ('gateway', gateway_name,
+                     hat.gateway.devices.modbus.master.info.type,
+                     device_name)
+
+next_event_ids = (hat.event.common.EventId(1, 1, instance)
+                  for instance in itertools.count(1))
 
 
-class EventClient(common.DeviceEventClient):
+class EventerClient(aio.Resource):
 
-    def __init__(self, query_result=[]):
-        self._query_result = query_result
-        self._receive_queue = aio.Queue()
-        self._register_queue = aio.Queue()
+    def __init__(self, event_cb=None, query_cb=None):
+        self._event_cb = event_cb
+        self._query_cb = query_cb
         self._async_group = aio.Group()
-        self._async_group.spawn(aio.call_on_cancel, self._receive_queue.close)
 
     @property
     def async_group(self):
         return self._async_group
 
     @property
-    def receive_queue(self):
-        return self._receive_queue
+    def status(self):
+        raise NotImplementedError()
 
-    async def receive(self):
-        try:
-            return await self._receive_queue.get()
-        except aio.QueueClosedError:
-            raise ConnectionError()
+    async def register(self, events, with_response=False):
+        if self._event_cb:
+            for event in events:
+                await aio.call(self._event_cb, event)
 
-    def register(self, events):
-        pass
+        if not with_response:
+            return
 
-    async def register_with_response(self, events):
-        raise Exception('should not be used')
+        timestamp = hat.event.common.now()
+        return [hat.event.common.Event(id=next(next_event_ids),
+                                       type=event.type,
+                                       timestamp=timestamp,
+                                       source_timestamp=event.source_timestamp,
+                                       payload=event.payload)
+                for event in events]
 
-    async def query(self, data):
-        return self._query_result
+    async def query(self, params):
+        if not self._query_cb:
+            return hat.event.common.QueryResult([], False)
+
+        return await aio.call(self._query_cb, params)
 
 
 @pytest.fixture
@@ -62,7 +72,7 @@ def nullmodem(request, tmp_path):
     path1 = tmp_path / '1'
     path2 = tmp_path / '2'
     p = subprocess.Popen(
-        ['socat',
+        ['socat', '-d0',
          f'pty,link={path1},raw,echo=0',
          f'pty,link={path2},raw,echo=0'])
     while not path1.exists() or not path2.exists():
@@ -98,51 +108,27 @@ def conn_conf(nullmodem):
             'request_retry_delay': 0}
 
 
-@pytest.fixture
-def create_event():
-    counter = itertools.count(1)
-
-    def create_event(event_type, payload_data):
-        event_id = hat.event.common.EventId(1, 1, next(counter))
-        payload = hat.event.common.EventPayload(
-            hat.event.common.EventPayloadType.JSON, payload_data)
-        event = hat.event.common.Event(event_id=event_id,
-                                       event_type=event_type,
-                                       timestamp=hat.event.common.now(),
-                                       source_timestamp=None,
-                                       payload=payload)
-        return event
-
-    return create_event
+def create_event(event_type, payload_data):
+    return hat.event.common.Event(
+        id=next(next_event_ids),
+        type=event_type,
+        timestamp=hat.event.common.now(),
+        source_timestamp=None,
+        payload=hat.event.common.EventPayloadJson(payload_data))
 
 
-@pytest.fixture
-def create_remote_device_enable_event(create_event):
-
-    def create_remote_device_enable_event(device_id, enable):
-        return create_event((*event_type_prefix, 'system', 'remote_device',
-                             str(device_id), 'enable'),
-                            enable)
-
-    return create_remote_device_enable_event
+def create_remote_device_enable_event(device_id, enable):
+    return create_event((*event_type_prefix, 'system', 'remote_device',
+                         str(device_id), 'enable'),
+                        enable)
 
 
 @pytest.mark.parametrize('remote_device_count', [50])
 @pytest.mark.parametrize('data_count', [1000])
 @pytest.mark.parametrize('interval', [0.1])
 @pytest.mark.parametrize('duration', [10])
-async def test_read(profile, nullmodem, conn_conf,
-                    create_remote_device_enable_event, remote_device_count,
+async def test_read(profile, nullmodem, conn_conf, remote_device_count,
                     data_count, interval, duration):
-
-    async def on_read(slave, device_id, _data_type, start_address, quantity):
-        return list(range(quantity))
-
-    slave = await modbus.create_serial_slave(modbus_type=modbus.ModbusType.RTU,
-                                             port=nullmodem[0],
-                                             read_cb=on_read,
-                                             silent_interval=0)
-
     conf = {
         'name': 'name',
         'connection': conn_conf,
@@ -158,18 +144,29 @@ async def test_read(profile, nullmodem, conn_conf,
                 for start_address in range(1, data_count + 1)]}
             for device_id in range(1, remote_device_count + 1)]}
 
-    event_client = EventClient([
-        create_remote_device_enable_event(device_id, True)
-        for device_id in range(1, remote_device_count + 1)])
+    def on_query(params):
+        events = [create_remote_device_enable_event(device_id, True)
+                  for device_id in range(1, remote_device_count + 1)]
+
+        return hat.event.common.QueryResult(events, False)
+
+    async def on_read(slave, device_id, _data_type, start_address, quantity):
+        return list(range(quantity))
+
+    eventer_client = EventerClient(query_cb=on_query)
+    slave = await modbus.create_serial_slave(modbus_type=modbus.ModbusType.RTU,
+                                             port=nullmodem[0],
+                                             read_cb=on_read,
+                                             silent_interval=0)
 
     with profile(f"remote_device_count_{remote_device_count}_"
                  f"data_count_{data_count}_"
                  f"interval_{interval}_"
                  f"duration_{duration}"):
-        device = await aio.call(master.create, conf, event_client,
-                                event_type_prefix)
+        device = await aio.call(hat.gateway.devices.modbus.master.info.create,
+                                conf, eventer_client, event_type_prefix)
         await asyncio.sleep(duration)
 
     await device.async_close()
     await slave.async_close()
-    await event_client.async_close()
+    await eventer_client.async_close()

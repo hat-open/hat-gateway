@@ -1,5 +1,3 @@
----
-$schema: "http://json-schema.org/schema#"
 id: "hat-gateway://iec101.yaml#"
 definitions:
     master:
@@ -865,4 +863,3 @@ definitions:
                   - type: integer
                     description: |
                         other cause in range [0, 63]
-...

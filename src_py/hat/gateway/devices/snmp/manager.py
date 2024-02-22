@@ -1,84 +1,92 @@
 """SNMP manager device"""
 
+from collections.abc import Collection
 import asyncio
-import contextlib
 import logging
 
 from hat import aio
-from hat import json
 from hat.drivers import snmp
 from hat.drivers import udp
 import hat.event.common
+import hat.event.eventer
 
 from hat.gateway import common
 
 
 mlog: logging.Logger = logging.getLogger(__name__)
 
-device_type: str = 'snmp_manager'
-
-json_schema_id: str = "hat-gateway://snmp.yaml#/definitions/manager"
-
-json_schema_repo: json.SchemaRepository = common.json_schema_repo
-
-
-async def create(conf: common.DeviceConf,
-                 event_client: common.DeviceEventClient,
-                 event_type_prefix: common.EventTypePrefix
-                 ) -> 'SnmpManagerDevice':
-    device = SnmpManagerDevice()
-
-    device._conf = conf
-    device._event_type_prefix = event_type_prefix
-    device._event_client = event_client
-    device._manager = None
-    device._status = None
-    device._cache = {}
-    device._polling_oids = conf['polling_oids'] or ["0.0"]
-
-    device._async_group = aio.Group()
-    device._async_group.spawn(device._connection_loop)
-    device._async_group.spawn(device._event_loop)
-
-    return device
-
 
 class SnmpManagerDevice(common.Device):
+
+    def __init__(self,
+                 conf: common.DeviceConf,
+                 eventer_client: hat.event.eventer.Client,
+                 event_type_prefix: common.EventTypePrefix):
+        self._conf = conf
+        self._event_type_prefix = event_type_prefix
+        self._eventer_client = eventer_client
+        self._manager = None
+        self._status = None
+        self._cache = {}
+        self._polling_oids = conf['polling_oids'] or ["0.0"]
+        self._async_group = aio.Group()
+
+        self.async_group.spawn(self._connection_loop)
 
     @property
     def async_group(self) -> aio.Group:
         return self._async_group
 
+    async def process_events(self, events: Collection[hat.event.common.Event]):
+        for event in events:
+            try:
+                await self._process_event(event)
+
+            except Exception as e:
+                mlog.warning('event processing error: %s', e, exc_info=e)
+
     async def _connection_loop(self):
         try:
             while True:
-                self._register_status('CONNECTING')
-                mlog.debug('connecting to %s:%s', self._conf['remote_host'],
+                await self._register_status('CONNECTING')
+                mlog.debug('connecting to %s:%s',
+                           self._conf['remote_host'],
                            self._conf['remote_port'])
+
                 try:
-                    self._manager = await snmp.create_manager(
-                        context=snmp.Context(
-                            engine_id=self._conf['snmp_context']['engine_id'],
-                            name=self._conf['snmp_context']['name']),
-                        remote_addr=udp.Address(
-                            host=self._conf['remote_host'],
-                            port=self._conf['remote_port']),
-                        version=snmp.Version[self._conf['snmp_version']])
-                except Exception as e:
-                    mlog.warning('creating manager failed %s', e, exc_info=e)
-                if self._manager:
-                    mlog.debug('connected to %s:%s', self._conf['remote_host'],
-                               self._conf['remote_port'])
-                    self._manager.async_group.spawn(self._polling_loop)
-                    await self._manager.wait_closed()
-                self._register_status('DISCONNECTED')
+                    try:
+                        self._manager = await snmp.create_manager(
+                            context=snmp.Context(
+                                engine_id=self._conf['snmp_context']['engine_id'],  # NOQA
+                                name=self._conf['snmp_context']['name']),
+                            remote_addr=udp.Address(
+                                host=self._conf['remote_host'],
+                                port=self._conf['remote_port']),
+                            version=snmp.Version[self._conf['snmp_version']])
+
+                    except Exception as e:
+                        mlog.warning('creating manager failed %s', e,
+                                     exc_info=e)
+
+                    if self._manager:
+                        mlog.debug('connected to %s:%s',
+                                   self._conf['remote_host'],
+                                   self._conf['remote_port'])
+                        self._manager.async_group.spawn(self._polling_loop)
+                        await self._manager.wait_closed()
+
+                finally:
+                    await self._register_status('DISCONNECTED')
+
                 self._manager = None
                 self._cache = {}
                 await asyncio.sleep(self._conf['connect_delay'])
+
+        except Exception as e:
+            mlog.error('connection loop error: %s', e, exc_info=e)
+
         finally:
             mlog.debug('closing device')
-            with contextlib.suppress(ConnectionError):
-                self._register_status('DISCONNECTED')
             self.close()
             if self._manager:
                 await aio.uncancellable(self._manager.async_close())
@@ -89,7 +97,7 @@ class SnmpManagerDevice(common.Device):
                 for oid in self._polling_oids:
                     req = snmp.GetDataReq(names=[_oid_from_str(oid)])
                     resp = await self._request(req)
-                    self._register_status('CONNECTED')
+                    await self._register_status('CONNECTED')
                     if (not self._conf['polling_oids'] or
                             self._cache.get(oid) == resp):
                         continue
@@ -105,7 +113,7 @@ class SnmpManagerDevice(common.Device):
                         mlog.warning('response %s ignored due to: %s',
                                      resp, e, exc_info=e)
                         continue
-                    self._event_client.register([event])
+                    await self._eventer_client.register([event])
                 await asyncio.sleep(self._conf['polling_delay'])
         except Exception as e:
             mlog.warning('polling loop error: %s', e, exc_info=e)
@@ -113,26 +121,8 @@ class SnmpManagerDevice(common.Device):
             mlog.debug('closing manager')
             self._manager.close()
 
-    async def _event_loop(self):
-        try:
-            while True:
-                events = await self._event_client.receive()
-                self._async_group.spawn(self._process_events, events)
-        except ConnectionError:
-            mlog.debug('connection to event server closed')
-        finally:
-            mlog.debug('closing device')
-            self.close()
-
-    async def _process_events(self, events):
-        for event in events:
-            try:
-                await self._process_event(event)
-            except Exception as e:
-                mlog.warning('event processing error: %s', e, exc_info=e)
-
     async def _process_event(self, event):
-        etype_suffix = event.event_type[len(self._event_type_prefix):]
+        etype_suffix = event.type[len(self._event_type_prefix):]
         if etype_suffix[:2] == ('system', 'read'):
             oid = etype_suffix[2]
             await self._process_read_event(event, oid)
@@ -153,7 +143,7 @@ class SnmpManagerDevice(common.Device):
         mlog.debug('read response for oid %s: %s', oid, resp)
         session_id = event.payload.data['session_id']
         event = self._event_from_response(resp, oid, 'REQUESTED', session_id)
-        self._event_client.register([event])
+        await self._eventer_client.register([event])
 
     async def _process_write_event(self, event, oid):
         set_data = _data_from_event(event, oid)
@@ -170,13 +160,12 @@ class SnmpManagerDevice(common.Device):
         mlog.debug('write for oid %s %s, response: %s',
                    oid, 'succeeded' if success else 'failed', resp)
         event = hat.event.common.RegisterEvent(
-                event_type=(*self._event_type_prefix, 'gateway', 'write', oid),
+                type=(*self._event_type_prefix, 'gateway', 'write', oid),
                 source_timestamp=None,
-                payload=hat.event.common.EventPayload(
-                    type=hat.event.common.EventPayloadType.JSON,
-                    data={'session_id': session_id,
-                          'success': success}))
-        self._event_client.register([event])
+                payload=hat.event.common.EventPayloadJson({
+                    'session_id': session_id,
+                    'success': success}))
+        await self._eventer_client.register([event])
 
     async def _request(self, request):
         for i in range(self._conf['request_retry_count'] + 1):
@@ -190,16 +179,14 @@ class SnmpManagerDevice(common.Device):
                 await asyncio.sleep(self._conf['request_retry_delay'])
         raise Exception('request retries exceeded')
 
-    def _register_status(self, status):
+    async def _register_status(self, status):
         if self._status == status:
             return
         event = hat.event.common.RegisterEvent(
-            event_type=(*self._event_type_prefix, 'gateway', 'status'),
+            type=(*self._event_type_prefix, 'gateway', 'status'),
             source_timestamp=None,
-            payload=hat.event.common.EventPayload(
-                type=hat.event.common.EventPayloadType.JSON,
-                data=status))
-        self._event_client.register([event])
+            payload=hat.event.common.EventPayloadJson(status))
+        await self._eventer_client.register([event])
         mlog.debug("device status %s -> %s", self._status, status)
         self._status = status
 
@@ -209,11 +196,16 @@ class SnmpManagerDevice(common.Device):
                    'data': {'type': _event_type_from_response(response),
                             'value': _event_value_from_response(response)}}
         return hat.event.common.RegisterEvent(
-                event_type=(*self._event_type_prefix, 'gateway', 'read', oid),
+                type=(*self._event_type_prefix, 'gateway', 'read', oid),
                 source_timestamp=None,
-                payload=hat.event.common.EventPayload(
-                    type=hat.event.common.EventPayloadType.JSON,
-                    data=payload))
+                payload=hat.event.common.EventPayloadJson(payload))
+
+
+info = common.DeviceInfo(
+    type='snmp_manager',
+    create=SnmpManagerDevice,
+    json_schema_id="hat-gateway://snmp.yaml#/definitions/manager",
+    json_schema_repo=common.json_schema_repo)
 
 
 def _event_type_from_response(response):

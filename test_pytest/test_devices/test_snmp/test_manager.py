@@ -8,55 +8,55 @@ from hat.drivers import snmp
 from hat.drivers import udp
 import hat.event.common
 
-from hat.gateway import common
-from hat.gateway.devices.snmp import manager
+import hat.gateway.devices.snmp.manager
 
 
 gateway_name = 'gateway_name'
 device_name = 'device_name'
-event_type_prefix = 'gateway', gateway_name, manager.device_type, device_name
+event_type_prefix = ('gateway', gateway_name,
+                     hat.gateway.devices.snmp.manager.info.type,
+                     device_name)
+
+next_event_ids = (hat.event.common.EventId(1, 1, instance)
+                  for instance in itertools.count(1))
 
 
-class EventClient(common.DeviceEventClient):
+class EventerClient(aio.Resource):
 
-    def __init__(self, query_result=[]):
-        self._query_result = query_result
-        self._receive_queue = aio.Queue()
-        self._register_queue = aio.Queue()
+    def __init__(self, event_cb=None, query_cb=None):
+        self._event_cb = event_cb
+        self._query_cb = query_cb
         self._async_group = aio.Group()
-        self._async_group.spawn(aio.call_on_cancel, self._receive_queue.close)
-        self._async_group.spawn(aio.call_on_cancel, self._register_queue.close)
 
     @property
     def async_group(self):
         return self._async_group
 
     @property
-    def receive_queue(self):
-        return self._receive_queue
+    def status(self):
+        raise NotImplementedError()
 
-    @property
-    def register_queue(self):
-        return self._register_queue
-
-    async def receive(self):
-        try:
-            return await self._receive_queue.get()
-        except aio.QueueClosedError:
-            raise ConnectionError()
-
-    def register(self, events):
-        try:
+    async def register(self, events, with_response=False):
+        if self._event_cb:
             for event in events:
-                self._register_queue.put_nowait(event)
-        except aio.QueueClosedError:
-            raise ConnectionError()
+                await aio.call(self._event_cb, event)
 
-    async def register_with_response(self, events):
-        raise Exception('should not be used')
+        if not with_response:
+            return
 
-    async def query(self, data):
-        return self._query_result
+        timestamp = hat.event.common.now()
+        return [hat.event.common.Event(id=next(next_event_ids),
+                                       type=event.type,
+                                       timestamp=timestamp,
+                                       source_timestamp=event.source_timestamp,
+                                       payload=event.payload)
+                for event in events]
+
+    async def query(self, params):
+        if not self._query_cb:
+            return hat.event.common.QueryResult([], False)
+
+        return await aio.call(self._query_cb, params)
 
 
 def encode_oid(oid):
@@ -68,14 +68,14 @@ def decode_oid(oid_str):
 
 
 def assert_status_event(event, status):
-    assert event.event_type == (*event_type_prefix, 'gateway', 'status')
+    assert event.type == (*event_type_prefix, 'gateway', 'status')
     assert event.source_timestamp is None
     assert event.payload.data == status
 
 
 def assert_read_event(event, oid, session_id, cause, data):
-    assert event.event_type == (*event_type_prefix, 'gateway', 'read',
-                                encode_oid(oid))
+    assert event.type == (*event_type_prefix, 'gateway', 'read',
+                          encode_oid(oid))
     assert event.source_timestamp is None
     assert event.payload.data == {'session_id': session_id,
                                   'cause': cause,
@@ -83,11 +83,33 @@ def assert_read_event(event, oid, session_id, cause, data):
 
 
 def assert_write_event(event, oid, session_id, success):
-    assert event.event_type == (*event_type_prefix, 'gateway', 'write',
-                                encode_oid(oid))
+    assert event.type == (*event_type_prefix, 'gateway', 'write',
+                          encode_oid(oid))
     assert event.source_timestamp is None
     assert event.payload.data == {'session_id': session_id,
                                   'success': success}
+
+
+def create_event(event_type, payload_data):
+    return hat.event.common.Event(
+        id=next(next_event_ids),
+        type=event_type,
+        timestamp=hat.event.common.now(),
+        source_timestamp=None,
+        payload=hat.event.common.EventPayloadJson(payload_data))
+
+
+def create_read_event(oid, session_id):
+    return create_event((*event_type_prefix, 'system', 'read',
+                         encode_oid(oid)),
+                        {'session_id': session_id})
+
+
+def create_write_event(oid, session_id, data):
+    return create_event((*event_type_prefix, 'system', 'write',
+                         encode_oid(oid)),
+                        {'session_id': session_id,
+                         'data': data})
 
 
 @pytest.fixture
@@ -132,123 +154,83 @@ async def create_agent(port):
     return create_agent
 
 
-@pytest.fixture
-def create_event():
-    instance_ids = itertools.count(1)
-
-    def create_event(event_type, payload_data):
-        event_id = hat.event.common.EventId(1, 1, next(instance_ids))
-        payload = hat.event.common.EventPayload(
-            hat.event.common.EventPayloadType.JSON, payload_data)
-        event = hat.event.common.Event(event_id=event_id,
-                                       event_type=event_type,
-                                       timestamp=hat.event.common.now(),
-                                       source_timestamp=None,
-                                       payload=payload)
-        return event
-
-    return create_event
-
-
-@pytest.fixture
-def create_read_event(create_event):
-
-    def create_read_event(oid, session_id):
-        return create_event((*event_type_prefix, 'system', 'read',
-                             encode_oid(oid)),
-                            {'session_id': session_id})
-
-    return create_read_event
-
-
-@pytest.fixture
-def create_write_event(create_event):
-
-    def create_write_event(oid, session_id, data):
-        return create_event((*event_type_prefix, 'system', 'write',
-                             encode_oid(oid)),
-                            {'session_id': session_id,
-                             'data': data})
-
-    return create_write_event
-
-
 def test_conf(create_conf):
     conf = create_conf()
-    manager.json_schema_repo.validate(manager.json_schema_id, conf)
+    hat.gateway.devices.snmp.manager.info.json_schema_repo.validate(
+        hat.gateway.devices.snmp.manager.info.json_schema_id, conf)
 
 
 async def test_create(create_conf):
-    event_client = EventClient()
     conf = create_conf()
-    device = await aio.call(manager.create, conf, event_client,
-                            event_type_prefix)
+
+    eventer_client = EventerClient()
+    device = await aio.call(hat.gateway.devices.snmp.manager.info.create, conf,
+                            eventer_client, event_type_prefix)
 
     assert device.is_open
 
     await device.async_close()
-    await event_client.async_close()
+    await eventer_client.async_close()
 
 
 async def test_status(create_conf, create_agent):
     version = snmp.Version.V2C
     context = snmp.Context(None, 'name')
+    event_queue = aio.Queue()
 
-    event_client = EventClient()
     conf = create_conf(version=version,
                        context=context)
 
-    def on_request(ver, ctx, req):
+    async def on_request(ver, ctx, req):
         assert ver == version
         assert ctx == context
         assert req == snmp.GetDataReq([(0, 0)])
         return snmp.Error(snmp.ErrorType.NO_SUCH_NAME, 1)
 
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     agent = await create_agent(on_request)
-    device = await aio.call(manager.create, conf, event_client,
-                            event_type_prefix)
+    device = await aio.call(hat.gateway.devices.snmp.manager.info.create, conf,
+                            eventer_client, event_type_prefix)
 
-    event = await event_client.register_queue.get()
+    event = await event_queue.get()
     assert_status_event(event, 'CONNECTING')
 
-    event = await event_client.register_queue.get()
+    event = await event_queue.get()
     assert_status_event(event, 'CONNECTED')
 
     await agent.async_close()
 
-    event = await event_client.register_queue.get()
+    event = await event_queue.get()
     assert_status_event(event, 'DISCONNECTED')
 
-    event = await event_client.register_queue.get()
+    event = await event_queue.get()
     assert_status_event(event, 'CONNECTING')
 
-    event = await event_client.register_queue.get()
+    event = await event_queue.get()
     assert_status_event(event, 'DISCONNECTED')
 
-    event = await event_client.register_queue.get()
+    event = await event_queue.get()
     assert_status_event(event, 'CONNECTING')
 
     await device.async_close()
 
-    event = await event_client.register_queue.get()
+    event = await event_queue.get()
     assert_status_event(event, 'DISCONNECTED')
 
-    await event_client.async_close()
+    await eventer_client.async_close()
 
 
 async def test_polling(create_conf, create_agent):
     version = snmp.Version.V1
     context = snmp.Context(None, 'name')
-
     int_oid = 1, 2, 3
     str_oid = 1, 3, 2
+    next_values = itertools.count(0)
+    event_queue = aio.Queue()
 
-    event_client = EventClient()
     conf = create_conf(version=version,
                        context=context,
                        polling_oids=[int_oid, str_oid])
-
-    next_values = itertools.count(0)
 
     def on_request(ver, ctx, req):
         assert ver == version
@@ -267,14 +249,15 @@ async def test_polling(create_conf, create_agent):
 
         raise Exception('unexpected oid')
 
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     agent = await create_agent(on_request)
-    device = await aio.call(manager.create, conf, event_client,
-                            event_type_prefix)
+    device = await aio.call(hat.gateway.devices.snmp.manager.info.create, conf,
+                            eventer_client, event_type_prefix)
 
-    event = await event_client.register_queue.get()
+    event = await event_queue.get()
     assert_status_event(event, 'CONNECTING')
 
-    event = await event_client.register_queue.get()
+    event = await event_queue.get()
     assert_status_event(event, 'CONNECTED')
 
     for i in range(10):
@@ -285,27 +268,27 @@ async def test_polling(create_conf, create_agent):
         data = {'type': data_type,
                 'value': data_value}
 
-        event = await event_client.register_queue.get()
+        event = await event_queue.get()
         assert_read_event(event, oid, None, cause, data)
 
     # cause is INTERROGATE on connection restart
     await agent.async_close()
-    event = await event_client.register_queue.get()
+    event = await event_queue.get()
     assert_status_event(event, 'DISCONNECTED')
     agent = await create_agent(on_request)
-    event = await event_client.register_queue.get()
+    event = await event_queue.get()
     assert_status_event(event, 'CONNECTING')
-    event = await event_client.register_queue.get()
+    event = await event_queue.get()
     assert_status_event(event, 'CONNECTED')
 
     for i in range(10):
         cause = 'INTERROGATE' if i < 2 else 'CHANGE'
-        event = await event_client.register_queue.get()
+        event = await event_queue.get()
         assert event.payload.data['cause'] == cause
 
     await device.async_close()
     await agent.async_close()
-    await event_client.async_close()
+    await eventer_client.async_close()
 
 
 @pytest.mark.parametrize("res, oid, data", [
@@ -406,38 +389,38 @@ async def test_polling(create_conf, create_agent):
      {'type': 'ERROR',
       'value': 'END_OF_MIB_VIEW'})
 ])
-async def test_read(create_conf, create_agent, create_read_event, res, oid,
-                    data):
+async def test_read(create_conf, create_agent, res, oid, data):
     version = snmp.Version.V2C
     context = snmp.Context(None, 'name')
     session_id = 42
+    event_queue = aio.Queue()
 
-    event_client = EventClient()
     conf = create_conf(version=version,
                        context=context)
 
     def on_request(ver, ctx, req):
         return res
 
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     agent = await create_agent(on_request)
-    device = await aio.call(manager.create, conf, event_client,
-                            event_type_prefix)
+    device = await aio.call(hat.gateway.devices.snmp.manager.info.create, conf,
+                            eventer_client, event_type_prefix)
 
-    event = await event_client.register_queue.get()
+    event = await event_queue.get()
     assert_status_event(event, 'CONNECTING')
 
-    event = await event_client.register_queue.get()
+    event = await event_queue.get()
     assert_status_event(event, 'CONNECTED')
 
     event = create_read_event(oid, session_id)
-    event_client.receive_queue.put_nowait([event])
+    await aio.call(device.process_events, [event])
 
-    event = await event_client.register_queue.get()
+    event = await event_queue.get()
     assert_read_event(event, oid, session_id, 'REQUESTED', data)
 
     await device.async_close()
     await agent.async_close()
-    await event_client.async_close()
+    await eventer_client.async_close()
 
 
 @pytest.mark.parametrize("req_data, oid, data", [
@@ -505,13 +488,12 @@ async def test_read(create_conf, create_agent, create_read_event, res, oid,
       'value': '010203'}),
 ])
 @pytest.mark.parametrize('success', [True, False])
-async def test_write(create_conf, create_agent, create_write_event, req_data,
-                     oid, data, success):
+async def test_write(create_conf, create_agent, req_data, oid, data, success):
     version = snmp.Version.V2C
     context = snmp.Context(None, 'name')
     session_id = 42
+    event_queue = aio.Queue()
 
-    event_client = EventClient()
     conf = create_conf(version=version,
                        context=context)
 
@@ -523,22 +505,23 @@ async def test_write(create_conf, create_agent, create_write_event, req_data,
 
         return snmp.Error(snmp.ErrorType.READ_ONLY, 1)
 
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     agent = await create_agent(on_request)
-    device = await aio.call(manager.create, conf, event_client,
-                            event_type_prefix)
+    device = await aio.call(hat.gateway.devices.snmp.manager.info.create, conf,
+                            eventer_client, event_type_prefix)
 
-    event = await event_client.register_queue.get()
+    event = await event_queue.get()
     assert_status_event(event, 'CONNECTING')
 
-    event = await event_client.register_queue.get()
+    event = await event_queue.get()
     assert_status_event(event, 'CONNECTED')
 
     event = create_write_event(oid, session_id, data)
-    event_client.receive_queue.put_nowait([event])
+    await aio.call(device.process_events, [event])
 
-    event = await event_client.register_queue.get()
+    event = await event_queue.get()
     assert_write_event(event, oid, session_id, success)
 
     await device.async_close()
     await agent.async_close()
-    await event_client.async_close()
+    await eventer_client.async_close()

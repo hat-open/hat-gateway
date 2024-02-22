@@ -26,7 +26,8 @@ Error = enum.Enum('Error', [
 
 
 async def connect(conf: json.Data,
-                  log_prefix: str
+                  log_prefix: str,
+                  request_queue_size: int = 1024
                   ) -> 'Connection':
     transport_conf = conf['transport']
     modbus_type = modbus.ModbusType[conf['modbus_type']]
@@ -64,18 +65,25 @@ async def connect(conf: json.Data,
     else:
         raise ValueError('unsupported link type')
 
-    conn = Connection()
-    conn._conf = conf
-    conn._log_prefix = log_prefix
-    conn._master = master
-    conn._request_queue = aio.Queue()
-
-    conn.async_group.spawn(conn._request_loop)
-
-    return conn
+    return Connection(conf=conf,
+                      master=master,
+                      log_prefix=log_prefix,
+                      request_queue_size=request_queue_size)
 
 
 class Connection(aio.Resource):
+
+    def __init__(self,
+                 conf: json.Data,
+                 master: modbus.Master,
+                 log_prefix: str,
+                 request_queue_size: int):
+        self._conf = conf
+        self._log_prefix = log_prefix
+        self._master = master
+        self._request_queue = aio.Queue(request_queue_size)
+
+        self.async_group.spawn(self._request_loop)
 
     @property
     def async_group(self) -> aio.Group:
@@ -197,7 +205,8 @@ class Connection(aio.Resource):
         try:
             future = asyncio.Future()
             delayed_count = self._conf['request_retry_delayed_count'] + 1
-            self._request_queue.put_nowait((fn, args, delayed_count, future))
+            await self._request_queue.put((fn, args, delayed_count, future))
+
             return await future
 
         except aio.QueueClosedError:
@@ -206,7 +215,7 @@ class Connection(aio.Resource):
     async def _delay_request(self, fn, args, delayed_count, future):
         try:
             await asyncio.sleep(self._conf['request_retry_delay'])
-            self._request_queue.put_nowait((fn, args, delayed_count, future))
+            await self._request_queue.put((fn, args, delayed_count, future))
             future = None
 
         except aio.QueueClosedError:

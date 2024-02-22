@@ -3,31 +3,33 @@ import collections
 import datetime
 import itertools
 import math
+
 import pytest
 
 from hat import aio
-from hat import json
-
 from hat.drivers import iec101
 from hat.drivers import serial
 from hat.drivers.iec60870 import link
-from hat.gateway import common
-from hat.gateway.devices.iec101 import slave
 import hat.event.common
+
+from hat.gateway import common
+import hat.gateway.devices.iec101.slave
 
 
 gateway_name = 'gateway_name'
 device_name = 'device_name'
-event_type_prefix = ('gateway', gateway_name, slave.device_type, device_name)
-connections_event_type = (*event_type_prefix, 'gateway', 'connections')
+event_type_prefix = ('gateway', gateway_name,
+                     hat.gateway.devices.iec101.slave.info.type,
+                     device_name)
+
+next_event_ids = (hat.event.common.EventId(1, 1, instance)
+                  for instance in itertools.count(1))
 
 
-class EventerClient(common.DeviceEventClient):
+class EventerClient(aio.Resource):
 
-    def __init__(self, receive_queue=None, register_queue=None, query_cb=[]):
-        self._receive_queue = (receive_queue if receive_queue is not None
-                               else aio.Queue())
-        self._register_queue = register_queue
+    def __init__(self, event_cb=None, query_cb=None):
+        self._event_cb = event_cb
         self._query_cb = query_cb
         self._async_group = aio.Group()
 
@@ -35,42 +37,107 @@ class EventerClient(common.DeviceEventClient):
     def async_group(self):
         return self._async_group
 
-    async def receive(self):
-        return await self._receive_queue.get()
+    @property
+    def status(self):
+        raise NotImplementedError()
 
-    def register(self, events):
-        if self._register_queue is not None:
-            self._register_queue.put_nowait(events)
+    async def register(self, events, with_response=False):
+        if self._event_cb:
+            for event in events:
+                await aio.call(self._event_cb, event)
 
-    async def register_with_response(self, events):
-        raise Exception('should not be used')
+        if not with_response:
+            return
 
-    async def query(self, data):
-        if self._query_cb:
-            return self._query_cb(data)
-        return []
+        timestamp = hat.event.common.now()
+        return [hat.event.common.Event(id=next(next_event_ids),
+                                       type=event.type,
+                                       timestamp=timestamp,
+                                       source_timestamp=event.source_timestamp,
+                                       payload=event.payload)
+                for event in events]
+
+    async def query(self, params):
+        if not self._query_cb:
+            return hat.event.common.QueryResult([], False)
+
+        return await aio.call(self._query_cb, params)
 
 
-@pytest.fixture
-def conf():
-    return {
-        "port": '/dev/ttyS0',
-        "addresses": [123],
-        "baudrate": 9600,
-        "bytesize": "EIGHTBITS",
-        "parity": "NONE",
-        "stopbits": "ONE",
-        "flow_control": {'xonxoff': False,
-                         'rtscts': False,
-                         'dsrdtr': False},
-        "silent_interval": 0.001,
-        "keep_alive_timeout": 3,
-        "device_address_size": "ONE",
-        "cause_size": "TWO",
-        "asdu_address_size": "TWO",
-        "io_address_size": "THREE",
-        "buffers": [],
-        "data": []}
+def get_conf(addresses=[],
+             keep_alive_timeout=3,
+             buffers=[],
+             data=[]):
+    return {"port": '/dev/ttyS0',
+            "addresses": addresses,
+            "baudrate": 9600,
+            "bytesize": "EIGHTBITS",
+            "parity": "NONE",
+            "stopbits": "ONE",
+            "flow_control": {'xonxoff': False,
+                             'rtscts': False,
+                             'dsrdtr': False},
+            "silent_interval": 0.001,
+            "keep_alive_timeout": keep_alive_timeout,
+            "device_address_size": "ONE",
+            "cause_size": "TWO",
+            "asdu_address_size": "TWO",
+            "io_address_size": "THREE",
+            "buffers": buffers,
+            "data": data}
+
+
+def create_event(event_type, payload_data, source_timestamp=None):
+    return hat.event.common.Event(
+        id=next(next_event_ids),
+        type=event_type,
+        timestamp=hat.event.common.now(),
+        source_timestamp=source_timestamp,
+        payload=hat.event.common.EventPayloadJson(payload_data))
+
+
+def create_data_event(data_type, asdu_address, io_address, data,
+                      is_test=False, cause='SPONTANEOUS',
+                      source_timestamp=None):
+    return create_event((*event_type_prefix, 'system', 'data',
+                         data_type.lower(), str(asdu_address),
+                         str(io_address)),
+                        {'is_test': is_test,
+                         'cause': cause,
+                         'data': data},
+                        source_timestamp=source_timestamp)
+
+
+def assert_time(timestamp, iec101_time):
+    if timestamp is None:
+        assert iec101_time is None
+        return
+
+    tz_local = datetime.datetime.now().astimezone().tzinfo
+    time_dt = hat.event.common.timestamp_to_datetime(timestamp).astimezone(
+        tz_local)
+
+    assert time_dt.month == iec101_time.months
+    assert time_dt.day == iec101_time.day_of_month
+    assert time_dt.hour == iec101_time.hours
+    assert time_dt.minute == iec101_time.minutes
+    assert time_dt.second == iec101_time.milliseconds // 1000
+
+
+def assert_quality(quality_json, quality_iec101):
+    for quality_param in quality_json:
+        assert getattr(quality_iec101, quality_param) == \
+            quality_json[quality_param]
+
+
+def assert_connections_event(event, addresses):
+    assert event.type == (*event_type_prefix, 'gateway', 'connections')
+    assert [i['address'] for i in event.payload.data] == addresses
+
+
+async def create_device(conf, eventer_client):
+    return await aio.call(hat.gateway.devices.iec101.slave.info.create,
+                          conf, eventer_client, event_type_prefix)
 
 
 @pytest.fixture
@@ -142,7 +209,9 @@ async def serial_conns(monkeypatch):
 
 
 @pytest.fixture
-async def master_conn_factory(conf):
+async def create_master_conn(serial_conns):
+    conf = get_conf()
+
     master = await link.unbalanced.create_master(
         port=conf['port'],
         baudrate=conf['baudrate'],
@@ -154,215 +223,149 @@ async def master_conn_factory(conf):
         dsrdtr=conf['flow_control']['dsrdtr'],
         silent_interval=conf['silent_interval'],
         address_size=link.common.AddressSize[conf['device_address_size']])
-    connections = []
 
-    async def create_connection(addr=None):
-        addr = addr if addr is not None else conf['addresses'][0]
-        conn = await master.connect(addr)
+    async def create_master_conn(address):
+        conn = await master.connect(address)
 
-        conn101 = iec101.MasterConnection(
+        return iec101.MasterConnection(
             conn=conn,
             cause_size=iec101.CauseSize[conf['cause_size']],
             asdu_address_size=iec101.AsduAddressSize[
                 conf['asdu_address_size']],
             io_address_size=iec101.IoAddressSize[conf['io_address_size']])
-        connections.append(conn101)
-        return conn101
 
-    yield create_connection
+    try:
+        yield create_master_conn
 
-    for conn in connections:
-        await conn.async_close()
-    await master.async_close()
-
-
-next_instance_id = itertools.count(1)
-
-
-def create_event(event_type, payload_data, source_ts=None):
-    event_id = hat.event.common.EventId(1, 1, next(next_instance_id))
-    payload = hat.event.common.EventPayload(
-        hat.event.common.EventPayloadType.JSON, payload_data)
-    event = hat.event.common.Event(event_id=event_id,
-                                   event_type=event_type,
-                                   timestamp=hat.event.common.now(),
-                                   source_timestamp=source_ts,
-                                   payload=payload)
-    return event
-
-
-def assert_time(event_ts, iec101_time):
-    if event_ts is None:
-        assert iec101_time is None
-        return
-    tz_local = datetime.datetime.now().astimezone().tzinfo
-    time_dt = hat.event.common.timestamp_to_datetime(event_ts).astimezone(
-        tz_local)
-    assert time_dt.month == iec101_time.months
-    assert time_dt.day == iec101_time.day_of_month
-    assert time_dt.hour == iec101_time.hours
-    assert time_dt.minute == iec101_time.minutes
-    assert time_dt.second == iec101_time.milliseconds // 1000
-
-
-def assert_quality(quality_json, quality_iec101):
-    for quality_param in quality_json:
-        assert getattr(quality_iec101, quality_param) == \
-            quality_json[quality_param]
+    finally:
+        await master.async_close()
 
 
 def test_device_type():
-    assert slave.device_type == 'iec101_slave'
+    assert hat.gateway.devices.iec101.slave.info.type == 'iec101_slave'
 
 
-def test_schema_validate(conf):
-    slave.json_schema_repo.validate(slave.json_schema_id, conf)
+def test_schema_validate():
+    conf = get_conf()
+    hat.gateway.devices.iec101.slave.info.json_schema_repo.validate(
+        hat.gateway.devices.iec101.slave.info.json_schema_id, conf)
 
 
-async def test_create(conf, serial_conns):
+async def test_create(serial_conns):
+    conf = get_conf()
+
     eventer_client = EventerClient()
-    device = await slave.create(conf, eventer_client, event_type_prefix)
+    device = await create_device(conf, eventer_client)
 
     assert isinstance(device, common.Device)
     assert device.is_open
 
-    device.close()
-    assert device.is_closing
-    await device.wait_closed()
-
+    await device.async_close()
     await eventer_client.async_close()
 
 
-async def test_connections(conf, serial_conns, master_conn_factory):
-    register_queue = aio.Queue()
-
-    eventer_client = EventerClient(register_queue=register_queue)
+async def test_connections(serial_conns, create_master_conn):
     addresses = [i for i in range(10)]
-    conf = json.set_(conf, ['addresses'], addresses)
-    device = await slave.create(conf, eventer_client, event_type_prefix)
+    event_queue = aio.Queue()
 
-    events = await register_queue.get()
-    assert len(events) == 1
-    conn_event = events[0]
-    assert conn_event.event_type == connections_event_type
-    assert len(conn_event.payload.data) == 0
+    conf = get_conf(addresses)
 
-    connection_ids = set()
-    for conn_count, addr in enumerate(addresses):
-        await master_conn_factory(addr)
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
+    device = await create_device(conf, eventer_client)
 
-        events = await register_queue.get()
-        assert len(events) == 1
-        conns_event = events[0]
-        assert conn_event.event_type == connections_event_type
-        assert len(conns_event.payload.data) == conn_count + 1
-        assert conns_event.payload.data[conn_count]['address'] == addr
-        for i in range(conn_count + 1):
-            assert conns_event.payload.data[i]['address'] == addresses[i]
-        connection_ids.add(
-            conns_event.payload.data[conn_count]['connection_id'])
+    event = await event_queue.get()
+    assert_connections_event(event, [])
 
-    assert len(connection_ids) == len(addresses)
+    for i, addr in enumerate(addresses):
+        await create_master_conn(addr)
+
+        event = await event_queue.get()
+        assert_connections_event(event, addresses[:i+1])
 
     await device.async_close()
     await eventer_client.async_close()
 
 
-async def test_keep_alive_timeout(conf, serial_conns, master_conn_factory):
-    conf = {**conf, 'keep_alive_timeout': 0.05}
-    register_queue = aio.Queue()
+async def test_keep_alive_timeout(serial_conns, create_master_conn):
+    address = 123
+    event_queue = aio.Queue()
 
-    eventer_client = EventerClient(register_queue=register_queue)
-    device = await slave.create(conf, eventer_client, event_type_prefix)
+    conf = get_conf([address], keep_alive_timeout=0.05)
 
-    events = await register_queue.get()
-    assert len(events) == 1
-    conn_event = events[0]
-    assert conn_event.event_type == connections_event_type
-    assert len(conn_event.payload.data) == 0
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
+    device = await create_device(conf, eventer_client)
 
-    await master_conn_factory()
-    addr = conf['addresses'][0]
+    event = await event_queue.get()
+    assert_connections_event(event, [])
 
-    events = await register_queue.get()
-    assert len(events) == 1
-    conn_event = events[0]
-    assert conn_event.event_type == connections_event_type
-    assert len(conn_event.payload.data) == 1
-    assert conn_event.payload.data[0]['address'] == addr
+    await create_master_conn(address)
 
-    events = await register_queue.get()
-    conn_event = events[0]
-    assert conn_event.event_type == connections_event_type
-    assert len(conn_event.payload.data) == 0
+    event = await event_queue.get()
+    assert_connections_event(event, [address])
+
+    event = await event_queue.get()
+    assert_connections_event(event, [])
 
     await device.async_close()
     await eventer_client.async_close()
 
 
-async def test_query(conf, serial_conns):
+async def test_query(serial_conns):
     query_queue = aio.Queue()
 
-    def on_query(data):
-        query_queue.put_nowait(data)
-        return []
+    conf = get_conf()
+
+    def on_query(params):
+        query_queue.put_nowait(params)
+        return hat.event.common.QueryResult([], False)
 
     eventer_client = EventerClient(query_cb=on_query)
-    device = await slave.create(conf, eventer_client, event_type_prefix)
+    device = await create_device(conf, eventer_client)
 
-    q_data = await query_queue.get()
-
-    assert q_data.event_types == [(*event_type_prefix, 'system', 'data', '*')]
-    assert q_data.unique_type
+    params = await query_queue.get()
+    assert isinstance(params, hat.event.common.QueryLatestParams)
+    assert params.event_types == [(*event_type_prefix, 'system', 'data', '*')]
 
     await device.async_close()
     await eventer_client.async_close()
 
 
-async def test_interrogate(conf, serial_conns, master_conn_factory):
-    data_cnt = 10
-    data_conf = [{
-        'data_type': 'SINGLE',
-        'asdu_address': 1,
-        'io_address': i,
-        'buffer': None,
-    } for i in range(data_cnt)]
-    conf = json.set_(conf, ['data'], data_conf)
+async def test_interrogate(serial_conns, create_master_conn):
+    address = 123
+    asdu_address = 1
+    data_count = 10
+
+    conf = get_conf([address],
+                    data=[{'data_type': 'SINGLE',
+                           'asdu_address': asdu_address,
+                           'io_address': i,
+                           'buffer': None}
+                          for i in range(data_count)])
+
     quality = {'invalid': False,
                'not_topical': False,
                'substituted': False,
                'blocked': False}
-    query_events = [
-        create_event((*event_type_prefix, 'system', 'data',
-                      i['data_type'].lower(), str(i['asdu_address']),
-                      str(i['io_address'])),
-                     {'is_test': False,
-                      'cause': 'SPONTANEOUS',
-                      'data': {'value': 'ON',
-                               'quality': quality}})
-        for i in data_conf]
+    query_events = [create_data_event('SINGLE', asdu_address, i,
+                                      {'value': 'ON',
+                                       'quality': quality})
+                    for i in range(data_count)]
 
-    def on_query(data):
-        return query_events
+    def on_query(params):
+        return hat.event.common.QueryResult(query_events, False)
 
-    receive_queue = aio.Queue()
-    eventer_client = EventerClient(query_cb=on_query,
-                                   receive_queue=receive_queue)
-    device = await slave.create(conf, eventer_client, event_type_prefix)
+    eventer_client = EventerClient(query_cb=on_query)
+    device = await create_device(conf, eventer_client)
 
-    new_events = [
-        create_event(
-            (*event_type_prefix, 'system', 'data', 'single', '1', str(i)),
-            {'is_test': False,
-             'cause': 'SPONTANEOUS',
-             'data': {'value': 'OFF',
-                      'quality': quality}})
-        for i in range(5)]
-    receive_queue.put_nowait(new_events)
+    new_events = [create_data_event('SINGLE', asdu_address, i,
+                                    {'value': 'OFF',
+                                     'quality': quality})
+                  for i in range(data_count // 2)]
+    await aio.call(device.process_events, new_events)
 
-    exp_gi_resp_events = new_events + query_events[5:]
+    exp_gi_resp_events = new_events + query_events[data_count // 2:]
 
-    conn101 = await master_conn_factory()
+    conn = await create_master_conn(address)
 
     msg = iec101.InterrogationMsg(
         is_test=False,
@@ -371,27 +374,27 @@ async def test_interrogate(conf, serial_conns, master_conn_factory):
         request=0,
         is_negative_confirm=False,
         cause=iec101.CommandReqCause.ACTIVATION)
-    await conn101.send([msg])
+    await conn.send([msg])
 
-    msgs = await conn101.receive()
+    msgs = await conn.receive()
     gi_resp_msg = msgs[0]
     assert isinstance(gi_resp_msg, iec101.InterrogationMsg)
     assert gi_resp_msg.cause == iec101.CommandResCause.ACTIVATION_CONFIRMATION
     assert not gi_resp_msg.is_negative_confirm
 
     for data_event in exp_gi_resp_events:
-        msgs = await conn101.receive()
+        msgs = await conn.receive()
         gi_data_msg = msgs[0]
         assert isinstance(gi_data_msg, iec101.DataMsg)
         assert gi_data_msg.is_test == data_event.payload.data['is_test']
         assert gi_data_msg.cause == iec101.DataResCause.INTERROGATED_STATION
         assert gi_data_msg.data.value.name == \
             data_event.payload.data['data']['value']
-        assert gi_data_msg.asdu_address == int(data_event.event_type[7])
-        assert gi_data_msg.io_address == int(data_event.event_type[8])
+        assert gi_data_msg.asdu_address == int(data_event.type[7])
+        assert gi_data_msg.io_address == int(data_event.type[8])
         assert gi_data_msg.time is None
 
-    msgs = await conn101.receive()
+    msgs = await conn.receive()
     gi_resp_msg = msgs[0]
     assert isinstance(gi_resp_msg, iec101.InterrogationMsg)
     assert gi_resp_msg.cause == iec101.CommandResCause.ACTIVATION_TERMINATION
@@ -401,30 +404,28 @@ async def test_interrogate(conf, serial_conns, master_conn_factory):
     await eventer_client.async_close()
 
 
-async def test_interrogate_deactivation(conf, serial_conns,
-                                        master_conn_factory):
-    data_conf = [{'data_type': 'SINGLE',
-                  'asdu_address': 1,
-                  'io_address': 1,
-                  'buffer': None}]
-    conf = json.set_(conf, ['data'], data_conf)
-    data_events = [create_event((*event_type_prefix, 'system', 'data',
-                                'single', '1', '1'),
-                                {'is_test': False,
-                                 'cause': 'SPONTANEOUS',
-                                 'data': {'value': 'ON',
-                                          'quality': {'invalid': False,
-                                                      'not_topical': False,
-                                                      'substituted': False,
-                                                      'blocked': False}}})]
+async def test_interrogate_deactivation(serial_conns, create_master_conn):
+    address = 123
 
-    def on_query(data):
-        return data_events
+    conf = get_conf([address],
+                    data=[{'data_type': 'SINGLE',
+                           'asdu_address': 1,
+                           'io_address': 1,
+                           'buffer': None}])
+
+    def on_query(params):
+        events = [create_data_event('SINGLE', 1, 1,
+                                    {'value': 'ON',
+                                     'quality': {'invalid': False,
+                                                 'not_topical': False,
+                                                 'substituted': False,
+                                                 'blocked': False}})]
+        return hat.event.common.QueryResult(events, False)
 
     eventer_client = EventerClient(query_cb=on_query)
-    device = await slave.create(conf, eventer_client, event_type_prefix)
+    device = await create_device(conf, eventer_client)
 
-    conn101 = await master_conn_factory()
+    conn101 = await create_master_conn(address)
 
     msg = iec101.InterrogationMsg(
         is_test=False,
@@ -471,45 +472,40 @@ async def test_interrogate_deactivation(conf, serial_conns,
     await eventer_client.async_close()
 
 
-async def test_counter_interrogate(conf, serial_conns, master_conn_factory):
-    data_conf = [
-        {'data_type': 'SINGLE',
-         'asdu_address': 1,
-         'io_address': 1,
-         'buffer': None},
-        {'data_type': 'BINARY_COUNTER',
-         'asdu_address': 1,
-         'io_address': 2,
-         'buffer': None},
-        ]
-    conf = json.set_(conf, ['data'], data_conf)
-    non_counter_event = create_event(
-        (*event_type_prefix, 'system', 'data', 'single', '1', '1'),
-        {'is_test': False,
-         'cause': 'SPONTANEOUS',
-         'data': {'value': 'ON',
-                  'quality': {'invalid': False,
-                              'not_topical': False,
-                              'substituted': False,
-                              'blocked': False}}})
-    counter_event = create_event(
-        (*event_type_prefix, 'system', 'data', 'binary_counter', '1', '2'),
-        {'is_test': False,
-         'cause': 'SPONTANEOUS',
-         'data': {'value': 123,
-                  'quality': {'invalid': False,
-                              'adjusted': False,
-                              'overflow': False,
-                              'sequence': False}}})
-    data_events = [non_counter_event, counter_event]
+async def test_counter_interrogate(serial_conns, create_master_conn):
+    address = 123
 
-    def on_query(data):
-        return data_events
+    conf = get_conf([address],
+                    data=[{'data_type': 'SINGLE',
+                           'asdu_address': 1,
+                           'io_address': 1,
+                           'buffer': None},
+                          {'data_type': 'BINARY_COUNTER',
+                           'asdu_address': 1,
+                           'io_address': 2,
+                           'buffer': None}])
+
+    non_counter_event = create_data_event('SINGLE', 1, 1,
+                                          {'value': 'ON',
+                                           'quality': {'invalid': False,
+                                                       'not_topical': False,
+                                                       'substituted': False,
+                                                       'blocked': False}})
+    counter_event = create_data_event('BINARY_COUNTER', 1, 2,
+                                      {'value': 123,
+                                       'quality': {'invalid': False,
+                                                   'adjusted': False,
+                                                   'overflow': False,
+                                                   'sequence': False}})
+
+    def on_query(params):
+        events = [non_counter_event, counter_event]
+        return hat.event.common.QueryResult(events, False)
 
     eventer_client = EventerClient(query_cb=on_query)
-    device = await slave.create(conf, eventer_client, event_type_prefix)
+    device = await create_device(conf, eventer_client)
 
-    conn101 = await master_conn_factory()
+    conn101 = await create_master_conn(address)
 
     msg = iec101.CounterInterrogationMsg(
         is_test=False,
@@ -536,8 +532,8 @@ async def test_counter_interrogate(conf, serial_conns, master_conn_factory):
     assert isinstance(data_msg.data.value, iec101.BinaryCounterValue)
     assert data_msg.data.value.value == \
         counter_event.payload.data['data']['value']
-    assert data_msg.asdu_address == int(counter_event.event_type[7])
-    assert data_msg.io_address == int(counter_event.event_type[8])
+    assert data_msg.asdu_address == int(counter_event.type[7])
+    assert data_msg.io_address == int(counter_event.type[8])
     assert_quality(counter_event.payload.data['data']['quality'],
                    data_msg.data.quality)
     assert data_msg.time is None
@@ -701,38 +697,33 @@ def data_cases():
 
 
 @pytest.mark.parametrize("data_type, event_data, exp_data", data_cases())
-@pytest.mark.parametrize("source_ts", [hat.event.common.now(), None])
-async def test_data(conf, serial_conns, master_conn_factory, data_type,
-                    event_data, exp_data, source_ts):
+@pytest.mark.parametrize("source_timestamp", [hat.event.common.now(), None])
+async def test_data(serial_conns, create_master_conn, data_type, event_data,
+                    exp_data, source_timestamp):
     if data_type in ['PROTECTION',
                      'PROTECTION_START',
-                     'PROTECTION_COMMAND'] and source_ts is None:
-        return
-    if data_type == 'STATUS' and source_ts:
+                     'PROTECTION_COMMAND'] and source_timestamp is None:
         return
 
-    data_conf = {
-        'data_type': data_type,
-        'asdu_address': 12,
-        'io_address': 34,
-        'buffer': None}
-    conf = json.set_(conf, ['data'], [data_conf])
+    if data_type == 'STATUS' and source_timestamp:
+        return
 
-    receive_queue = aio.Queue()
+    address = 123
 
-    eventer_client = EventerClient(receive_queue=receive_queue)
-    device = await slave.create(conf, eventer_client, event_type_prefix)
+    conf = get_conf([address],
+                    data=[{'data_type': data_type,
+                           'asdu_address': 12,
+                           'io_address': 34,
+                           'buffer': None}])
 
-    conn101 = await master_conn_factory()
+    eventer_client = EventerClient()
+    device = await create_device(conf, eventer_client)
 
-    data_event = create_event(
-        (*event_type_prefix, 'system', 'data', data_type.lower(),
-            str(data_conf['asdu_address']), str(data_conf['io_address'])),
-        {'is_test': False,
-         'cause': 'SPONTANEOUS',
-         'data': event_data},
-        source_ts)
-    receive_queue.put_nowait([data_event])
+    conn101 = await create_master_conn(address)
+
+    data_event = create_data_event(data_type, 12, 34, event_data,
+                                   source_timestamp=source_timestamp)
+    await aio.call(device.process_events, [data_event])
 
     data_msgs = await conn101.receive()
     data_msg = data_msgs[0]
@@ -740,8 +731,8 @@ async def test_data(conf, serial_conns, master_conn_factory, data_type,
     assert isinstance(data_msg, iec101.DataMsg)
     assert data_msg.is_test == data_event.payload.data['is_test']
     assert data_msg.cause == iec101.DataResCause.SPONTANEOUS
-    assert data_msg.asdu_address == int(data_event.event_type[7])
-    assert data_msg.io_address == int(data_event.event_type[8])
+    assert data_msg.asdu_address == int(data_event.type[7])
+    assert data_msg.io_address == int(data_event.type[8])
     if data_type in ['NORMALIZED', 'FLOATING']:
         assert math.isclose(event_data['value'], data_msg.data.value.value,
                             rel_tol=1e-3)
@@ -754,38 +745,33 @@ async def test_data(conf, serial_conns, master_conn_factory, data_type,
     await eventer_client.async_close()
 
 
-async def test_data_bulk(conf, serial_conns, master_conn_factory):
-    events_cnt = 10
-    data_conf = [{
-        'data_type': 'SINGLE',
-        'asdu_address': 1,
-        'io_address': i,
-        'buffer': None,
-    } for i in range(events_cnt)]
-    conf = json.set_(conf, ['data'], data_conf)
+async def test_data_bulk(serial_conns, create_master_conn):
+    events_count = 10
+    address = 123
 
-    receive_queue = aio.Queue()
+    conf = get_conf([address],
+                    data=[{'data_type': 'SINGLE',
+                           'asdu_address': 1,
+                           'io_address': i,
+                           'buffer': None}
+                          for i in range(events_count)])
 
-    eventer_client = EventerClient(receive_queue=receive_queue)
-    device = await slave.create(conf, eventer_client, event_type_prefix)
+    eventer_client = EventerClient()
+    device = await create_device(conf, eventer_client)
 
-    conn101 = await master_conn_factory()
+    conn101 = await create_master_conn(address)
 
-    data_events = [create_event((*event_type_prefix, 'system', 'data',
-                                i['data_type'].lower(), str(i['asdu_address']),
-                                str(i['io_address'])),
-                                {'is_test': False,
-                                 'cause': 'SPONTANEOUS',
-                                 'data': {'value': 'ON',
-                                          'quality': {'invalid': False,
-                                                      'not_topical': False,
-                                                      'substituted': False,
-                                                      'blocked': False}}})
-                   for i in data_conf]
-    receive_queue.put_nowait(data_events)
+    data_events = [create_data_event('SINGLE', 1, i,
+                                     {'value': 'ON',
+                                      'quality': {'invalid': False,
+                                                  'not_topical': False,
+                                                  'substituted': False,
+                                                  'blocked': False}})
+                   for i in range(events_count)]
+    await aio.call(device.process_events, data_events)
 
     data_msgs = []
-    for _ in range(events_cnt):
+    for _ in range(events_count):
         data_msgs.extend(await conn101.receive())
 
     assert len(data_msgs) == len(data_events)
@@ -795,8 +781,8 @@ async def test_data_bulk(conf, serial_conns, master_conn_factory):
         assert data_msg.cause == iec101.DataResCause.SPONTANEOUS
         assert data_msg.data.value.name == \
             data_event.payload.data['data']['value']
-        assert data_msg.asdu_address == int(data_event.event_type[7])
-        assert data_msg.io_address == int(data_event.event_type[8])
+        assert data_msg.asdu_address == int(data_event.type[7])
+        assert data_msg.io_address == int(data_event.type[8])
         assert data_msg.time is None
         # TODO check quality
         # TODO check time
@@ -806,7 +792,7 @@ async def test_data_bulk(conf, serial_conns, master_conn_factory):
 
 
 @pytest.mark.parametrize("command_type, command, command_json", [
-    ('single',
+    ('SINGLE',
      iec101.SingleCommand(value=iec101.SingleValue.ON,
                           select=False,
                           qualifier=14),
@@ -814,7 +800,7 @@ async def test_data_bulk(conf, serial_conns, master_conn_factory):
       'select': False,
       'qualifier': 14}),
 
-    ('double',
+    ('DOUBLE',
      iec101.DoubleCommand(value=iec101.DoubleValue.FAULT,
                           select=True,
                           qualifier=11),
@@ -822,7 +808,7 @@ async def test_data_bulk(conf, serial_conns, master_conn_factory):
       'select': True,
       'qualifier': 11}),
 
-    ('regulating',
+    ('REGULATING',
      iec101.RegulatingCommand(value=iec101.RegulatingValue.HIGHER,
                               select=False,
                               qualifier=2),
@@ -830,41 +816,42 @@ async def test_data_bulk(conf, serial_conns, master_conn_factory):
       'select': False,
       'qualifier': 2}),
 
-    ('normalized',
+    ('NORMALIZED',
      iec101.NormalizedCommand(value=iec101.NormalizedValue(0.5),
                               select=True),
      {'value': 0.5,
       'select': True}),
 
-    ('scaled',
+    ('SCALED',
      iec101.ScaledCommand(value=iec101.ScaledValue(42),
                           select=False),
      {'value': 42,
       'select': False}),
 
-    ('floating',
+    ('FLOATING',
      iec101.FloatingCommand(value=iec101.FloatingValue(42.5),
                             select=True),
      {'value': 42.5,
       'select': True}),
 
-    ('bitstring',
+    ('BITSTRING',
      iec101.BitstringCommand(value=iec101.BitstringValue(b'\x01\x02\x03\x04')),
      {'value': [1, 2, 3, 4]})
     ])
 @pytest.mark.parametrize("negative_resp", [True, False])
-async def test_command(conf, serial_conns, master_conn_factory,
+async def test_command(serial_conns, create_master_conn,
                        command_type, command, command_json, negative_resp):
-    register_queue = aio.Queue()
-    receive_queue = aio.Queue()
+    event_queue = aio.Queue()
+    address = 123
 
-    eventer_client = EventerClient(register_queue=register_queue,
-                                   receive_queue=receive_queue)
-    device = await slave.create(conf, eventer_client, event_type_prefix)
+    conf = get_conf([address])
 
-    conn101 = await master_conn_factory()
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
+    device = await create_device(conf, eventer_client)
 
-    await register_queue.get_until_empty()
+    conn101 = await create_master_conn(address)
+
+    await event_queue.get_until_empty()
 
     asdu = 1
     io = 2
@@ -877,10 +864,9 @@ async def test_command(conf, serial_conns, master_conn_factory,
                                 cause=iec101.CommandReqCause.ACTIVATION)
     await conn101.send([cmd_msg])
 
-    events = await register_queue.get()
-    cmd_req_event = events[0]
-    assert cmd_req_event.event_type == (
-        *event_type_prefix, 'gateway', 'command', command_type,
+    cmd_req_event = await event_queue.get()
+    assert cmd_req_event.type == (
+        *event_type_prefix, 'gateway', 'command', command_type.lower(),
         str(asdu), str(io))
     conn_id = cmd_req_event.payload.data['connection_id']
     assert isinstance(cmd_req_event.payload.data['connection_id'], int)
@@ -888,7 +874,7 @@ async def test_command(conf, serial_conns, master_conn_factory,
     assert cmd_req_event.payload.data['is_test'] == cmd_msg.is_test
     assert cmd_req_event.payload.data['cause'] == cmd_msg.cause.name
     assert cmd_req_event.payload.data['connection_id'] == conn_id
-    if command_type == 'normalized':
+    if command_type == 'NORMALIZED':
         command_event = cmd_req_event.payload.data['command']
         assert math.isclose(command_event['value'],
                             command_json['value'],
@@ -904,10 +890,10 @@ async def test_command(conf, serial_conns, master_conn_factory,
         'cause': 'ACTIVATION_CONFIRMATION',
         'command': command_json}
     cmd_res_event = create_event(
-        (*event_type_prefix, 'system', 'command', command_type,
+        (*event_type_prefix, 'system', 'command', command_type.lower(),
             str(asdu), str(io)),
         cmd_res_payload)
-    receive_queue.put_nowait([cmd_res_event])
+    await aio.call(device.process_events, [cmd_res_event])
 
     msgs = await conn101.receive()
     assert len(msgs) == 1
@@ -918,7 +904,7 @@ async def test_command(conf, serial_conns, master_conn_factory,
     assert cmd_res_msg.io_address == io
     assert cmd_res_msg.is_negative_confirm == negative_resp
     assert cmd_res_msg.cause.name == cmd_res_payload['cause']
-    if command_type == 'normalized':
+    if command_type == 'NORMALIZED':
         assert math.isclose(cmd_res_msg.command.value.value,
                             command.value.value, rel_tol=1e-3)
     else:
@@ -928,17 +914,18 @@ async def test_command(conf, serial_conns, master_conn_factory,
     await eventer_client.async_close()
 
 
-async def test_command_wrong_conn_id(conf, serial_conns, master_conn_factory):
-    register_queue = aio.Queue()
-    receive_queue = aio.Queue()
+async def test_command_wrong_conn_id(serial_conns, create_master_conn):
+    event_queue = aio.Queue()
+    address = 123
 
-    eventer_client = EventerClient(register_queue=register_queue,
-                                   receive_queue=receive_queue)
-    device = await slave.create(conf, eventer_client, event_type_prefix)
+    conf = get_conf([address])
 
-    conn101 = await master_conn_factory()
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
+    device = await create_device(conf, eventer_client)
 
-    await register_queue.get_until_empty()
+    conn101 = await create_master_conn(address)
+
+    await event_queue.get_until_empty()
 
     asdu = 1
     io = 2
@@ -954,8 +941,7 @@ async def test_command_wrong_conn_id(conf, serial_conns, master_conn_factory):
                                 cause=iec101.CommandReqCause.ACTIVATION)
     await conn101.send([cmd_msg])
 
-    events = await register_queue.get()
-    cmd_req_event = events[0]
+    cmd_req_event = await event_queue.get()
     conn_id = cmd_req_event.payload.data['connection_id']
 
     cmd_res_payload = {
@@ -970,7 +956,7 @@ async def test_command_wrong_conn_id(conf, serial_conns, master_conn_factory):
         (*event_type_prefix, 'system', 'command', 'single',
             str(asdu), str(io)),
         cmd_res_payload)
-    receive_queue.put_nowait([cmd_res_event])
+    await aio.call(device.process_events, [cmd_res_event])
 
     with pytest.raises(asyncio.TimeoutError):
         await aio.wait_for(conn101.receive(), 0.1)
@@ -979,59 +965,54 @@ async def test_command_wrong_conn_id(conf, serial_conns, master_conn_factory):
     await eventer_client.async_close()
 
 
-async def test_buffer(conf, serial_conns, master_conn_factory):
-    receive_queue = aio.Queue()
-    register_queue = aio.Queue()
-    eventer_client = EventerClient(receive_queue=receive_queue,
-                                   register_queue=register_queue)
-    data_conf = [
-        {'data_type': 'DOUBLE',
-         'asdu_address': 1,
-         'io_address': 1,
-         'buffer': 'b1'},
-        {'data_type': 'DOUBLE',
-         'asdu_address': 1,
-         'io_address': 2,
-         'buffer': 'b1'},
-        {'data_type': 'DOUBLE',
-         'asdu_address': 1,
-         'io_address': 3,
-         'buffer': None}]
-    conf = json.set_(conf, ["buffers"], [{'name': 'b1', 'size': 100}])
-    conf = json.set_(conf, ["data"], data_conf)
-    conf = json.set_(conf, 'keep_alive_timeout', 0.05)
-    device = await slave.create(conf, eventer_client, event_type_prefix)
+async def test_buffer(serial_conns, create_master_conn):
+    address = 123
+
+    conf = get_conf([address],
+                    keep_alive_timeout=0.05,
+                    buffers=[{'name': 'b1', 'size': 100}],
+                    data=[{'data_type': 'DOUBLE',
+                           'asdu_address': 1,
+                           'io_address': 1,
+                           'buffer': 'b1'},
+                          {'data_type': 'DOUBLE',
+                           'asdu_address': 1,
+                           'io_address': 2,
+                           'buffer': 'b1'},
+                          {'data_type': 'DOUBLE',
+                           'asdu_address': 1,
+                           'io_address': 3,
+                           'buffer': None}])
+
+    eventer_client = EventerClient()
+    device = await create_device(conf, eventer_client)
 
     data_events = []
     buffered_data_events = []
-    for d_conf in data_conf:
+    for d_conf in conf['data']:
         for value in ['INTERMEDIATE', 'OFF', 'ON', 'FAULT']:
-            data_event = create_event(
-                (*event_type_prefix, 'system', 'data',
-                 d_conf['data_type'].lower(),
-                    str(d_conf['asdu_address']), str(d_conf['io_address'])),
-                {'is_test': False,
-                 'cause': 'SPONTANEOUS',
-                 'data': {'value': value,
-                          'quality': {'invalid': False,
-                                      'not_topical': False,
-                                      'substituted': False,
-                                      'blocked': False}}},
-                hat.event.common.now())
+            data_event = create_data_event(
+                d_conf['data_type'], d_conf['asdu_address'],
+                d_conf['io_address'], {'value': value,
+                                       'quality': {'invalid': False,
+                                                   'not_topical': False,
+                                                   'substituted': False,
+                                                   'blocked': False}},
+                source_timestamp=hat.event.common.now())
             data_events.append(data_event)
             if d_conf['buffer']:
                 buffered_data_events.append(data_event)
-    receive_queue.put_nowait(data_events)
+    await aio.call(device.process_events, data_events)
 
-    conn = await master_conn_factory()
+    conn = await create_master_conn(address)
 
     for data_event in buffered_data_events:
         msgs = await conn.receive()
         data_msg = msgs[0]
         assert data_msg.is_test == data_event.payload.data['is_test']
         assert data_msg.cause.name == data_event.payload.data['cause']
-        assert data_msg.asdu_address == int(data_event.event_type[7])
-        assert data_msg.io_address == int(data_event.event_type[8])
+        assert data_msg.asdu_address == int(data_event.type[7])
+        assert data_msg.io_address == int(data_event.type[8])
         assert data_msg.data.value.name == \
             data_event.payload.data['data']['value']
         assert_quality(data_event.payload.data['data']['quality'],
@@ -1042,7 +1023,7 @@ async def test_buffer(conf, serial_conns, master_conn_factory):
         await aio.wait_for(conn.receive(), 0.01)
 
     # check buffer is empty for another master
-    conn2 = await master_conn_factory()
+    conn2 = await create_master_conn(address)
     with pytest.raises(asyncio.TimeoutError):
         await aio.wait_for(conn2.receive(), 0.01)
 
@@ -1050,47 +1031,43 @@ async def test_buffer(conf, serial_conns, master_conn_factory):
     await eventer_client.async_close()
 
 
-async def test_buffer_size(conf, serial_conns, master_conn_factory):
-    receive_queue = aio.Queue()
-    eventer_client = EventerClient(receive_queue=receive_queue)
-    data_confs = [
-        {'data_type': 'DOUBLE',
-         'asdu_address': 1,
-         'io_address': 2,
-         'buffer': 'b1'},
-        {'data_type': 'DOUBLE',
-         'asdu_address': 1,
-         'io_address': 3,
-         'buffer': 'b2'}]
-    conf = json.set_(conf, ["buffers"], [{'name': 'b1', 'size': 100},
-                                         {'name': 'b2', 'size': 25}])
-    conf = json.set_(conf, ["data"], data_confs)
-    device = await slave.create(conf, eventer_client, event_type_prefix)
+async def test_buffer_size(serial_conns, create_master_conn):
+    address = 123
+
+    conf = get_conf([address],
+                    buffers=[{'name': 'b1', 'size': 100},
+                             {'name': 'b2', 'size': 25}],
+                    data=[{'data_type': 'DOUBLE',
+                           'asdu_address': 1,
+                           'io_address': 2,
+                           'buffer': 'b1'},
+                          {'data_type': 'DOUBLE',
+                           'asdu_address': 1,
+                           'io_address': 3,
+                           'buffer': 'b2'}])
+
+    eventer_client = EventerClient()
+    device = await create_device(conf, eventer_client)
 
     data_events = []
     buffered_events = {'b1': [], 'b2': []}
-    for data_conf in data_confs:
+    for data_conf in conf['data']:
         for i in range(100):
             for value in ['INTERMEDIATE', 'OFF', 'ON', 'FAULT']:
-                data_event = create_event(
-                    (*event_type_prefix, 'system', 'data',
-                     data_conf['data_type'].lower(),
-                     str(data_conf['asdu_address']),
-                     str(data_conf['io_address'])),
-                    {'is_test': False,
-                     'cause': 'SPONTANEOUS',
-                     'data': {'value': value,
-                              'quality': {'invalid': bool(i % 2),
-                                          'not_topical': bool(i % 2),
-                                          'substituted': bool(i % 2),
-                                          'blocked': bool(i % 2)}}},
-                    hat.event.common.now())
+                data_event = create_data_event(
+                    data_conf['data_type'], data_conf['asdu_address'],
+                    data_conf['io_address'], {
+                        'value': value,
+                        'quality': {'invalid': bool(i % 2),
+                                    'not_topical': bool(i % 2),
+                                    'substituted': bool(i % 2),
+                                    'blocked': bool(i % 2)}},
+                    source_timestamp=hat.event.common.now())
                 data_events.append(data_event)
                 buffered_events[data_conf['buffer']].append(data_event)
+    await aio.call(device.process_events, data_events)
 
-    receive_queue.put_nowait(data_events)
-
-    conn = await master_conn_factory()
+    conn = await create_master_conn(address)
 
     # ordered notification of data from buffers is assumed
     exp_buffered_events = itertools.chain(buffered_events['b1'][-100:],
@@ -1100,8 +1077,8 @@ async def test_buffer_size(conf, serial_conns, master_conn_factory):
         data_msg = msgs[0]
         assert data_msg.is_test == data_event.payload.data['is_test']
         assert data_msg.cause.name == data_event.payload.data['cause']
-        assert data_msg.asdu_address == int(data_event.event_type[7])
-        assert data_msg.io_address == int(data_event.event_type[8])
+        assert data_msg.asdu_address == int(data_event.type[7])
+        assert data_msg.io_address == int(data_event.type[8])
         assert data_msg.data.value.name == \
             data_event.payload.data['data']['value']
         assert_quality(data_event.payload.data['data']['quality'],
@@ -1115,34 +1092,31 @@ async def test_buffer_size(conf, serial_conns, master_conn_factory):
     await eventer_client.async_close()
 
 
-async def test_data_on_multi_masters(conf, serial_conns, master_conn_factory):
+async def test_data_on_multi_masters(serial_conns, create_master_conn):
     masters_count = 5
-    receive_queue = aio.Queue()
-    eventer_client = EventerClient(receive_queue=receive_queue)
-    addresses = [i for i in range(masters_count)]
-    conf = json.set_(conf, ['addresses'], addresses)
-    data_conf = [{'data_type': 'DOUBLE',
-                  'asdu_address': 1,
-                  'io_address': 2,
-                  'buffer': None}]
-    conf = json.set_(conf, ['data'], data_conf)
-    device = await slave.create(conf, eventer_client, event_type_prefix)
+    addresses = list(range(masters_count))
+
+    conf = get_conf(addresses,
+                    data=[{'data_type': 'DOUBLE',
+                           'asdu_address': 1,
+                           'io_address': 2,
+                           'buffer': None}])
+
+    eventer_client = EventerClient()
+    device = await create_device(conf, eventer_client)
 
     master_conns = []
     for addr in addresses:
-        conn = await master_conn_factory(addr)
+        conn = await create_master_conn(addr)
         master_conns.append(conn)
 
-    data_event = create_event(
-        (*event_type_prefix, 'system', 'data', 'double', '1', '2'),
-        {'is_test': False,
-         'cause': 'SPONTANEOUS',
-         'data': {'value': 'INTERMEDIATE',
-                  'quality': {'invalid': False,
-                              'not_topical': True,
-                              'substituted': False,
-                              'blocked': False}}})
-    receive_queue.put_nowait([data_event])
+    data_event = create_data_event('DOUBLE', 1, 2,
+                                   {'value': 'INTERMEDIATE',
+                                    'quality': {'invalid': False,
+                                                'not_topical': True,
+                                                'substituted': False,
+                                                'blocked': False}})
+    await aio.call(device.process_events, [data_event])
 
     msgs = await master_conns[0].receive()
     data_msg = msgs[0]
@@ -1154,25 +1128,22 @@ async def test_data_on_multi_masters(conf, serial_conns, master_conn_factory):
     await eventer_client.async_close()
 
 
-async def test_command_on_multi_masters(conf, serial_conns,
-                                        master_conn_factory):
+async def test_command_on_multi_masters(serial_conns, create_master_conn):
     masters_count = 3
-    receive_queue = aio.Queue()
-    register_queue = aio.Queue()
-    eventer_client = EventerClient(receive_queue=receive_queue,
-                                   register_queue=register_queue)
-    addresses = [i for i in range(masters_count)]
-    conf = json.set_(conf, ['addresses'], addresses)
+    event_queue = aio.Queue()
+    addresses = list(range(masters_count))
 
-    device = await slave.create(conf, eventer_client, event_type_prefix)
+    conf = get_conf(addresses)
+
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
+    device = await create_device(conf, eventer_client)
 
     master_conns = []
     for addr in addresses:
-        conn = await master_conn_factory(addr)
+        conn = await create_master_conn(addr)
         master_conns.append(conn)
 
-    events = await register_queue.get_until_empty()
-    conns_event = events[0]
+    conns_event = await event_queue.get_until_empty()
     assert len(conns_event.payload.data) == masters_count
 
     master_conn1 = master_conns[0]
@@ -1192,15 +1163,13 @@ async def test_command_on_multi_masters(conf, serial_conns,
                                 cause=iec101.CommandReqCause.ACTIVATION)
     await master_conn1.send([cmd_msg])
 
-    events = await register_queue.get()
-    assert len(events) == 1
-    cmd_req_event = events[0]
-    assert cmd_req_event.event_type == (
+    cmd_req_event = await event_queue.get()
+    assert cmd_req_event.type == (
         *event_type_prefix, 'gateway', 'command', 'single', str(asdu), str(io))
     assert cmd_req_event.payload.data['connection_id'] == master_conn1_conn_id
 
     await asyncio.sleep(0.01)
-    assert register_queue.empty()
+    assert event_queue.empty()
 
     cmd_res_payload = {
         'connection_id': master_conn1_conn_id,
@@ -1214,7 +1183,7 @@ async def test_command_on_multi_masters(conf, serial_conns,
         (*event_type_prefix, 'system', 'command', 'single',
             str(asdu), str(io)),
         cmd_res_payload)
-    receive_queue.put_nowait([cmd_res_event])
+    await aio.call(device.process_events, [cmd_res_event])
 
     msgs = await master_conn1.receive()
     assert len(msgs) == 1

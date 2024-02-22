@@ -1,5 +1,4 @@
 import collections
-import contextlib
 import datetime
 import itertools
 import math
@@ -14,12 +13,17 @@ from hat.drivers.iec60870 import link
 import hat.event.common
 
 from hat.gateway.devices.iec101 import common
-from hat.gateway.devices.iec101 import master
+import hat.gateway.devices.iec101.master
 
 
 gateway_name = 'gateway_name'
 device_name = 'device_name'
-event_type_prefix = ('gateway', gateway_name, master.device_type, device_name)
+event_type_prefix = ('gateway', gateway_name,
+                     hat.gateway.devices.iec101.master.info.type,
+                     device_name)
+
+next_event_ids = (hat.event.common.EventId(1, 1, instance)
+                  for instance in itertools.count(1))
 
 default_time = iec101.time_from_datetime(
     datetime.datetime.now(datetime.timezone.utc))
@@ -31,46 +35,42 @@ default_protection_quality = iec101.ProtectionQuality(False, True, False, True,
                                                       False)
 
 
-class EventClient(common.DeviceEventClient):
+class EventerClient(aio.Resource):
 
-    def __init__(self, query_result=[]):
-        self._query_result = query_result
-        self._receive_queue = aio.Queue()
-        self._register_queue = aio.Queue()
+    def __init__(self, event_cb=None, query_cb=None):
+        self._event_cb = event_cb
+        self._query_cb = query_cb
         self._async_group = aio.Group()
-        self._async_group.spawn(aio.call_on_cancel, self._receive_queue.close)
-        self._async_group.spawn(aio.call_on_cancel, self._register_queue.close)
 
     @property
     def async_group(self):
         return self._async_group
 
     @property
-    def receive_queue(self):
-        return self._receive_queue
+    def status(self):
+        raise NotImplementedError()
 
-    @property
-    def register_queue(self):
-        return self._register_queue
-
-    async def receive(self):
-        try:
-            return await self._receive_queue.get()
-        except aio.QueueClosedError:
-            raise ConnectionError()
-
-    def register(self, events):
-        try:
+    async def register(self, events, with_response=False):
+        if self._event_cb:
             for event in events:
-                self._register_queue.put_nowait(event)
-        except aio.QueueClosedError:
-            raise ConnectionError()
+                await aio.call(self._event_cb, event)
 
-    async def register_with_response(self, events):
-        raise Exception('should not be used')
+        if not with_response:
+            return
 
-    async def query(self, data):
-        return self._query_result
+        timestamp = hat.event.common.now()
+        return [hat.event.common.Event(id=next(next_event_ids),
+                                       type=event.type,
+                                       timestamp=timestamp,
+                                       source_timestamp=event.source_timestamp,
+                                       payload=event.payload)
+                for event in events]
+
+    async def query(self, params):
+        if not self._query_cb:
+            return hat.event.common.QueryResult([], False)
+
+        return await aio.call(self._query_cb, params)
 
 
 def get_conf(remote_addresses=[],
@@ -158,19 +158,19 @@ def assert_time_equal(time1, time2):
 
 def assert_status_event(event, status, address=None):
     if address is None:
-        assert event.event_type == (*event_type_prefix, 'gateway', 'status')
+        assert event.type == (*event_type_prefix, 'gateway', 'status')
     else:
-        assert event.event_type == (*event_type_prefix, 'gateway',
-                                    'remote_device', str(address), 'status')
+        assert event.type == (*event_type_prefix, 'gateway', 'remote_device',
+                              str(address), 'status')
     assert event.source_timestamp is None
     assert event.payload.data == status
 
 
 def assert_data_event(event, address, data_type, asdu_address, io_address,
                       time, is_test, cause, data_json):
-    assert event.event_type == (*event_type_prefix, 'gateway', 'remote_device',
-                                str(address), 'data', data_type.value,
-                                str(asdu_address), str(io_address))
+    assert event.type == (*event_type_prefix, 'gateway', 'remote_device',
+                          str(address), 'data', data_type.value,
+                          str(asdu_address), str(io_address))
 
     assert_time_equal(time, time_from_event_timestamp(event.source_timestamp))
 
@@ -190,9 +190,9 @@ def assert_data_event(event, address, data_type, asdu_address, io_address,
 
 def assert_command_event(event, address, cmd_type, asdu_address, io_address,
                          is_test, is_negative_confirm, cause, cmd_json):
-    assert event.event_type == (*event_type_prefix, 'gateway', 'remote_device',
-                                str(address), 'command', cmd_type.value,
-                                str(asdu_address), str(io_address))
+    assert event.type == (*event_type_prefix, 'gateway', 'remote_device',
+                          str(address), 'command', cmd_type.value,
+                          str(asdu_address), str(io_address))
     assert event.source_timestamp is None
 
     assert is_test == event.payload.data['is_test']
@@ -210,9 +210,8 @@ def assert_command_event(event, address, cmd_type, asdu_address, io_address,
 
 def assert_interrogation_event(event, address, asdu_address, is_test,
                                is_negative_confirm, request, cause):
-    assert event.event_type == (*event_type_prefix, 'gateway', 'remote_device',
-                                str(address), 'interrogation',
-                                str(asdu_address))
+    assert event.type == (*event_type_prefix, 'gateway', 'remote_device',
+                          str(address), 'interrogation', str(asdu_address))
     assert event.source_timestamp is None
     assert event.payload.data == {'is_test': is_test,
                                   'is_negative_confirm': is_negative_confirm,
@@ -223,9 +222,9 @@ def assert_interrogation_event(event, address, asdu_address, is_test,
 def assert_counter_interrogation_event(event, address, asdu_address, is_test,
                                        is_negative_confirm, request, cause,
                                        freeze):
-    assert event.event_type == (*event_type_prefix, 'gateway', 'remote_device',
-                                str(address), 'counter_interrogation',
-                                str(asdu_address))
+    assert event.type == (*event_type_prefix, 'gateway', 'remote_device',
+                          str(address), 'counter_interrogation',
+                          str(asdu_address))
     assert event.source_timestamp is None
     assert event.payload.data == {'is_test': is_test,
                                   'is_negative_confirm': is_negative_confirm,
@@ -274,89 +273,58 @@ def assert_msg_equal(msg1, msg2):
         raise ValueError('message type not supported')
 
 
-async def wait_remote_device_connected_event(event_client, address):
+async def wait_remote_device_connected_event(event_queue, address):
+    event_type = (*event_type_prefix, 'gateway', 'remote_device',
+                  str(address), 'status')
 
-    def check(event):
-        return (event.event_type == (*event_type_prefix, 'gateway',
-                                     'remote_device', str(address),
-                                     'status') and
-                event.payload.data == 'CONNECTED')
-
-    await aio.first(event_client.register_queue, check)
-
-
-@pytest.fixture
-def create_event():
-    instance_ids = itertools.count(1)
-
-    def create_event(event_type, payload_data):
-        event_id = hat.event.common.EventId(1, 1, next(instance_ids))
-        payload = hat.event.common.EventPayload(
-            hat.event.common.EventPayloadType.JSON, payload_data)
-        event = hat.event.common.Event(event_id=event_id,
-                                       event_type=event_type,
-                                       timestamp=hat.event.common.now(),
-                                       source_timestamp=None,
-                                       payload=payload)
-        return event
-
-    return create_event
+    while True:
+        event = await event_queue.get()
+        if event.type == event_type and event.payload.data == 'CONNECTED':
+            break
 
 
-@pytest.fixture
-def create_enable_event(create_event):
-
-    def create_enable_event(address, enable):
-        return create_event((*event_type_prefix, 'system', 'remote_device',
-                             str(address), 'enable'),
-                            enable)
-
-    return create_enable_event
+def create_event(event_type, payload_data):
+    return hat.event.common.Event(
+        id=next(next_event_ids),
+        type=event_type,
+        timestamp=hat.event.common.now(),
+        source_timestamp=None,
+        payload=hat.event.common.EventPayloadJson(payload_data))
 
 
-@pytest.fixture
-def create_interrogation_event(create_event):
-
-    def create_interrogation_event(address, asdu_addr, is_test, request,
-                                   cause):
-        return create_event((*event_type_prefix, 'system', 'remote_device',
-                             str(address), 'interrogation', str(asdu_addr)),
-                            {'is_test': is_test,
-                             'request': request,
-                             'cause': cause.name})
-
-    return create_interrogation_event
+def create_enable_event(address, enable):
+    return create_event((*event_type_prefix, 'system', 'remote_device',
+                         str(address), 'enable'),
+                        enable)
 
 
-@pytest.fixture
-def create_counter_interrogation_event(create_event):
-
-    def create_counter_interrogation_event(address, asdu_addr, is_test,
-                                           request, cause, freeze):
-        return create_event((*event_type_prefix, 'system', 'remote_device',
-                             str(address), 'counter_interrogation',
-                             str(asdu_addr)),
-                            {'is_test': is_test,
-                             'request': request,
-                             'cause': cause.name,
-                             'freeze': freeze.name})
-
-    return create_counter_interrogation_event
+def create_interrogation_event(address, asdu_addr, is_test, request, cause):
+    return create_event((*event_type_prefix, 'system', 'remote_device',
+                         str(address), 'interrogation', str(asdu_addr)),
+                        {'is_test': is_test,
+                         'request': request,
+                         'cause': cause.name})
 
 
-@pytest.fixture
-def create_command_event(create_event):
+def create_counter_interrogation_event(address, asdu_addr, is_test, request,
+                                       cause, freeze):
+    return create_event((*event_type_prefix, 'system', 'remote_device',
+                         str(address), 'counter_interrogation',
+                         str(asdu_addr)),
+                        {'is_test': is_test,
+                         'request': request,
+                         'cause': cause.name,
+                         'freeze': freeze.name})
 
-    def create_command_event(address, cmd_type, asdu_addr, io_address,
-                             is_test, cause, cmd_json):
-        return create_event((*event_type_prefix, 'system', 'remote_device',
-                             str(address), 'command', cmd_type.value,
-                             str(asdu_addr), str(io_address)),
-                            {'is_test': is_test,
-                             'cause': cause.name,
-                             'command': cmd_json})
 
-    return create_command_event
+def create_command_event(address, cmd_type, asdu_addr, io_address, is_test,
+                         cause, cmd_json):
+    return create_event((*event_type_prefix, 'system', 'remote_device',
+                         str(address), 'command', cmd_type.value,
+                         str(asdu_addr), str(io_address)),
+                        {'is_test': is_test,
+                         'cause': cause.name,
+                         'command': cmd_json})
 
 
 @pytest.fixture
@@ -427,42 +395,18 @@ async def serial_conns(monkeypatch):
     return conns
 
 
-@pytest.fixture
-async def create_event_client_connection_pair(serial_conns,
-                                              create_enable_event):
-
-    @contextlib.asynccontextmanager
-    async def create_event_client_connection_pair(address):
-        query_result = [create_enable_event(address, True)]
-        event_client = EventClient(query_result)
-        conf = get_conf([address])
-        conn_queue = aio.Queue()
-        slave = await create_slave(conf, conn_queue.put_nowait)
-        device = await aio.call(master.create, conf, event_client,
-                                event_type_prefix)
-        conn = await conn_queue.get()
-
-        yield event_client, conn
-
-        await device.async_close()
-        await slave.async_close()
-        await event_client.async_close()
-
-    return create_event_client_connection_pair
-
-
-@pytest.mark.parametrize("conf", [
-    get_conf(remote_addresses=[1, 2, 3])
-])
+@pytest.mark.parametrize("conf", [get_conf(remote_addresses=[1, 2, 3])])
 def test_valid_conf(conf):
-    master.json_schema_repo.validate(master.json_schema_id, conf)
+    hat.gateway.devices.iec101.master.info.json_schema_repo.validate(
+        hat.gateway.devices.iec101.master.info.json_schema_id, conf)
 
 
 async def test_create(serial_conns):
-    event_client = EventClient()
     conf = get_conf()
-    device = await aio.call(master.create, conf, event_client,
-                            event_type_prefix)
+
+    event_client = EventerClient()
+    device = await aio.call(hat.gateway.devices.iec101.master.info.create,
+                            conf, event_client, event_type_prefix)
 
     assert device.is_open
 
@@ -471,15 +415,20 @@ async def test_create(serial_conns):
 
 
 @pytest.mark.parametrize("conn_count", [0, 1, 5])
-async def test_connect(serial_conns, create_enable_event, conn_count):
-    query_result = [create_enable_event(i, True)
-                    for i in range(conn_count)]
-    event_client = EventClient(query_result)
-    conf = get_conf(range(conn_count))
+async def test_connect(serial_conns, conn_count):
     conn_queue = aio.Queue()
+
+    conf = get_conf(range(conn_count))
+
+    def on_query(params):
+        events = [create_enable_event(i, True)
+                  for i in range(conn_count)]
+        return hat.event.common.QueryResult(events, False)
+
+    eventer_client = EventerClient(query_cb=on_query)
     slave = await create_slave(conf, conn_queue.put_nowait)
-    device = await aio.call(master.create, conf, event_client,
-                            event_type_prefix)
+    device = await aio.call(hat.gateway.devices.iec101.master.info.create,
+                            conf, eventer_client, event_type_prefix)
 
     for _ in range(conn_count):
         conn = await conn_queue.get()
@@ -489,108 +438,113 @@ async def test_connect(serial_conns, create_enable_event, conn_count):
 
     await device.async_close()
     await slave.async_close()
-    await event_client.async_close()
+    await eventer_client.async_close()
 
 
 async def test_status(serial_conns):
-    event_client = EventClient()
-    conf = get_conf()
-    device = await aio.call(master.create, conf, event_client,
-                            event_type_prefix)
+    event_queue = aio.Queue()
 
-    event = await event_client.register_queue.get()
+    conf = get_conf()
+
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
+    device = await aio.call(hat.gateway.devices.iec101.master.info.create,
+                            conf, eventer_client, event_type_prefix)
+
+    event = await event_queue.get()
     assert_status_event(event, 'CONNECTING')
 
-    event = await event_client.register_queue.get()
+    event = await event_queue.get()
     assert_status_event(event, 'CONNECTED')
 
-    assert event_client.register_queue.empty()
+    assert event_queue.empty()
 
     for conn in serial_conns:
         conn.close()
 
-    event = await event_client.register_queue.get()
+    event = await event_queue.get()
     assert_status_event(event, 'DISCONNECTED')
 
-    event = await event_client.register_queue.get()
+    event = await event_queue.get()
     assert_status_event(event, 'CONNECTING')
 
-    event = await event_client.register_queue.get()
+    event = await event_queue.get()
     assert_status_event(event, 'CONNECTED')
 
     await device.async_close()
 
-    event = await event_client.register_queue.get()
+    event = await event_queue.get()
     assert_status_event(event, 'DISCONNECTED')
 
-    assert event_client.register_queue.empty()
+    assert event_queue.empty()
 
-    await event_client.async_close()
+    await eventer_client.async_close()
 
 
 @pytest.mark.parametrize("address", [0])
-async def test_enable_remote_device(serial_conns, create_enable_event,
-                                    address):
-    event_client = EventClient()
-    conf = get_conf([address])
+async def test_enable_remote_device(serial_conns, address):
     conn_queue = aio.Queue()
-    slave = await create_slave(conf, conn_queue.put_nowait)
-    device = await aio.call(master.create, conf, event_client,
-                            event_type_prefix)
+    event_queue = aio.Queue()
 
-    event = await event_client.register_queue.get()
+    conf = get_conf([address])
+
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
+    slave = await create_slave(conf, conn_queue.put_nowait)
+    device = await aio.call(hat.gateway.devices.iec101.master.info.create,
+                            conf, eventer_client, event_type_prefix)
+
+    event = await event_queue.get()
     assert_status_event(event, 'CONNECTING')
 
-    event = await event_client.register_queue.get()
+    event = await event_queue.get()
     assert_status_event(event, 'CONNECTED')
 
-    assert event_client.register_queue.empty()
+    assert event_queue.empty()
 
     event = create_enable_event(address, True)
-    event_client.receive_queue.put_nowait([event])
+    await aio.call(device.process_events, [event])
 
-    event = await event_client.register_queue.get()
+    event = await event_queue.get()
     assert_status_event(event, 'CONNECTING', address)
 
-    event = await event_client.register_queue.get()
+    event = await event_queue.get()
     assert_status_event(event, 'CONNECTED', address)
 
-    assert event_client.register_queue.empty()
+    assert event_queue.empty()
 
     event = create_enable_event(address, False)
-    event_client.receive_queue.put_nowait([event])
+    await aio.call(device.process_events, [event])
 
-    event = await event_client.register_queue.get()
+    event = await event_queue.get()
     assert_status_event(event, 'DISCONNECTED', address)
 
-    assert event_client.register_queue.empty()
+    assert event_queue.empty()
 
     event = create_enable_event(address, True)
-    event_client.receive_queue.put_nowait([event])
+    await aio.call(device.process_events, [event])
 
-    event = await event_client.register_queue.get()
+    event = await event_queue.get()
     assert_status_event(event, 'CONNECTING', address)
 
-    event = await event_client.register_queue.get()
+    event = await event_queue.get()
     assert_status_event(event, 'CONNECTED', address)
 
-    assert event_client.register_queue.empty()
+    assert event_queue.empty()
 
     await device.async_close()
 
-    events = [await event_client.register_queue.get(),
-              await event_client.register_queue.get()]
+    events = [await event_queue.get(),
+              await event_queue.get()]
 
-    event = util.first(events, lambda i: 'remote_device' in i.event_type)
+    event = util.first(events, lambda i: 'remote_device' in i.type)
     assert_status_event(event, 'DISCONNECTED', address)
 
-    event = util.first(events, lambda i: 'remote_device' not in i.event_type)
+    event = util.first(events, lambda i: 'remote_device' not in i.type)
     assert_status_event(event, 'DISCONNECTED')
 
-    assert event_client.register_queue.empty()
+    assert event_queue.empty()
 
     await slave.async_close()
-    await event_client.async_close()
+    await eventer_client.async_close()
 
 
 @pytest.mark.parametrize("address", [0])
@@ -598,19 +552,25 @@ async def test_enable_remote_device(serial_conns, create_enable_event,
     ('ONE', 0xFF),
     ('TWO', 0xFFFF)
 ])
-async def test_time_sync(serial_conns, create_enable_event, address,
-                         asdu_address_size, asdu_address):
+async def test_time_sync(serial_conns, address, asdu_address_size,
+                         asdu_address):
     last_datetime = datetime.datetime.now(datetime.timezone.utc)
+    conn_queue = aio.Queue()
+    event_queue = aio.Queue()
 
-    query_result = [create_enable_event(address, True)]
-    event_client = EventClient(query_result)
     conf = get_conf([address],
                     asdu_address_size=asdu_address_size,
                     time_sync_delay=0.001)
-    conn_queue = aio.Queue()
+
+    def on_query(params):
+        events = [create_enable_event(address, True)]
+        return hat.event.common.QueryResult(events, False)
+
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait,
+                                   query_cb=on_query)
     slave = await create_slave(conf, conn_queue.put_nowait)
-    device = await aio.call(master.create, conf, event_client,
-                            event_type_prefix)
+    device = await aio.call(hat.gateway.devices.iec101.master.info.create,
+                            conf, eventer_client, event_type_prefix)
     conn = await conn_queue.get()
 
     for _ in range(10):
@@ -630,7 +590,7 @@ async def test_time_sync(serial_conns, create_enable_event, address,
 
     await device.async_close()
     await slave.async_close()
-    await event_client.async_close()
+    await eventer_client.async_close()
 
 
 @pytest.mark.parametrize("is_test", [False, True])
@@ -685,28 +645,41 @@ async def test_time_sync(serial_conns, create_enable_event, address,
      common.CommandType.BITSTRING,
      {'value': [1, 2, 3, 4]}),
 ])
-async def test_command_request(create_event_client_connection_pair,
-                               create_command_event, is_test, address,
-                               asdu_address, io_address, cause, command,
-                               cmd_type, cmd_json):
-    async with create_event_client_connection_pair(address) as pair:
-        event_client, conn = pair
-        await wait_remote_device_connected_event(event_client, address)
+async def test_command_request(serial_conns, is_test, address, asdu_address,
+                               io_address, cause, command, cmd_type, cmd_json):
+    conn_queue = aio.Queue()
+    event_queue = aio.Queue()
 
-        event = create_command_event(address, cmd_type, asdu_address,
-                                     io_address, is_test, cause, cmd_json)
-        event_client.receive_queue.put_nowait([event])
+    conf = get_conf([address])
 
-        msgs = await conn.receive()
-        assert len(msgs) == 1
-        msg = msgs[0]
-        assert_msg_equal(msg, iec101.CommandMsg(is_test=is_test,
-                                                originator_address=0,
-                                                asdu_address=asdu_address,
-                                                io_address=io_address,
-                                                command=command,
-                                                is_negative_confirm=False,
-                                                cause=cause))
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
+    slave = await create_slave(conf, conn_queue.put_nowait)
+    device = await aio.call(hat.gateway.devices.iec101.master.info.create,
+                            conf, eventer_client, event_type_prefix)
+
+    await aio.call(device.process_events, [create_enable_event(address, True)])
+    conn = await conn_queue.get()
+
+    await wait_remote_device_connected_event(event_queue, address)
+
+    event = create_command_event(address, cmd_type, asdu_address,
+                                 io_address, is_test, cause, cmd_json)
+    await aio.call(device.process_events, [event])
+
+    msgs = await conn.receive()
+    assert len(msgs) == 1
+    msg = msgs[0]
+    assert_msg_equal(msg, iec101.CommandMsg(is_test=is_test,
+                                            originator_address=0,
+                                            asdu_address=asdu_address,
+                                            io_address=io_address,
+                                            command=command,
+                                            is_negative_confirm=False,
+                                            cause=cause))
+
+    await device.async_close()
+    await slave.async_close()
+    await eventer_client.async_close()
 
 
 @pytest.mark.parametrize("is_test", [False, True])
@@ -714,27 +687,41 @@ async def test_command_request(create_event_client_connection_pair,
 @pytest.mark.parametrize("asdu_address", [123])
 @pytest.mark.parametrize("_request", [42])
 @pytest.mark.parametrize("cause", list(iec101.CommandReqCause))
-async def test_interrogation_request(create_event_client_connection_pair,
-                                     create_interrogation_event, is_test,
-                                     address, asdu_address, _request, cause):
-    async with create_event_client_connection_pair(address) as pair:
-        event_client, conn = pair
-        await wait_remote_device_connected_event(event_client, address)
+async def test_interrogation_request(serial_conns, is_test, address,
+                                     asdu_address, _request, cause):
+    conn_queue = aio.Queue()
+    event_queue = aio.Queue()
 
-        event = create_interrogation_event(address, asdu_address, is_test,
-                                           _request, cause)
-        event_client.receive_queue.put_nowait([event])
+    conf = get_conf([address])
 
-        msgs = await conn.receive()
-        assert len(msgs) == 1
-        msg = msgs[0]
-        assert_msg_equal(msg, iec101.InterrogationMsg(
-            is_test=is_test,
-            originator_address=0,
-            asdu_address=asdu_address,
-            request=_request,
-            is_negative_confirm=False,
-            cause=cause))
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
+    slave = await create_slave(conf, conn_queue.put_nowait)
+    device = await aio.call(hat.gateway.devices.iec101.master.info.create,
+                            conf, eventer_client, event_type_prefix)
+
+    await aio.call(device.process_events, [create_enable_event(address, True)])
+    conn = await conn_queue.get()
+
+    await wait_remote_device_connected_event(event_queue, address)
+
+    event = create_interrogation_event(address, asdu_address, is_test,
+                                       _request, cause)
+    await aio.call(device.process_events, [event])
+
+    msgs = await conn.receive()
+    assert len(msgs) == 1
+    msg = msgs[0]
+    assert_msg_equal(msg, iec101.InterrogationMsg(
+        is_test=is_test,
+        originator_address=0,
+        asdu_address=asdu_address,
+        request=_request,
+        is_negative_confirm=False,
+        cause=cause))
+
+    await device.async_close()
+    await slave.async_close()
+    await eventer_client.async_close()
 
 
 @pytest.mark.parametrize("is_test", [False, True])
@@ -743,29 +730,43 @@ async def test_interrogation_request(create_event_client_connection_pair,
 @pytest.mark.parametrize("_request", [42])
 @pytest.mark.parametrize("cause", list(iec101.CommandReqCause))
 @pytest.mark.parametrize("freeze", list(iec101.FreezeCode))
-async def test_counter_interrogation_request(
-        create_event_client_connection_pair,
-        create_counter_interrogation_event,
-        is_test, address, asdu_address, _request, cause, freeze):
-    async with create_event_client_connection_pair(address) as pair:
-        event_client, conn = pair
-        await wait_remote_device_connected_event(event_client, address)
+async def test_counter_interrogation_request(serial_conns, is_test, address,
+                                             asdu_address, _request, cause,
+                                             freeze):
+    conn_queue = aio.Queue()
+    event_queue = aio.Queue()
 
-        event = create_counter_interrogation_event(
-            address, asdu_address, is_test, _request, cause, freeze)
-        event_client.receive_queue.put_nowait([event])
+    conf = get_conf([address])
 
-        msgs = await conn.receive()
-        assert len(msgs) == 1
-        msg = msgs[0]
-        assert_msg_equal(msg, iec101.CounterInterrogationMsg(
-            is_test=is_test,
-            originator_address=0,
-            asdu_address=asdu_address,
-            request=_request,
-            freeze=freeze,
-            is_negative_confirm=False,
-            cause=cause))
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
+    slave = await create_slave(conf, conn_queue.put_nowait)
+    device = await aio.call(hat.gateway.devices.iec101.master.info.create,
+                            conf, eventer_client, event_type_prefix)
+
+    await aio.call(device.process_events, [create_enable_event(address, True)])
+    conn = await conn_queue.get()
+
+    await wait_remote_device_connected_event(event_queue, address)
+
+    event = create_counter_interrogation_event(
+        address, asdu_address, is_test, _request, cause, freeze)
+    await aio.call(device.process_events, [event])
+
+    msgs = await conn.receive()
+    assert len(msgs) == 1
+    msg = msgs[0]
+    assert_msg_equal(msg, iec101.CounterInterrogationMsg(
+        is_test=is_test,
+        originator_address=0,
+        asdu_address=asdu_address,
+        request=_request,
+        freeze=freeze,
+        is_negative_confirm=False,
+        cause=cause))
+
+    await device.async_close()
+    await slave.async_close()
+    await eventer_client.async_close()
 
 
 @pytest.mark.parametrize("address", [0])
@@ -873,9 +874,8 @@ async def test_counter_interrogation_request(
                 'change': [False, True] * 8},
       'quality': default_measurement_quality._asdict()}),
 ])
-async def test_data_response(create_event_client_connection_pair, address,
-                             asdu_address, io_address, time, is_test, cause,
-                             data, data_type, data_json):
+async def test_data_response(serial_conns, address, asdu_address, io_address,
+                             time, is_test, cause, data, data_type, data_json):
     if data_type in (common.DataType.PROTECTION,
                      common.DataType.PROTECTION_START,
                      common.DataType.PROTECTION_COMMAND):
@@ -886,22 +886,37 @@ async def test_data_response(create_event_client_connection_pair, address,
         if time is not None:
             return
 
-    async with create_event_client_connection_pair(address) as pair:
-        event_client, conn = pair
-        await wait_remote_device_connected_event(event_client, address)
+    conn_queue = aio.Queue()
+    event_queue = aio.Queue()
 
-        msg = iec101.DataMsg(is_test=is_test,
-                             originator_address=0,
-                             asdu_address=asdu_address,
-                             io_address=io_address,
-                             data=data,
-                             time=time,
-                             cause=cause)
-        conn.send([msg])
+    conf = get_conf([address])
 
-        event = await event_client.register_queue.get()
-        assert_data_event(event, address, data_type, asdu_address, io_address,
-                          time, is_test, cause, data_json)
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
+    slave = await create_slave(conf, conn_queue.put_nowait)
+    device = await aio.call(hat.gateway.devices.iec101.master.info.create,
+                            conf, eventer_client, event_type_prefix)
+
+    await aio.call(device.process_events, [create_enable_event(address, True)])
+    conn = await conn_queue.get()
+
+    await wait_remote_device_connected_event(event_queue, address)
+
+    msg = iec101.DataMsg(is_test=is_test,
+                         originator_address=0,
+                         asdu_address=asdu_address,
+                         io_address=io_address,
+                         data=data,
+                         time=time,
+                         cause=cause)
+    conn.send([msg])
+
+    event = await event_queue.get()
+    assert_data_event(event, address, data_type, asdu_address, io_address,
+                      time, is_test, cause, data_json)
+
+    await device.async_close()
+    await slave.async_close()
+    await eventer_client.async_close()
 
 
 @pytest.mark.parametrize("is_test", [False, True])
@@ -957,27 +972,41 @@ async def test_data_response(create_event_client_connection_pair, address,
      common.CommandType.BITSTRING,
      {'value': [4, 3, 2, 1]}),
 ])
-async def test_command_response(create_event_client_connection_pair, is_test,
-                                address, asdu_address, io_address, cause,
-                                is_negative_confirm, command,
-                                cmd_type, cmd_json):
-    async with create_event_client_connection_pair(address) as pair:
-        event_client, conn = pair
-        await wait_remote_device_connected_event(event_client, address)
+async def test_command_response(serial_conns, is_test, address, asdu_address,
+                                io_address, cause, is_negative_confirm,
+                                command, cmd_type, cmd_json):
+    conn_queue = aio.Queue()
+    event_queue = aio.Queue()
 
-        msg = iec101.CommandMsg(is_test=is_test,
-                                originator_address=0,
-                                asdu_address=asdu_address,
-                                io_address=io_address,
-                                command=command,
-                                is_negative_confirm=is_negative_confirm,
-                                cause=cause)
-        conn.send([msg])
+    conf = get_conf([address])
 
-        event = await event_client.register_queue.get()
-        assert_command_event(event, address, cmd_type, asdu_address,
-                             io_address, is_test, is_negative_confirm, cause,
-                             cmd_json)
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
+    slave = await create_slave(conf, conn_queue.put_nowait)
+    device = await aio.call(hat.gateway.devices.iec101.master.info.create,
+                            conf, eventer_client, event_type_prefix)
+
+    await aio.call(device.process_events, [create_enable_event(address, True)])
+    conn = await conn_queue.get()
+
+    await wait_remote_device_connected_event(event_queue, address)
+
+    msg = iec101.CommandMsg(is_test=is_test,
+                            originator_address=0,
+                            asdu_address=asdu_address,
+                            io_address=io_address,
+                            command=command,
+                            is_negative_confirm=is_negative_confirm,
+                            cause=cause)
+    conn.send([msg])
+
+    event = await event_queue.get()
+    assert_command_event(event, address, cmd_type, asdu_address,
+                         io_address, is_test, is_negative_confirm, cause,
+                         cmd_json)
+
+    await device.async_close()
+    await slave.async_close()
+    await eventer_client.async_close()
 
 
 @pytest.mark.parametrize("is_test", [False, True])
@@ -986,24 +1015,39 @@ async def test_command_response(create_event_client_connection_pair, is_test,
 @pytest.mark.parametrize("_request", [42])
 @pytest.mark.parametrize("is_negative_confirm", [False, True])
 @pytest.mark.parametrize("cause", list(iec101.CommandResCause))
-async def test_interrogation_response(create_event_client_connection_pair,
-                                      is_test, address, asdu_address,
-                                      _request, is_negative_confirm, cause):
-    async with create_event_client_connection_pair(address) as pair:
-        event_client, conn = pair
-        await wait_remote_device_connected_event(event_client, address)
+async def test_interrogation_response(serial_conns, is_test, address,
+                                      asdu_address, _request,
+                                      is_negative_confirm, cause):
+    conn_queue = aio.Queue()
+    event_queue = aio.Queue()
 
-        msg = iec101.InterrogationMsg(is_test=is_test,
-                                      originator_address=0,
-                                      asdu_address=asdu_address,
-                                      request=_request,
-                                      is_negative_confirm=is_negative_confirm,
-                                      cause=cause)
-        conn.send([msg])
+    conf = get_conf([address])
 
-        event = await event_client.register_queue.get()
-        assert_interrogation_event(event, address, asdu_address, is_test,
-                                   is_negative_confirm, _request, cause)
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
+    slave = await create_slave(conf, conn_queue.put_nowait)
+    device = await aio.call(hat.gateway.devices.iec101.master.info.create,
+                            conf, eventer_client, event_type_prefix)
+
+    await aio.call(device.process_events, [create_enable_event(address, True)])
+    conn = await conn_queue.get()
+
+    await wait_remote_device_connected_event(event_queue, address)
+
+    msg = iec101.InterrogationMsg(is_test=is_test,
+                                  originator_address=0,
+                                  asdu_address=asdu_address,
+                                  request=_request,
+                                  is_negative_confirm=is_negative_confirm,
+                                  cause=cause)
+    conn.send([msg])
+
+    event = await event_queue.get()
+    assert_interrogation_event(event, address, asdu_address, is_test,
+                               is_negative_confirm, _request, cause)
+
+    await device.async_close()
+    await slave.async_close()
+    await eventer_client.async_close()
 
 
 @pytest.mark.parametrize("is_test", [False, True])
@@ -1013,24 +1057,39 @@ async def test_interrogation_response(create_event_client_connection_pair,
 @pytest.mark.parametrize("_request", [42])
 @pytest.mark.parametrize("is_negative_confirm", [False, True])
 @pytest.mark.parametrize("cause", list(iec101.CommandResCause))
-async def test_counter_interrogation_response(
-        create_event_client_connection_pair, is_test, address, asdu_address,
-        freeze, _request, is_negative_confirm, cause):
-    async with create_event_client_connection_pair(address) as pair:
-        event_client, conn = pair
-        await wait_remote_device_connected_event(event_client, address)
+async def test_counter_interrogation_response(serial_conns, is_test, address,
+                                              asdu_address, freeze, _request,
+                                              is_negative_confirm, cause):
+    conn_queue = aio.Queue()
+    event_queue = aio.Queue()
 
-        msg = iec101.CounterInterrogationMsg(
-            is_test=is_test,
-            originator_address=0,
-            asdu_address=asdu_address,
-            request=_request,
-            freeze=freeze,
-            is_negative_confirm=is_negative_confirm,
-            cause=cause)
-        conn.send([msg])
+    conf = get_conf([address])
 
-        event = await event_client.register_queue.get()
-        assert_counter_interrogation_event(event, address, asdu_address,
-                                           is_test, is_negative_confirm,
-                                           _request, cause, freeze)
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
+    slave = await create_slave(conf, conn_queue.put_nowait)
+    device = await aio.call(hat.gateway.devices.iec101.master.info.create,
+                            conf, eventer_client, event_type_prefix)
+
+    await aio.call(device.process_events, [create_enable_event(address, True)])
+    conn = await conn_queue.get()
+
+    await wait_remote_device_connected_event(event_queue, address)
+
+    msg = iec101.CounterInterrogationMsg(
+        is_test=is_test,
+        originator_address=0,
+        asdu_address=asdu_address,
+        request=_request,
+        freeze=freeze,
+        is_negative_confirm=is_negative_confirm,
+        cause=cause)
+    conn.send([msg])
+
+    event = await event_queue.get()
+    assert_counter_interrogation_event(event, address, asdu_address,
+                                       is_test, is_negative_confirm,
+                                       _request, cause, freeze)
+
+    await device.async_close()
+    await slave.async_close()
+    await eventer_client.async_close()

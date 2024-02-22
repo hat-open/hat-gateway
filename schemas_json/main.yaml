@@ -1,47 +1,67 @@
----
-"$schema": "http://json-schema.org/schema#"
 id: "hat-gateway://main.yaml#"
 title: Gateway
 description: Gateway's configuration
-allOf:
-  - type: object
-    required:
-        - type
-        - log
-        - gateway_name
-        - devices
-    properties:
-        type:
-            enum:
-                - gateway
-            description: configuration type identification
-        version:
-            type: string
-            description: component version
-        log:
-            "$ref": "hat-json://logging.yaml#"
-        gateway_name:
-            type: string
-        devices:
-            type: array
-            items:
-                "$ref": "hat-gateway://main.yaml#/definitions/device"
-  - oneOf:
-      - type: object
-        required:
-            - monitor
-            - event_server_group
-        properties:
-            monitor:
-                "$ref": "hat-monitor://client.yaml#"
-            event_server_group:
-                type: string
-      - type: object
-        required:
-            - event_server_address
-        properties:
-            event_server_address:
-                type: string
+type: object
+required:
+    - gateway_name
+    - event_server
+    - devices
+properties:
+    type:
+        enum:
+            - gateway
+        description: configuration type identification
+    version:
+        type: string
+        description: component version
+    log:
+        $ref: "hat-json://logging.yaml#"
+    gateway_name:
+        type: string
+    event_server:
+        oneOf:
+          - type: object
+            required:
+                - monitor_component
+            properties:
+                monitor_component:
+                    type: object
+                    required:
+                        - host
+                        - port
+                        - gateway_group
+                        - event_server_group
+                    properties:
+                        host:
+                            type: string
+                            default: "127.0.0.1"
+                        port:
+                            type: integer
+                            default: 23010
+                        gateway_group:
+                            type: string
+                        event_server_group:
+                            type: string
+          - type: object
+            required:
+                - eventer_server
+            properties:
+                eventer_server:
+                    type: object
+                    required:
+                        - host
+                        - port
+                    properties:
+                        host:
+                            type: string
+                            default: "127.0.0.1"
+                        port:
+                            type: integer
+                            default: 23012
+    devices:
+        type: array
+        items:
+            $ref: "hat-gateway://main.yaml#/definitions/device"
 definitions:
     device:
         type: object
@@ -57,4 +77,3 @@ definitions:
                     full python module name that implements device
             name:
                 type: string
-...

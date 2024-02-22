@@ -1,35 +1,48 @@
 #!/bin/sh
 
-. $(dirname -- "$0")/env.sh
+set -e
+
+PLAYGROUND_PATH=$(dirname "$(realpath "$0")")
+. $PLAYGROUND_PATH/env.sh
 
 LOG_LEVEL=DEBUG
 CONF_PATH=$DATA_PATH/gateway2.yaml
 
 cat > $CONF_PATH << EOF
-type: gateway
 log:
     version: 1
     formatters:
         console_formatter:
             format: "[%(asctime)s %(levelname)s %(name)s] %(message)s"
+        syslog_formatter: {}
     handlers:
         console_handler:
             class: logging.StreamHandler
             formatter: console_formatter
             level: DEBUG
+        syslog_handler:
+            class: hat.syslog.handler.SyslogHandler
+            host: '127.0.0.1'
+            port: 6514
+            comm_type: TCP
+            level: DEBUG
+            formatter: syslog_formatter
     loggers:
         hat.gateway:
             level: $LOG_LEVEL
     root:
         level: INFO
-        handlers: ['console_handler']
+        handlers:
+            - console_handler
+            - syslog_handler
     disable_existing_loggers: false
-monitor:
-    name: gateway2
-    group: gateway
-    monitor_address: "tcp+sbs://127.0.0.1:24010"
-event_server_group: event
 gateway_name: gateway2
+event_server:
+    monitor_component:
+        host: "127.0.0.1"
+        port: 24010
+        gateway_group: gateway
+        event_server_group: event
 devices: []
 EOF
 

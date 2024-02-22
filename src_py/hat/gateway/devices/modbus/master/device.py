@@ -1,58 +1,53 @@
+from collections.abc import Collection
 import asyncio
 import contextlib
 import logging
 
 from hat import aio
+import hat.event.common
+import hat.event.eventer
 
 from hat.gateway import common
 from hat.gateway.devices.modbus.master.connection import connect
-from hat.gateway.devices.modbus.master.event_client import (RemoteDeviceEnableReq,  # NOQA
-                                                            RemoteDeviceWriteReq,  # NOQA
-                                                            StatusRes,
-                                                            RemoteDeviceStatusRes,  # NOQA
-                                                            RemoteDeviceWriteRes,  # NOQA
-                                                            EventClientProxy)
+from hat.gateway.devices.modbus.master.eventer_client import (RemoteDeviceEnableReq,  # NOQA
+                                                              RemoteDeviceWriteReq,  # NOQA
+                                                              StatusRes,
+                                                              RemoteDeviceStatusRes,  # NOQA
+                                                              RemoteDeviceWriteRes,  # NOQA
+                                                              EventerClientProxy)  # NOQA
 from hat.gateway.devices.modbus.master.remote_device import RemoteDevice
 
 
 mlog = logging.getLogger(__name__)
 
 
-async def create(conf: common.DeviceConf,
-                 event_client: common.DeviceEventClient,
-                 event_type_prefix: common.EventTypePrefix
-                 ) -> 'ModbusMasterDevice':
-    device = ModbusMasterDevice()
-    device._conf = conf
-    device._log_prefix = f"gateway device {conf['name']}"
-    device._event_client = EventClientProxy(event_client, event_type_prefix,
-                                            device._log_prefix)
-    device._enabled_devices = await device._event_client.query_enabled_devices()  # NOQA
-    device._status = None
-    device._conn = None
-    device._devices = {}
-    device._readers = {}
-    device._async_group = aio.Group()
-
-    device._async_group.spawn(aio.call_on_cancel,
-                              device._event_client.async_close)
-    device._async_group.spawn(device._event_client_loop)
-    device._async_group.spawn(device._connection_loop)
-    return device
-
-
 class ModbusMasterDevice(aio.Resource):
+
+    def __init__(self,
+                 conf: common.DeviceConf,
+                 eventer_client: hat.event.eventer.Client,
+                 event_type_prefix: common.EventTypePrefix):
+        self._conf = conf
+        self._log_prefix = f"gateway device {conf['name']}"
+        self._eventer_client = EventerClientProxy(eventer_client,
+                                                  event_type_prefix,
+                                                  self._log_prefix)
+        self._enabled_devices = set()
+        self._status = None
+        self._conn = None
+        self._devices = {}
+        self._readers = {}
+        self._async_group = aio.Group()
+
+        self.async_group.spawn(self._connection_loop)
 
     @property
     def async_group(self) -> aio.Group:
         return self._async_group
 
-    async def _event_client_loop(self):
+    async def process_events(self, events: Collection[hat.event.common.Event]):
         try:
-            self._log(logging.DEBUG, 'starting event client loop')
-            while True:
-                request = await self._event_client.read()
-
+            for request in self._eventer_client.process_events(events):
                 if isinstance(request, RemoteDeviceEnableReq):
                     self._log(logging.DEBUG,
                               'received remote device enable request')
@@ -72,39 +67,47 @@ class ModbusMasterDevice(aio.Resource):
                 else:
                     raise ValueError('invalid request')
 
-        except ConnectionError:
-            self._log(logging.DEBUG, 'event client connection closed')
-
         except Exception as e:
-            self._log(logging.ERROR, 'event client loop error: %s', e,
-                      exc_info=e)
-
-        finally:
-            self._log(logging.DEBUG, 'closing event client loop')
+            self._log(logging.ERROR, 'process events error: %s', e, exc_info=e)
             self.close()
 
     async def _connection_loop(self):
+
+        async def cleanup():
+            if self._conn:
+                await self._conn.async_close()
+
+            with contextlib.suppress(Exception):
+                await self._set_status('DISCONNECTED')
+
         try:
             self._log(logging.DEBUG, 'starting connection loop')
+
+            enabled_devices = await self._eventer_client.query_enabled_devices()  # NOQA
+            self._enabled_devices.update(enabled_devices)
+
             while True:
-                self._set_status('CONNECTING')
+                await self._set_status('CONNECTING')
 
                 try:
                     self._conn = await aio.wait_for(
-                        connect(self._conf['connection'], self._log_prefix),
+                        connect(self._conf['connection'],
+                                self._log_prefix),
                         self._conf['connection']['connect_timeout'])
+
                 except aio.CancelledWithResultError as e:
                     self._conn = e.result
                     raise
+
                 except Exception as e:
                     self._log(logging.INFO, 'connecting error: %s', e,
                               exc_info=e)
-                    self._set_status('DISCONNECTED')
+                    await self._set_status('DISCONNECTED')
                     await asyncio.sleep(
                         self._conf['connection']['connect_delay'])
                     continue
 
-                self._set_status('CONNECTED')
+                await self._set_status('CONNECTED')
                 self._devices = {}
                 self._readers = {}
 
@@ -116,14 +119,16 @@ class ModbusMasterDevice(aio.Resource):
 
                     if device.device_id in self._enabled_devices:
                         self._enable_remote_device(device.device_id)
+
                     else:
-                        self._notify_response(RemoteDeviceStatusRes(
+                        await self._notify_response(RemoteDeviceStatusRes(
                             device_id=device.device_id,
                             status='DISABLED'))
 
                 await self._conn.wait_closing()
                 await self._conn.async_close()
-                self._set_status('DISCONNECTED')
+
+                await self._set_status('DISCONNECTED')
 
         except Exception as e:
             self._log(logging.ERROR, 'connection loop error: %s', e,
@@ -132,21 +137,19 @@ class ModbusMasterDevice(aio.Resource):
         finally:
             self._log(logging.DEBUG, 'closing connection loop')
             self.close()
-            if self._conn:
-                await aio.uncancellable(self._conn.async_close())
-            with contextlib.suppress(ConnectionError):
-                self._set_status('DISCONNECTED')
+            await aio.uncancellable(cleanup())
 
-    def _notify_response(self, response):
-        self._event_client.write([response])
+    async def _notify_response(self, response):
+        await self._eventer_client.write([response])
 
-    def _set_status(self, status):
+    async def _set_status(self, status):
         if self._status == status:
             return
+
         self._log(logging.DEBUG, 'changing status: %s -> %s',
                   self._status, status)
         self._status = status
-        self._notify_response(StatusRes(status))
+        await self._notify_response(StatusRes(status))
 
     def _enable_remote_device(self, device_id):
         self._log(logging.DEBUG, 'enabling device %s', device_id)
@@ -194,7 +197,7 @@ class ModbusMasterDevice(aio.Resource):
         response = await device.write(data_name, request_id, value)
         if response:
             self._log(logging.DEBUG, 'writing result: %s', response.result)
-            self._notify_response(response)
+            await self._notify_response(response)
 
     def _log(self, level, msg, *args, **kwargs):
         if not mlog.isEnabledFor(level):

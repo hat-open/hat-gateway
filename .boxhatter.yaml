@@ -12,7 +12,7 @@ command: |
         ln -sfT $pip_cache_src $pip_cache_dst
     fi
 
-    pip install -q -r requirements.pip.dev.txt
+    pip install -q -r requirements.pip.txt
 
     doit check
     doit test test_unit

@@ -1,11 +1,11 @@
 """IEC 60870-5-104 slave device"""
 
+from collections.abc import Collection, Iterable
 import collections
 import contextlib
 import functools
 import itertools
 import logging
-import typing
 
 from hat import aio
 from hat import json
@@ -13,26 +13,21 @@ from hat.drivers import iec101
 from hat.drivers import serial
 from hat.drivers.iec60870 import link
 import hat.event.common
+import hat.event.eventer
 
 from hat.gateway.devices.iec101 import common
 
 
 mlog: logging.Logger = logging.getLogger(__name__)
 
-device_type: str = 'iec101_slave'
-
-json_schema_id: str = "hat-gateway://iec101.yaml#/definitions/slave"
-
-json_schema_repo: json.SchemaRepository = common.json_schema_repo
-
 
 async def create(conf: common.DeviceConf,
-                 event_client: common.DeviceEventClient,
+                 eventer_client: hat.event.eventer.Client,
                  event_type_prefix: common.EventTypePrefix
                  ) -> 'Iec101SlaveDevice':
     device = Iec101SlaveDevice()
     device._conf = conf
-    device._event_client = event_client
+    device._eventer_client = eventer_client
     device._event_type_prefix = event_type_prefix
     device._next_conn_ids = itertools.count(1)
     device._conns = {}
@@ -47,7 +42,7 @@ async def create(conf: common.DeviceConf,
                     data_msgs=device._data_msgs,
                     data_buffers=device._data_buffers,
                     buffers=device._buffers,
-                    event_client=event_client,
+                    eventer_client=eventer_client,
                     event_type_prefix=event_type_prefix)
 
     device._slave = await link.unbalanced.create_slave(
@@ -66,14 +61,20 @@ async def create(conf: common.DeviceConf,
         keep_alive_timeout=conf['keep_alive_timeout'])
 
     try:
-        device._register_connections()
-        device.async_group.spawn(device._event_loop)
+        await device._register_connections()
 
     except BaseException:
         await aio.uncancellable(device.async_close())
         raise
 
     return device
+
+
+info: common.DeviceInfo = common.DeviceInfo(
+    type="iec101_slave",
+    create=create,
+    json_schema_id="hat-gateway://iec101.yaml#/definitions/slave",
+    json_schema_repo=common.json_schema_repo)
 
 
 class Buffer:
@@ -92,8 +93,8 @@ class Buffer:
     def remove(self, event_id: hat.event.common.EventId):
         self._data.pop(event_id, None)
 
-    def get_event_id_data_msgs(self) -> typing.Iterable[tuple[hat.event.common.EventId,  # NOQA
-                                                              iec101.DataMsg]]:
+    def get_event_id_data_msgs(self) -> Iterable[tuple[hat.event.common.EventId,  # NOQA
+                                                       iec101.DataMsg]]:
         return self._data.items()
 
 
@@ -107,7 +108,7 @@ async def init_data(data_conf: json.Data,
                     data_msgs: dict[common.DataKey, iec101.DataMsg],
                     data_buffers: dict[common.DataKey, Buffer],
                     buffers: dict[str, Buffer],
-                    event_client: common.DeviceEventClient,
+                    eventer_client: hat.event.eventer.Client,
                     event_type_prefix: common.EventTypePrefix):
     for data in data_conf:
         data_key = common.DataKey(data_type=common.DataType[data['data_type']],
@@ -117,13 +118,14 @@ async def init_data(data_conf: json.Data,
         if data['buffer']:
             data_buffers[data_key] = buffers[data['buffer']]
 
-    events = await event_client.query(hat.event.common.QueryData(
-        event_types=[(*event_type_prefix, 'system', 'data', '*')],
-        unique_type=True))
-    for event in events:
+    event_types = [(*event_type_prefix, 'system', 'data', '*')]
+    params = hat.event.common.QueryLatestParams(event_types)
+    result = await eventer_client.query(params)
+
+    for event in result.events:
         try:
             data_type_str, asdu_address_str, io_address_str = \
-                event.event_type[len(event_type_prefix)+2:]
+                event.type[len(event_type_prefix)+2:]
             data_key = common.DataKey(data_type=common.DataType(data_type_str),
                                       asdu_address=int(asdu_address_str),
                                       io_address=int(io_address_str))
@@ -142,6 +144,14 @@ class Iec101SlaveDevice(common.Device):
     def async_group(self) -> aio.Group:
         return self._slave.async_group
 
+    async def process_events(self, events: Collection[hat.event.common.Event]):
+        for event in events:
+            try:
+                await self._process_event(event)
+
+            except Exception as e:
+                mlog.warning('error processing event: %s', e, exc_info=e)
+
     def _on_connection(self, conn):
         self.async_group.spawn(self._connection_loop, conn)
 
@@ -156,7 +166,7 @@ class Iec101SlaveDevice(common.Device):
                 io_address_size=iec101.IoAddressSize[self._conf['io_address_size']])  # NOQA
 
             self._conns[conn_id] = conn
-            self._register_connections()
+            await self._register_connections()
 
             with contextlib.suppress(Exception):
                 for buffer in self._buffers.values():
@@ -169,7 +179,7 @@ class Iec101SlaveDevice(common.Device):
                 for msg in msgs:
                     try:
                         mlog.debug('received message: %s', msg)
-                        self._process_msg(conn_id, conn, msg)
+                        await self._process_msg(conn_id, conn, msg)
 
                     except Exception as e:
                         mlog.warning('error processing message: %s',
@@ -187,48 +197,22 @@ class Iec101SlaveDevice(common.Device):
 
             with contextlib.suppress(Exception):
                 self._conns.pop(conn_id)
-                self._register_connections()
+                await aio.uncancellable(self._register_connections())
 
-    async def _event_loop(self):
-        try:
-            while True:
-                events = await self._event_client.receive()
-
-                for event in events:
-                    try:
-                        mlog.debug('received event: %s', event)
-                        self._process_event(event)
-
-                    except Exception as e:
-                        mlog.warning('error processing event: %s',
-                                     e, exc_info=e)
-
-        except ConnectionError:
-            mlog.debug('event client closed')
-
-        except Exception as e:
-            mlog.error('event loop error: %s', e, exc_info=e)
-
-        finally:
-            mlog.debug('closing event loop')
-            self.close()
-
-    def _register_connections(self):
+    async def _register_connections(self):
         payload = [{'connection_id': conn_id,
                     'address': conn.address}
                    for conn_id, conn in self._conns.items()]
 
         event = hat.event.common.RegisterEvent(
-            event_type=(*self._event_type_prefix, 'gateway', 'connections'),
+            type=(*self._event_type_prefix, 'gateway', 'connections'),
             source_timestamp=None,
-            payload=hat.event.common.EventPayload(
-                type=hat.event.common.EventPayloadType.JSON,
-                data=payload))
+            payload=hat.event.common.EventPayloadJson(payload))
 
-        self._event_client.register([event])
+        await self._eventer_client.register([event])
 
-    def _process_event(self, event):
-        suffix = event.event_type[len(self._event_type_prefix):]
+    async def _process_event(self, event):
+        suffix = event.type[len(self._event_type_prefix):]
 
         if suffix[:2] == ('system', 'data'):
             data_type_str, asdu_address_str, io_address_str = suffix[2:]
@@ -236,7 +220,7 @@ class Iec101SlaveDevice(common.Device):
                                       asdu_address=int(asdu_address_str),
                                       io_address=int(io_address_str))
 
-            self._process_data_event(data_key, event)
+            await self._process_data_event(data_key, event)
 
         elif suffix[:2] == ('system', 'command'):
             cmd_type_str, asdu_address_str, io_address_str = suffix[2:]
@@ -245,12 +229,12 @@ class Iec101SlaveDevice(common.Device):
                 asdu_address=int(asdu_address_str),
                 io_address=int(io_address_str))
 
-            self._process_command_event(cmd_key, event)
+            await self._process_command_event(cmd_key, event)
 
         else:
             raise Exception('unsupported event type')
 
-    def _process_data_event(self, data_key, event):
+    async def _process_data_event(self, data_key, event):
         if data_key not in self._data_msgs:
             raise Exception('data not configured')
 
@@ -259,20 +243,20 @@ class Iec101SlaveDevice(common.Device):
 
         buffer = self._data_buffers.get(data_key)
         if buffer:
-            buffer.add(event.event_id, data_msg)
+            buffer.add(event.id, data_msg)
 
         for conn in self._conns.values():
-            self._send_data_msg(conn, buffer, event.event_id, data_msg)
+            self._send_data_msg(conn, buffer, event.id, data_msg)
 
-    def _process_command_event(self, cmd_key, event):
+    async def _process_command_event(self, cmd_key, event):
         cmd_msg = cmd_msg_from_event(cmd_key, event)
         conn_id = event.payload.data['connection_id']
         conn = self._conns[conn_id]
         conn.send([cmd_msg])
 
-    def _process_msg(self, conn_id, conn, msg):
+    async def _process_msg(self, conn_id, conn, msg):
         if isinstance(msg, iec101.CommandMsg):
-            self._process_command_msg(conn_id, conn, msg)
+            await self._process_command_msg(conn_id, conn, msg)
 
         elif isinstance(msg, iec101.InterrogationMsg):
             self._process_interrogation_msg(conn_id, conn, msg)
@@ -301,10 +285,10 @@ class Iec101SlaveDevice(common.Device):
         else:
             raise Exception('unsupported message')
 
-    def _process_command_msg(self, conn_id, conn, msg):
+    async def _process_command_msg(self, conn_id, conn, msg):
         if isinstance(msg.cause, iec101.CommandReqCause):
             event = cmd_msg_to_event(self._event_type_prefix, conn_id, msg)
-            self._event_client.register([event])
+            await self._eventer_client.register([event])
 
         else:
             res = msg._replace(cause=iec101.CommandResCause.UNKNOWN_CAUSE,
@@ -429,14 +413,13 @@ def cmd_msg_to_event(event_type_prefix: hat.event.common.EventType,
                   str(msg.asdu_address), str(msg.io_address))
 
     return hat.event.common.RegisterEvent(
-        event_type=event_type,
+        type=event_type,
         source_timestamp=None,
-        payload=hat.event.common.EventPayload(
-            type=hat.event.common.EventPayloadType.JSON,
-            data={'connection_id': conn_id,
-                  'is_test': msg.is_test,
-                  'cause': cause,
-                  'command': command}))
+        payload=hat.event.common.EventPayloadJson({
+            'connection_id': conn_id,
+            'is_test': msg.is_test,
+            'cause': cause,
+            'command': command}))
 
 
 def data_msg_from_event(data_key: common.DataKey,
