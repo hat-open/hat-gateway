@@ -4,7 +4,6 @@ from pathlib import Path
 import argparse
 import asyncio
 import contextlib
-import importlib
 import logging.config
 import sys
 
@@ -17,7 +16,7 @@ from hat.gateway import common
 from hat.gateway.runner import MainRunner
 
 
-mlog: logging.Logger = logging.getLogger(__name__)
+mlog: logging.Logger = logging.getLogger('hat.gateway.main')
 """Module logger"""
 
 user_conf_dir: Path = Path(appdirs.user_config_dir('hat'))
@@ -49,10 +48,9 @@ def sync_main(conf: json.Data):
     common.json_schema_repo.validate('hat-gateway://main.yaml#', conf)
 
     for device_conf in conf['devices']:
-        module = importlib.import_module(device_conf['module'])
-        if module.json_schema_repo and module.json_schema_id:
-            module.json_schema_repo.validate(module.json_schema_id,
-                                             device_conf)
+        info = common.import_device_info(device_conf['module'])
+        if info.json_schema_repo and info.json_schema_id:
+            info.json_schema_repo.validate(info.json_schema_id, device_conf)
 
     log_conf = conf.get('log')
     if log_conf:
