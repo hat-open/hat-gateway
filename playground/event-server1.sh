@@ -9,7 +9,6 @@ LOG_LEVEL=DEBUG
 CONF_PATH=$DATA_PATH/event1.yaml
 
 cat > $CONF_PATH << EOF
-server_id: 1
 log:
     version: 1
     formatters:
@@ -37,6 +36,7 @@ log:
             - console_handler
             - syslog_handler
     disable_existing_loggers: false
+server_id: 1
 backend:
     module: hat.event.server.backends.dummy
 modules: []

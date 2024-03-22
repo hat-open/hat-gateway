@@ -165,7 +165,7 @@ async def test_create_engine_with_disabled_devices(device_count,
     engine = hat.gateway.engine.Engine(conf, eventer_client)
 
     params = await query_queue.get()
-    subscription = hat.event.common.Subscription(params.event_types)
+    subscription = hat.event.common.create_subscription(params.event_types)
     for device_name in device_names:
         event_type = ('gateway', gateway_name, device_type, device_name,
                       'system', 'enable')
