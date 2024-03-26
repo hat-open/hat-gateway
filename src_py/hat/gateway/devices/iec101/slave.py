@@ -73,7 +73,7 @@ async def create(conf: common.DeviceConf,
 info: common.DeviceInfo = common.DeviceInfo(
     type="iec101_slave",
     create=create,
-    json_schema_id="hat-gateway://iec101.yaml#/definitions/slave",
+    json_schema_id="hat-gateway://iec101.yaml#/$defs/slave",
     json_schema_repo=common.json_schema_repo)
 
 

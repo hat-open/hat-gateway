@@ -1,6 +1,7 @@
-id: "hat-gateway://modbus.yaml#"
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "hat-gateway://modbus.yaml"
 title: Modbus devices
-definitions:
+$defs:
     master:
         type: object
         title: Modbus master

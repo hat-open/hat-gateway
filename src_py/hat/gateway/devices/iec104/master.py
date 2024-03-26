@@ -217,7 +217,7 @@ class Iec104MasterDevice(common.Device):
 info: common.DeviceInfo = common.DeviceInfo(
     type="iec104_master",
     create=Iec104MasterDevice,
-    json_schema_id="hat-gateway://iec104.yaml#/definitions/master",
+    json_schema_id="hat-gateway://iec104.yaml#/$defs/master",
     json_schema_repo=common.json_schema_repo)
 
 

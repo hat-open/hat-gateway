@@ -28,7 +28,7 @@ def create_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '--conf', metavar='PATH', type=Path, default=None,
-        help="configuration defined by hat-gateway://main.yaml# "
+        help="configuration defined by hat-gateway://main.yaml "
              "(default $XDG_CONFIG_HOME/hat/gateway.{yaml|yml|toml|json})")
     return parser
 
@@ -45,7 +45,7 @@ def sync_main(conf: json.Data):
     """Sync main entry point"""
     aio.init_asyncio()
 
-    common.json_schema_repo.validate('hat-gateway://main.yaml#', conf)
+    common.json_schema_repo.validate('hat-gateway://main.yaml', conf)
 
     for device_conf in conf['devices']:
         info = common.import_device_info(device_conf['module'])

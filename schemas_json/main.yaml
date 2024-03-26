@@ -1,4 +1,5 @@
-id: "hat-gateway://main.yaml#"
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "hat-gateway://main.yaml"
 title: Gateway
 description: Gateway's configuration
 type: object
@@ -15,7 +16,7 @@ properties:
         type: string
         description: component version
     log:
-        $ref: "hat-json://logging.yaml#"
+        $ref: "hat-json://logging.yaml"
     gateway_name:
         type: string
     event_server:
@@ -61,8 +62,8 @@ properties:
     devices:
         type: array
         items:
-            $ref: "hat-gateway://main.yaml#/definitions/device"
-definitions:
+            $ref: "hat-gateway://main.yaml#/$defs/device"
+$defs:
     device:
         type: object
         description: |

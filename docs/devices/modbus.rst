@@ -66,7 +66,7 @@ Modbus master
 -------------
 
 Modbus master device configuration is specified by
-``hat-gateway://modbus.yaml#/definitions/master``.
+``hat-gateway://modbus.yaml#/$defs/master``.
 
 Once enabled, modbus master device will try to open communication connection
 defined by configuration parameters. While connection is established,
@@ -120,7 +120,7 @@ Available gateway events are:
         Connection status of a modbus master device.
 
         Payload is defined by
-        ``hat-gateway://modbus.yaml#/definitions/events/master/gateway/status``.
+        ``hat-gateway://modbus.yaml#/$defs/events/master/gateway/status``.
 
     * ..., 'remote_device', <device_id>, 'status'
 
@@ -129,7 +129,7 @@ Available gateway events are:
         configuration for each data.
 
         Payload is defined by
-        ``hat-gateway://modbus.yaml#/definitions/events/master/gateway/remote_device_status``.
+        ``hat-gateway://modbus.yaml#/$defs/events/master/gateway/remote_device_status``.
 
     * ..., 'remote_device', <device_id>, 'read', <data_name>
 
@@ -147,7 +147,7 @@ Available gateway events are:
         read will be reported with `INTERROGATED` cause.
 
         Payload is defined by
-        ``hat-gateway://modbus.yaml#/definitions/events/master/gateway/read``.
+        ``hat-gateway://modbus.yaml#/$defs/events/master/gateway/read``.
 
     * ..., 'remote_device', <device_id>, 'write', <data_name>
 
@@ -156,7 +156,7 @@ Available gateway events are:
         `request_id` as provided in associated write request event.
 
         Payload is defined by
-        ``hat-gateway://modbus.yaml#/definitions/events/master/gateway/write``.
+        ``hat-gateway://modbus.yaml#/$defs/events/master/gateway/write``.
 
         .. note:: in case response did not arrive within configuration
           defined `request_timeout`, response with `result` ``TIMEOUT``
@@ -179,7 +179,7 @@ Available system events are:
         `<device_id>` identifier.
 
         Payload is defined by
-        ``hat-gateway://modbus.yaml#/definitions/events/master/system/enable``.
+        ``hat-gateway://modbus.yaml#/$defs/events/master/system/enable``.
 
     * ..., 'remote_device', <device_id>, 'write', <data_name>
 
@@ -187,7 +187,7 @@ Available system events are:
         for pairing of request/response messages.
 
         Payload is defined by
-        ``hat-gateway://modbus.yaml#/definitions/events/master/system/write``.
+        ``hat-gateway://modbus.yaml#/$defs/events/master/system/write``.
 
 
 Configurations and event payloads

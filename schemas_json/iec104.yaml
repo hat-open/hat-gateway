@@ -1,5 +1,6 @@
-id: "hat-gateway://iec104.yaml#"
-definitions:
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "hat-gateway://iec104.yaml"
+$defs:
     master:
         type: object
         required:
@@ -44,7 +45,7 @@ definitions:
             security:
                 oneOf:
                   - type: "null"
-                  - $ref: "hat-gateway://iec104.yaml#/definitions/security"
+                  - $ref: "hat-gateway://iec104.yaml#/$defs/security"
     slave:
         type: object
         required:
@@ -90,7 +91,7 @@ definitions:
             security:
                 oneOf:
                   - type: "null"
-                  - $ref: "hat-gateway://iec104.yaml#/definitions/security"
+                  - $ref: "hat-gateway://iec104.yaml#/$defs/security"
             buffers:
                 type: array
                 items:
@@ -139,33 +140,33 @@ definitions:
         master:
             gateway:
                 status:
-                    $ref: "hat-gateway://iec101.yaml#/definitions/events/master/gateway/status"
+                    $ref: "hat-gateway://iec101.yaml#/$defs/events/master/gateway/status"
                 data:
-                    $ref: "hat-gateway://iec101.yaml#/definitions/events/master/gateway/data"
+                    $ref: "hat-gateway://iec101.yaml#/$defs/events/master/gateway/data"
                 command:
-                    $ref: "hat-gateway://iec101.yaml#/definitions/events/master/gateway/command"
+                    $ref: "hat-gateway://iec101.yaml#/$defs/events/master/gateway/command"
                 interrogation:
-                    $ref: "hat-gateway://iec101.yaml#/definitions/events/master/gateway/interrogation"
+                    $ref: "hat-gateway://iec101.yaml#/$defs/events/master/gateway/interrogation"
                 counter_interrogation:
-                    $ref: "hat-gateway://iec101.yaml#/definitions/events/master/gateway/counter_interrogation"
+                    $ref: "hat-gateway://iec101.yaml#/$defs/events/master/gateway/counter_interrogation"
             system:
                 command:
-                    $ref: "hat-gateway://iec101.yaml#/definitions/events/master/system/command"
+                    $ref: "hat-gateway://iec101.yaml#/$defs/events/master/system/command"
                 interrogation:
-                    $ref: "hat-gateway://iec101.yaml#/definitions/events/master/system/interrogation"
+                    $ref: "hat-gateway://iec101.yaml#/$defs/events/master/system/interrogation"
                 counter_interrogation:
-                    $ref: "hat-gateway://iec101.yaml#/definitions/events/master/system/counter_interrogation"
+                    $ref: "hat-gateway://iec101.yaml#/$defs/events/master/system/counter_interrogation"
         slave:
             gateway:
                 connections:
-                    $ref: "hat-gateway://iec104.yaml#/definitions/messages/connections"
+                    $ref: "hat-gateway://iec104.yaml#/$defs/messages/connections"
                 command:
-                    $ref: "hat-gateway://iec101.yaml#/definitions/events/slave/gateway/command"
+                    $ref: "hat-gateway://iec101.yaml#/$defs/events/slave/gateway/command"
             system:
                 data:
-                    $ref: "hat-gateway://iec101.yaml#/definitions/events/slave/system/data"
+                    $ref: "hat-gateway://iec101.yaml#/$defs/events/slave/system/data"
                 command:
-                    $ref: "hat-gateway://iec101.yaml#/definitions/events/slave/system/command"
+                    $ref: "hat-gateway://iec101.yaml#/$defs/events/slave/system/command"
     messages:
         connections:
             type: array

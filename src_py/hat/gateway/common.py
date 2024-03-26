@@ -45,7 +45,7 @@ EventTypePrefix: typing.TypeAlias = tuple[hat.event.common.EventTypeSegment,
 CreateDevice: typing.TypeAlias = aio.AsyncCallable[[DeviceConf,
                                                     hat.event.eventer.Client,
                                                     EventTypePrefix],
-                                                   'Device']
+                                                   Device]
 """Create device callable"""
 
 
@@ -68,7 +68,7 @@ class DeviceInfo(typing.NamedTuple):
 
 
 def import_device_info(py_module_str: str) -> DeviceInfo:
-    """Import module info"""
+    """Import device info"""
     py_module = importlib.import_module(py_module_str)
     info = py_module.info
 

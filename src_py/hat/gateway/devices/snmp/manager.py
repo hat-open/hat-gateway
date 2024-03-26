@@ -204,7 +204,7 @@ class SnmpManagerDevice(common.Device):
 info = common.DeviceInfo(
     type='snmp_manager',
     create=SnmpManagerDevice,
-    json_schema_id="hat-gateway://snmp.yaml#/definitions/manager",
+    json_schema_id="hat-gateway://snmp.yaml#/$defs/manager",
     json_schema_repo=common.json_schema_repo)
 
 

@@ -17,7 +17,7 @@ Manager device
 --------------
 
 SNMP manager device configuration is specified by
-``hat-gateway://snmp.yaml#/definitions/manager``.
+``hat-gateway://snmp.yaml#/$defs/manager``.
 
 According to :ref:`gateway specification <gateway>`, all SNMP manager device
 event types have prefix::
@@ -69,21 +69,21 @@ Available gateway events are:
         Connection status.
 
         Payload is defined by
-        ``hat-gateway://snmp.yaml#/definitions/events/manager/gateway/status``.
+        ``hat-gateway://snmp.yaml#/$defs/events/manager/gateway/status``.
 
     * ..., 'read', <oid>
 
         Get data result.
 
         Payload is defined by
-        ``hat-gateway://snmp.yaml#/definitions/events/manager/gateway/read``.
+        ``hat-gateway://snmp.yaml#/$defs/events/manager/gateway/read``.
 
     * ..., 'write', <oid>
 
         Set data result.
 
         Payload is defined by
-        ``hat-gateway://snmp.yaml#/definitions/events/manager/gateway/write``.
+        ``hat-gateway://snmp.yaml#/$defs/events/manager/gateway/write``.
 
 
 System events
@@ -101,21 +101,21 @@ Available system events are:
         Get data request.
 
         Payload is defined by
-        ``hat-gateway://snmp.yaml#/definitions/events/manager/system/read``.
+        ``hat-gateway://snmp.yaml#/$defs/events/manager/system/read``.
 
     * ..., 'write', <oid>
 
         Write data request.
 
         Payload is defined by
-        ``hat-gateway://snmp.yaml#/definitions/events/manager/system/write``.
+        ``hat-gateway://snmp.yaml#/$defs/events/manager/system/write``.
 
 
 Trap listener device
 --------------------
 
 SNMP trap listener device configuration is specified by
-``hat-gateway://snmp.yaml#/definitions/trap_listener``.
+``hat-gateway://snmp.yaml#/$defs/trap_listener``.
 
 According to :ref:`gateway specification <gateway>`, all SNMP trap listener
 device event types have prefix::

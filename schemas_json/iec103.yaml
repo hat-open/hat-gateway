@@ -1,5 +1,6 @@
-id: "hat-gateway://iec103.yaml#"
-definitions:
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "hat-gateway://iec103.yaml"
+$defs:
     master:
         type: object
         required:
@@ -113,8 +114,8 @@ definitions:
                                     other cause in range [0, 255]
                         value:
                             oneOf:
-                              - "$ref": "hat-gateway://iec103.yaml#/definitions/values/double"
-                              - "$ref": "hat-gateway://iec103.yaml#/definitions/values/measurand"
+                              - $ref: "hat-gateway://iec103.yaml#/$defs/values/double"
+                              - $ref: "hat-gateway://iec103.yaml#/$defs/values/measurand"
                 command:
                     type: object
                     required:
@@ -133,7 +134,7 @@ definitions:
                         - value
                     properties:
                         value:
-                            "$ref": "hat-gateway://iec103.yaml#/definitions/values/double"
+                            $ref: "hat-gateway://iec103.yaml#/$defs/values/double"
     values:
         double:
             enum:

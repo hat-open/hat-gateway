@@ -34,7 +34,7 @@ Master device
 -------------
 
 IEC104 master device configuration is specified by
-``hat-gateway://iec104.yaml#/definitions/master``.
+``hat-gateway://iec104.yaml#/$defs/master``.
 
 According to :ref:`gateway specification <gateway>`, all IEC104 master device
 event types have prefix::
@@ -114,7 +114,7 @@ Available gateway events are:
         Source timestamp is ``None``.
 
         Payload is specified by
-        ``hat-gateway://iec104.yaml#/definitions/events/master/gateway/status``.
+        ``hat-gateway://iec104.yaml#/$defs/events/master/gateway/status``.
 
     * ..., 'data', <data_type>, <asdu_address>, <io_address>
 
@@ -124,7 +124,7 @@ Available gateway events are:
         If IEC104 time is not available, source timestamp is ``None``.
 
         Payload is specified by
-        ``hat-gateway://iec104.yaml#/definitions/events/master/gateway/data/res``.
+        ``hat-gateway://iec104.yaml#/$defs/events/master/gateway/data/res``.
 
     * ..., 'command', <command_type>, <asdu_address>, <io_address>
 
@@ -134,7 +134,7 @@ Available gateway events are:
         If IEC104 time is not available, source timestamp is ``None``.
 
         Payload is specified by
-        ``hat-gateway://iec104.yaml#/definitions/events/master/gateway/command/res``.
+        ``hat-gateway://iec104.yaml#/$defs/events/master/gateway/command/res``.
 
     * ..., 'interrogation', <asdu_address>
 
@@ -143,7 +143,7 @@ Available gateway events are:
         Source timestamp is ``None``.
 
         Payload is specified by
-        ``hat-gateway://iec104.yaml#/definitions/events/master/gateway/interrogation/res``.
+        ``hat-gateway://iec104.yaml#/$defs/events/master/gateway/interrogation/res``.
 
     * ..., 'counter_interrogation', <asdu_address>
 
@@ -152,7 +152,7 @@ Available gateway events are:
         Source timestamp is ``None``.
 
         Payload is specified by
-        ``hat-gateway://iec104.yaml#/definitions/events/master/gateway/counter_interrogation/res``.
+        ``hat-gateway://iec104.yaml#/$defs/events/master/gateway/counter_interrogation/res``.
 
 
 System events
@@ -173,7 +173,7 @@ Available system events are:
         If IEC104 time is not available, source timestamp is ``None``.
 
         Payload is specified by
-        ``hat-gateway://iec104.yaml#/definitions/events/master/system/command/req``.
+        ``hat-gateway://iec104.yaml#/$defs/events/master/system/command/req``.
 
     * ..., 'interrogation', <asdu_address>
 
@@ -182,7 +182,7 @@ Available system events are:
         Source timestamp is ``None``.
 
         Payload is specified by
-        ``hat-gateway://iec104.yaml#/definitions/events/master/system/interrogation/req``.
+        ``hat-gateway://iec104.yaml#/$defs/events/master/system/interrogation/req``.
 
     * ..., 'counter_interrogation', <asdu_address>
 
@@ -192,14 +192,14 @@ Available system events are:
         Source timestamp is ``None``.
 
         Payload is specified by
-        ``hat-gateway://iec104.yaml#/definitions/events/master/system/counter_interrogation/req``.
+        ``hat-gateway://iec104.yaml#/$defs/events/master/system/counter_interrogation/req``.
 
 
 Slave device
 ------------
 
 IEC104 slave device configuration is specified by
-``hat-gateway://iec104.yaml#/definitions/slave``.
+``hat-gateway://iec104.yaml#/$defs/slave``.
 
 According to :ref:`gateway specification <gateway>`, all IEC104 slave device
 event types have prefix::
@@ -264,7 +264,7 @@ Available gateway events are:
         Source timestamp is ``None``.
 
         Payload is specified by
-        ``hat-gateway://iec104.yaml#/definitions/events/slave/gateway/connections``.
+        ``hat-gateway://iec104.yaml#/$defs/events/slave/gateway/connections``.
 
     * ..., 'command', <command_type>, <asdu_address>, <io_address>
 
@@ -274,7 +274,7 @@ Available gateway events are:
         If IEC104 time is not available, source timestamp is ``None``.
 
         Payload is specified by
-        ``hat-gateway://iec104.yaml#/definitions/events/slave/gateway/command``.
+        ``hat-gateway://iec104.yaml#/$defs/events/slave/gateway/command``.
 
 
 System events
@@ -295,7 +295,7 @@ Available system events are:
         If IEC104 time is not available, source timestamp is ``None``.
 
         Payload is specified by
-        ``hat-gateway://iec104.yaml#/definitions/events/slave/system/data``.
+        ``hat-gateway://iec104.yaml#/$defs/events/slave/system/data``.
 
     * ..., 'command', <command_type>, <asdu_address>, <io_address>
 
@@ -305,7 +305,7 @@ Available system events are:
         If IEC104 time is not available, source timestamp is ``None``.
 
         Payload is specified by
-        ``hat-gateway://iec104.yaml#/definitions/events/slave/system/command``.
+        ``hat-gateway://iec104.yaml#/$defs/events/slave/system/command``.
 
 
 Configurations and event payloads

@@ -26,7 +26,7 @@ Master device
 -------------
 
 IEC103 master device configuration is specified by
-``hat-gateway://iec103.yaml#/definitions/master``.
+``hat-gateway://iec103.yaml#/$defs/master``.
 
 According to :ref:`gateway specification <gateway>`, all IEC103 master device
 event types have prefix::
@@ -70,7 +70,7 @@ Available gateway events are:
         Source timestamp is ``None``.
 
         Payload is specified by
-        ``hat-gateway://iec103.yaml#/definitions/events/master/gateway/status``.
+        ``hat-gateway://iec103.yaml#/$defs/events/master/gateway/status``.
 
     * ..., 'remote_device', <device_address>, 'status'
 
@@ -85,7 +85,7 @@ Available gateway events are:
         Source timestamp is ``None``.
 
         Payload is specified by
-        ``hat-gateway://iec103.yaml#/definitions/events/master/gateway/status``.
+        ``hat-gateway://iec103.yaml#/$defs/events/master/gateway/status``.
 
     * ..., 'remote_device', <device_address>, 'data', <data_type>, <asdu_address>, <io_function>, <io_information>
 
@@ -94,7 +94,7 @@ Available gateway events are:
         Source timestamp represents IEC103 data time.
 
         Payload is specified by
-        ``hat-gateway://iec103.yaml#/definitions/events/master/gateway/data``.
+        ``hat-gateway://iec103.yaml#/$defs/events/master/gateway/data``.
 
     * ..., 'remote_device', <device_address>, 'command', <asdu_address>, <io_function>, <io_information>
 
@@ -103,7 +103,7 @@ Available gateway events are:
         Source timestamp is ``None``.
 
         Payload is specified by
-        ``hat-gateway://iec103.yaml#/definitions/events/master/gateway/command``.
+        ``hat-gateway://iec103.yaml#/$defs/events/master/gateway/command``.
 
     * ..., 'remote_device', <device_address>, 'interrogation', <asdu_address>
 
@@ -131,7 +131,7 @@ Available system events are:
         Source timestamp is ``None``.
 
         Payload is specified by
-        ``hat-gateway://iec103.yaml#/definitions/events/master/system/enable``.
+        ``hat-gateway://iec103.yaml#/$defs/events/master/system/enable``.
 
     * ..., 'remote_device', <device_address>, 'command', <asdu_address>, <io_function>, <io_information>
 
@@ -140,7 +140,7 @@ Available system events are:
         Source timestamp is ``None``.
 
         Payload is specified by
-        ``hat-gateway://iec103.yaml#/definitions/events/master/system/command``.
+        ``hat-gateway://iec103.yaml#/$defs/events/master/system/command``.
 
     * ..., 'remote_device', <device_address>, 'interrogation', <asdu_address>
 
