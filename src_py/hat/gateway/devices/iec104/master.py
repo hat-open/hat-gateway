@@ -135,6 +135,7 @@ class Iec104MasterDevice(common.Device):
                 if not self._conn or not self._conn.is_open:
                     mlog.warning('connection closed: %s events ignored',
                                  len(msgs))
+                    continue
 
                 try:
                     await self._conn.send(list(msgs))

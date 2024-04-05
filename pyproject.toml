@@ -1,6 +1,6 @@
 [project]
 name = "hat-gateway"
-version = "0.5.57"
+version = "0.5.58"
 description = "Hat gateway"
 readme = "README.rst"
 requires-python = ">=3.10"
