@@ -9,8 +9,7 @@ required:
     - devices
 properties:
     type:
-        enum:
-            - gateway
+        const: gateway
         description: configuration type identification
     version:
         type: string
