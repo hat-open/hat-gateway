@@ -3,76 +3,133 @@
 id: "hat-gateway://snmp.yaml#"
 definitions:
     manager:
-        type: object
-        required:
-            - snmp_version
-            - snmp_context
-            - remote_host
-            - remote_port
-            - connect_delay
-            - request_timeout
-            - request_retry_count
-            - request_retry_delay
-            - polling_delay
-            - polling_oids
-        properties:
-            snmp_version:
-                enum:
-                    - V1
-                    - V2C
-                    - V3
-            snmp_context:
-                type: object
-                required:
-                    - engine_id
-                    - name
-                properties:
-                    engine_id:
-                        type:
-                            - "null"
-                            - string
-                        description: |
-                            Available only in case of V3 version
-                    name:
-                        type: string
-                        description: |
-                            Used as community name in case of V1 or V2C version
-            remote_host:
-                type: string
-                description: |
-                    Remote hostname or IP address
-            remote_port:
-                type: integer
-                description: |
-                    Remote UDP port
-            connect_delay:
-                type: number
-                description: |
-                    Delay (in seconds) between two consecutive connection
-                    establishment attempts
-            request_timeout:
-                type: number
-                description: |
-                    Maximum duration (in seconds) of request/response exchange
-            request_retry_count:
-                type: integer
-                description: |
-                    Number of request retries before remote data is considered
-                    unavailable
-            request_retry_delay:
-                type: number
-                description: |
-                    Delay (in seconds) between two consecutive request retries
-            polling_delay:
-                type: number
-                description: |
-                    Delay (in seconds) between two consecutive polling cycles
-            polling_oids:
-                type: array
-                description: |
-                    List of OIDs read during polling cycle
-                items:
+        allOf:
+          - oneOf:
+                - $ref: "hat-gateway://snmp.yaml#/definitions/managers/v1"
+                - $ref: "hat-gateway://snmp.yaml#/definitions/managers/v2"
+                - $ref: "hat-gateway://snmp.yaml#/definitions/managers/v3"
+          - type: object
+            required:
+                - remote_host
+                - remote_port
+                - connect_delay
+                - request_timeout
+                - request_retry_count
+                - request_retry_delay
+                - polling_delay
+                - polling_oids
+            properties:
+                remote_host:
                     type: string
+                    description: |
+                        Remote hostname or IP address
+                remote_port:
+                    type: integer
+                    description: |
+                        Remote UDP port
+                connect_delay:
+                    type: number
+                    description: |
+                        Delay (in seconds) between two consecutive connection
+                        establishment attempts
+                request_timeout:
+                    type: number
+                    description: |
+                        Maximum duration (in seconds) of request/response
+                        exchange
+                request_retry_count:
+                    type: integer
+                    description: |
+                        Number of request retries before remote data is
+                        considered unavailable
+                request_retry_delay:
+                    type: number
+                    description: |
+                        Delay (in seconds) between two consecutive request
+                        retries
+                polling_delay:
+                    type: number
+                    description: |
+                        Delay (in seconds) between two consecutive polling
+                        cycles
+                polling_oids:
+                    type: array
+                    description: |
+                        List of OIDs read during polling cycle
+                    items:
+                        type: string
+    managers:
+        v1:
+            type: object
+            required:
+                - version
+                - community
+            properties:
+                version:
+                    const: V1
+                community:
+                    type: string
+        v2c:
+            type: object
+            required:
+                - version
+                - community
+            properties:
+                version:
+                    const: V2C
+                community:
+                    type: string
+        v3:
+            type: object
+            required:
+                - version
+                - context
+                - user
+                - authentication
+                - privacy
+            properties:
+                version:
+                    const: V3
+                context:
+                    type: object
+                    required:
+                        - engine_id
+                        - name
+                    properties:
+                        engine_id:
+                            type: string
+                            description: |
+                                sequence of hexadecimal digits
+                        name:
+                            type: string
+                user:
+                    type: string
+                authentication:
+                    type: object
+                    required:
+                        - type
+                        - key
+                    properties:
+                        type:
+                            enum:
+                                - MD5
+                                - SHA
+                        key:
+                            type: string
+                            description: |
+                                sequence of hexadecimal digits
+                privacy:
+                    type: object
+                    required:
+                        - type
+                        - key
+                    properties:
+                        type:
+                            const: DES
+                        key:
+                            type: string
+                            description: |
+                                sequence of hexadecimal digits
     events:
         manager:
             gateway:
