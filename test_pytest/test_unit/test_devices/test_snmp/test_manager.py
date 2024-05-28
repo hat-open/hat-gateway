@@ -96,20 +96,15 @@ def port():
 
 
 @pytest.fixture
-def create_conf(port):
+def create_base_conf(port):
 
-    def create_conf(version=snmp.Version.V1,
-                    context=snmp.Context(None, 'context_name'),
-                    connect_delay=0.01,
-                    request_timeout=0.1,
-                    request_retry_count=1,
-                    request_retry_delay=0.01,
-                    polling_delay=0.1,
-                    polling_oids=[]):
-        return {'snmp_version': version.name,
-                'snmp_context': {'engine_id': context.engine_id,
-                                 'name': context.name},
-                'remote_host': '127.0.0.1',
+    def create_base_conf(connect_delay=0.01,
+                         request_timeout=0.1,
+                         request_retry_count=1,
+                         request_retry_delay=0.01,
+                         polling_delay=0.1,
+                         polling_oids=[]):
+        return {'remote_host': '127.0.0.1',
                 'remote_port': port,
                 'connect_delay': connect_delay,
                 'request_timeout': request_timeout,
@@ -118,15 +113,26 @@ def create_conf(port):
                 'polling_delay': polling_delay,
                 'polling_oids': [encode_oid(i) for i in polling_oids]}
 
-    return create_conf
+    return create_base_conf
 
 
 @pytest.fixture
 async def create_agent(port):
 
-    async def create_agent(request_cb):
+    async def create_agent(v1_request_cb=None,
+                           v2c_request_cb=None,
+                           v3_request_cb=None,
+                           engine_ids=[],
+                           auth_key_cb=None,
+                           priv_key_cb=None):
         address = udp.Address('127.0.0.1', port)
-        agent = await snmp.create_agent(request_cb, address)
+        agent = await snmp.create_agent(local_addr=address,
+                                        v1_request_cb=v1_request_cb,
+                                        v2c_request_cb=v2c_request_cb,
+                                        v3_request_cb=v3_request_cb,
+                                        engine_ids=engine_ids,
+                                        auth_key_cb=auth_key_cb,
+                                        priv_key_cb=priv_key_cb)
         return agent
 
     return create_agent
@@ -173,14 +179,50 @@ def create_write_event(create_event):
     return create_write_event
 
 
-def test_conf(create_conf):
-    conf = create_conf()
+@pytest.mark.parametrize('conf', [
+    {'version': 'V1',
+     'community': 'abc'},
+
+    {'version': 'V2C',
+     'community': 'xyz'},
+
+    {'version': 'V3',
+     'context': {'engine_id': '01 23 45 67 89 ab cd ef',
+                 'name': 'context name'},
+     'user': 'some user',
+     'authentication': {'type': 'MD5',
+                        'password': 'abc'},
+     'privacy': {'type': 'DES',
+                 'password': 'xyz'}}
+])
+def test_conf(create_base_conf, conf):
+    conf = {**conf,
+            **create_base_conf()}
+
     manager.json_schema_repo.validate(manager.json_schema_id, conf)
 
 
-async def test_create(create_conf):
+@pytest.mark.parametrize('conf', [
+    {'version': 'V1',
+     'community': 'abc'},
+
+    {'version': 'V2C',
+     'community': 'xyz'},
+
+    {'version': 'V3',
+     'context': {'engine_id': '01 23 45 67 89 ab cd ef',
+                 'name': 'context name'},
+     'user': 'some user',
+     'authentication': {'type': 'MD5',
+                        'password': 'abc'},
+     'privacy': {'type': 'DES',
+                 'password': 'xyz'}}
+])
+async def test_create(create_base_conf, conf):
+    conf = {**conf,
+            **create_base_conf()}
+
     event_client = EventClient()
-    conf = create_conf()
     device = await aio.call(manager.create, conf, event_client,
                             event_type_prefix)
 
@@ -190,21 +232,77 @@ async def test_create(create_conf):
     await event_client.async_close()
 
 
-async def test_status(create_conf, create_agent):
-    version = snmp.Version.V2C
-    context = snmp.Context(None, 'name')
+@pytest.mark.parametrize('version', snmp.Version)
+async def test_status(create_base_conf, create_agent, version):
+    community = 'name'
+    context = {'engine_id': '01 23 45 67 89 ab cd ef',
+               'name': 'context name'}
+    user = 'user name'
+    auth_key_type = snmp.KeyType.MD5
+    auth_pass = 'auth pass'
+    priv_key_type = snmp.KeyType.DES
+    priv_pass = 'priv pass'
+
+    if version in (snmp.Version.V1, snmp.Version.V2C):
+        conf = {'version': version.name,
+                'community': community,
+                **create_base_conf()}
+
+    elif version == snmp.Version.V3:
+        conf = {'version': version.name,
+                'context': context,
+                'user': user,
+                'authentication': {'type': auth_key_type.name,
+                                   'password': auth_pass},
+                'privacy': {'type': priv_key_type.name,
+                            'password': priv_pass}}
+
+    else:
+        raise ValueError('unsupported snmp version')
+
+    engine_id = bytes.fromhex(context['engine_id'])
+    auth_key = snmp.create_key(key_type=auth_key_type,
+                               password=auth_pass,
+                               engine_id=engine_id)
+    priv_key = snmp.create_key(key_type=priv_key_type,
+                               password=priv_pass,
+                               engine_id=engine_id)
 
     event_client = EventClient()
-    conf = create_conf(version=version,
-                       context=context)
 
-    def on_request(ver, ctx, req):
-        assert ver == version
-        assert ctx == context
+    def on_v1_request(addr, comm, req):
+        assert comm == community
         assert req == snmp.GetDataReq([(0, 0)])
         return snmp.Error(snmp.ErrorType.NO_SUCH_NAME, 1)
 
-    agent = await create_agent(on_request)
+    def on_v2c_request(addr, comm, req):
+        assert comm == community
+        assert req == snmp.GetDataReq([(0, 0)])
+        return snmp.Error(snmp.ErrorType.NO_SUCH_NAME, 1)
+
+    def on_v3_request(addr, usr, ctx, req):
+        assert usr == user
+        assert ctx.engine_id == engine_id
+        assert ctx.name == context['name']
+        assert req == snmp.GetDataReq([(0, 0)])
+        return snmp.Error(snmp.ErrorType.NO_SUCH_NAME, 1)
+
+    def on_auth_key(eid, usr):
+        assert eid == engine_id
+        assert usr == user
+        return auth_key
+
+    def on_priv_key(eid, usr):
+        assert eid == engine_id
+        assert usr == user
+        return priv_key
+
+    agent = await create_agent(v1_request_cb=on_v1_request,
+                               v2c_request_cb=on_v2c_request,
+                               v3_request_cb=on_v3_request,
+                               engine_ids=[engine_id],
+                               auth_key_cb=on_auth_key,
+                               priv_key_cb=on_priv_key)
     device = await aio.call(manager.create, conf, event_client,
                             event_type_prefix)
 
@@ -236,23 +334,23 @@ async def test_status(create_conf, create_agent):
     await event_client.async_close()
 
 
-async def test_polling(create_conf, create_agent):
+async def test_polling(create_base_conf, create_agent):
     version = snmp.Version.V1
-    context = snmp.Context(None, 'name')
+    community = 'name'
 
     int_oid = 1, 2, 3
     str_oid = 1, 3, 2
 
+    conf = {'version': version.name,
+            'community': community,
+            **create_base_conf(polling_oids=[int_oid, str_oid])}
+
     event_client = EventClient()
-    conf = create_conf(version=version,
-                       context=context,
-                       polling_oids=[int_oid, str_oid])
 
     next_values = itertools.count(0)
 
-    def on_request(ver, ctx, req):
-        assert ver == version
-        assert ctx == context
+    def on_request(addr, comm, req):
+        assert comm == community
         assert len(req.names) == 1
 
         if req.names[0] == int_oid:
@@ -267,7 +365,7 @@ async def test_polling(create_conf, create_agent):
 
         raise Exception('unexpected oid')
 
-    agent = await create_agent(on_request)
+    agent = await create_agent(v1_request_cb=on_request)
     device = await aio.call(manager.create, conf, event_client,
                             event_type_prefix)
 
@@ -292,7 +390,7 @@ async def test_polling(create_conf, create_agent):
     await agent.async_close()
     event = await event_client.register_queue.get()
     assert_status_event(event, 'DISCONNECTED')
-    agent = await create_agent(on_request)
+    agent = await create_agent(v1_request_cb=on_request)
     event = await event_client.register_queue.get()
     assert_status_event(event, 'CONNECTING')
     event = await event_client.register_queue.get()
@@ -309,65 +407,56 @@ async def test_polling(create_conf, create_agent):
 
 
 @pytest.mark.parametrize("res, oid, data", [
-    ([snmp.Data(type=snmp.DataType.INTEGER,
-                name=(1, 2, 3),
-                value=-123)],
+    ([snmp.IntegerData(name=(1, 2, 3),
+                       value=-123)],
      (1, 2, 3),
      {'type': 'INTEGER',
       'value': -123}),
 
-    ([snmp.Data(type=snmp.DataType.UNSIGNED,
-                name=(1, 2, 3),
-                value=123)],
+    ([snmp.UnsignedData(name=(1, 2, 3),
+                        value=123)],
      (1, 2, 3),
      {'type': 'UNSIGNED',
       'value': 123}),
 
-    ([snmp.Data(type=snmp.DataType.COUNTER,
-                name=(1, 2, 3),
-                value=321)],
+    ([snmp.CounterData(name=(1, 2, 3),
+                       value=321)],
      (1, 2, 3),
      {'type': 'COUNTER',
       'value': 321}),
 
-    ([snmp.Data(type=snmp.DataType.BIG_COUNTER,
-                name=(1, 2, 3),
-                value=123456)],
+    ([snmp.BigCounterData(name=(1, 2, 3),
+                          value=123456)],
      (1, 2, 3),
      {'type': 'BIG_COUNTER',
       'value': 123456}),
 
-    ([snmp.Data(type=snmp.DataType.TIME_TICKS,
-                name=(1, 2, 3),
-                value=42)],
-     (1, 2, 3),
-     {'type': 'TIME_TICKS',
-      'value': 42}),
-
-    ([snmp.Data(type=snmp.DataType.STRING,
-                name=(1, 2, 3),
-                value='abc')],
+    ([snmp.StringData(name=(1, 2, 3),
+                      value='abc')],
      (1, 2, 3),
      {'type': 'STRING',
       'value': 'abc'}),
 
-    ([snmp.Data(type=snmp.DataType.OBJECT_ID,
-                name=(1, 2, 3),
-                value=(1, 2, 3, 4, 5, 6))],
+    ([snmp.ObjectIdData(name=(1, 2, 3),
+                        value=(1, 2, 3, 4, 5, 6))],
      (1, 2, 3),
      {'type': 'OBJECT_ID',
       'value': '1.2.3.4.5.6'}),
 
-    ([snmp.Data(type=snmp.DataType.IP_ADDRESS,
-                name=(1, 2, 3),
-                value=(192, 168, 0, 1))],
+    ([snmp.IpAddressData(name=(1, 2, 3),
+                         value=(192, 168, 0, 1))],
      (1, 2, 3),
      {'type': 'IP_ADDRESS',
       'value': '192.168.0.1'}),
 
-    ([snmp.Data(type=snmp.DataType.ARBITRARY,
-                name=(1, 2, 3),
-                value=b'\x01\x02\x03')],
+    ([snmp.TimeTicksData(name=(1, 2, 3),
+                         value=42)],
+     (1, 2, 3),
+     {'type': 'TIME_TICKS',
+      'value': 42}),
+
+    ([snmp.ArbitraryData(name=(1, 2, 3),
+                         value=b'\x01\x02\x03')],
      (1, 2, 3),
      {'type': 'ARBITRARY',
       'value': '010203'}),
@@ -378,48 +467,42 @@ async def test_polling(create_conf, create_agent):
         'value': err.name})
       for err in list(snmp.ErrorType)[1:]),
 
-    ([snmp.Data(type=snmp.DataType.UNSPECIFIED,
-                name=(1, 2, 3),
-                value=None)],
+    ([snmp.UnspecifiedData(name=(1, 2, 3))],
      (1, 2, 3),
      {'type': 'ERROR',
       'value': 'UNSPECIFIED'}),
 
-    ([snmp.Data(type=snmp.DataType.NO_SUCH_OBJECT,
-                name=(1, 2, 3),
-                value=None)],
+    ([snmp.NoSuchObjectData(name=(1, 2, 3))],
      (1, 2, 3),
      {'type': 'ERROR',
       'value': 'NO_SUCH_OBJECT'}),
 
-    ([snmp.Data(type=snmp.DataType.NO_SUCH_INSTANCE,
-                name=(1, 2, 3),
-                value=None)],
+    ([snmp.NoSuchInstanceData(name=(1, 2, 3))],
      (1, 2, 3),
      {'type': 'ERROR',
       'value': 'NO_SUCH_INSTANCE'}),
 
-    ([snmp.Data(type=snmp.DataType.END_OF_MIB_VIEW,
-                name=(1, 2, 3),
-                value=None)],
+    ([snmp.EndOfMibViewData(name=(1, 2, 3))],
      (1, 2, 3),
      {'type': 'ERROR',
       'value': 'END_OF_MIB_VIEW'})
 ])
-async def test_read(create_conf, create_agent, create_read_event, res, oid,
-                    data):
+async def test_read(create_base_conf, create_agent, create_read_event, res,
+                    oid, data):
     version = snmp.Version.V2C
-    context = snmp.Context(None, 'name')
+    community = 'name'
     session_id = 42
 
-    event_client = EventClient()
-    conf = create_conf(version=version,
-                       context=context)
+    conf = {'version': version.name,
+            'community': community,
+            **create_base_conf()}
 
-    def on_request(ver, ctx, req):
+    event_client = EventClient()
+
+    def on_request(addr, comm, req):
         return res
 
-    agent = await create_agent(on_request)
+    agent = await create_agent(v2c_request_cb=on_request)
     device = await aio.call(manager.create, conf, event_client,
                             event_type_prefix)
 
@@ -441,81 +524,74 @@ async def test_read(create_conf, create_agent, create_read_event, res, oid,
 
 
 @pytest.mark.parametrize("req_data, oid, data", [
-    ([snmp.Data(type=snmp.DataType.INTEGER,
-                name=(1, 2, 3),
-                value=-123)],
+    ([snmp.IntegerData(name=(1, 2, 3),
+                       value=-123)],
      (1, 2, 3),
      {'type': 'INTEGER',
       'value': -123}),
 
-    ([snmp.Data(type=snmp.DataType.UNSIGNED,
-                name=(1, 2, 3),
-                value=123)],
+    ([snmp.UnsignedData(name=(1, 2, 3),
+                        value=123)],
      (1, 2, 3),
      {'type': 'UNSIGNED',
       'value': 123}),
 
-    ([snmp.Data(type=snmp.DataType.COUNTER,
-                name=(1, 2, 3),
-                value=321)],
+    ([snmp.CounterData(name=(1, 2, 3),
+                       value=321)],
      (1, 2, 3),
      {'type': 'COUNTER',
       'value': 321}),
 
-    ([snmp.Data(type=snmp.DataType.BIG_COUNTER,
-                name=(1, 2, 3),
-                value=123456)],
+    ([snmp.BigCounterData(name=(1, 2, 3),
+                          value=123456)],
      (1, 2, 3),
      {'type': 'BIG_COUNTER',
       'value': 123456}),
 
-    ([snmp.Data(type=snmp.DataType.TIME_TICKS,
-                name=(1, 2, 3),
-                value=42)],
-     (1, 2, 3),
-     {'type': 'TIME_TICKS',
-      'value': 42}),
-
-    ([snmp.Data(type=snmp.DataType.STRING,
-                name=(1, 2, 3),
-                value='abc')],
+    ([snmp.StringData(name=(1, 2, 3),
+                      value='abc')],
      (1, 2, 3),
      {'type': 'STRING',
       'value': 'abc'}),
 
-    ([snmp.Data(type=snmp.DataType.OBJECT_ID,
-                name=(1, 2, 3),
-                value=(1, 2, 3, 4, 5, 6))],
+    ([snmp.ObjectIdData(name=(1, 2, 3),
+                        value=(1, 2, 3, 4, 5, 6))],
      (1, 2, 3),
      {'type': 'OBJECT_ID',
       'value': '1.2.3.4.5.6'}),
 
-    ([snmp.Data(type=snmp.DataType.IP_ADDRESS,
-                name=(1, 2, 3),
-                value=(192, 168, 0, 1))],
+    ([snmp.IpAddressData(name=(1, 2, 3),
+                         value=(192, 168, 0, 1))],
      (1, 2, 3),
      {'type': 'IP_ADDRESS',
       'value': '192.168.0.1'}),
 
-    ([snmp.Data(type=snmp.DataType.ARBITRARY,
-                name=(1, 2, 3),
-                value=b'\x01\x02\x03')],
+    ([snmp.TimeTicksData(name=(1, 2, 3),
+                         value=42)],
+     (1, 2, 3),
+     {'type': 'TIME_TICKS',
+      'value': 42}),
+
+    ([snmp.ArbitraryData(name=(1, 2, 3),
+                         value=b'\x01\x02\x03')],
      (1, 2, 3),
      {'type': 'ARBITRARY',
       'value': '010203'}),
 ])
 @pytest.mark.parametrize('success', [True, False])
-async def test_write(create_conf, create_agent, create_write_event, req_data,
-                     oid, data, success):
+async def test_write(create_base_conf, create_agent, create_write_event,
+                     req_data, oid, data, success):
     version = snmp.Version.V2C
-    context = snmp.Context(None, 'name')
+    community = 'name'
     session_id = 42
 
-    event_client = EventClient()
-    conf = create_conf(version=version,
-                       context=context)
+    conf = {'version': version.name,
+            'community': community,
+            **create_base_conf()}
 
-    def on_request(ver, ctx, req):
+    event_client = EventClient()
+
+    def on_request(addr, comm, req):
         assert req.data == req_data
 
         if success:
@@ -523,7 +599,7 @@ async def test_write(create_conf, create_agent, create_write_event, req_data,
 
         return snmp.Error(snmp.ErrorType.READ_ONLY, 1)
 
-    agent = await create_agent(on_request)
+    agent = await create_agent(v2c_request_cb=on_request)
     device = await aio.call(manager.create, conf, event_client,
                             event_type_prefix)
 
