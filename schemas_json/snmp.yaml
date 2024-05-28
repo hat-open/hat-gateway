@@ -105,31 +105,31 @@ definitions:
                 user:
                     type: string
                 authentication:
-                    type: object
-                    required:
-                        - type
-                        - key
-                    properties:
-                        type:
-                            enum:
-                                - MD5
-                                - SHA
-                        key:
-                            type: string
-                            description: |
-                                sequence of hexadecimal digits
+                    oneOf:
+                      - type: object
+                        required:
+                            - type
+                            - password
+                        properties:
+                            type:
+                                enum:
+                                    - MD5
+                                    - SHA
+                            password:
+                                type: string
+                      - type: "null"
                 privacy:
-                    type: object
-                    required:
-                        - type
-                        - key
-                    properties:
-                        type:
-                            const: DES
-                        key:
-                            type: string
-                            description: |
-                                sequence of hexadecimal digits
+                    oneOf:
+                      - type: object
+                        required:
+                            - type
+                            - password
+                        properties:
+                            type:
+                                const: DES
+                            password:
+                                type: string
+                      - type: "null"
     events:
         manager:
             gateway:
