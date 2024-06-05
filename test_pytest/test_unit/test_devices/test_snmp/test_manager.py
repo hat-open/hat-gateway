@@ -122,17 +122,16 @@ def create_agent(port):
     async def create_agent(v1_request_cb=None,
                            v2c_request_cb=None,
                            v3_request_cb=None,
-                           engine_ids=[],
-                           auth_key_cb=None,
-                           priv_key_cb=None):
+                           authorative_engine_id=None,
+                           users=[]):
         address = udp.Address('127.0.0.1', port)
-        agent = await snmp.create_agent(local_addr=address,
-                                        v1_request_cb=v1_request_cb,
-                                        v2c_request_cb=v2c_request_cb,
-                                        v3_request_cb=v3_request_cb,
-                                        engine_ids=engine_ids,
-                                        auth_key_cb=auth_key_cb,
-                                        priv_key_cb=priv_key_cb)
+        agent = await snmp.create_agent(
+            local_addr=address,
+            v1_request_cb=v1_request_cb,
+            v2c_request_cb=v2c_request_cb,
+            v3_request_cb=v3_request_cb,
+            authorative_engine_id=authorative_engine_id,
+            users=users)
         return agent
 
     return create_agent
@@ -237,11 +236,15 @@ async def test_status(create_base_conf, create_agent, version):
     community = 'name'
     context = {'engine_id': '01 23 45 67 89 ab cd ef',
                'name': 'context name'}
-    user = 'user name'
-    auth_key_type = snmp.KeyType.MD5
-    auth_pass = 'auth pass'
-    priv_key_type = snmp.KeyType.DES
-    priv_pass = 'priv pass'
+    username = 'user name'
+
+    user = snmp.User(name=username,
+                     auth_type=snmp.AuthType.MD5,
+                     auth_password='auth pass',
+                     priv_type=snmp.PrivType.DES,
+                     priv_password='priv pass')
+
+    engine_id = bytes.fromhex(context['engine_id'])
 
     if version in (snmp.Version.V1, snmp.Version.V2C):
         conf = {'version': version.name,
@@ -250,24 +253,16 @@ async def test_status(create_base_conf, create_agent, version):
 
     elif version == snmp.Version.V3:
         conf = {'version': version.name,
+                'user': username,
                 'context': context,
-                'user': user,
-                'authentication': {'type': auth_key_type.name,
-                                   'password': auth_pass},
-                'privacy': {'type': priv_key_type.name,
-                            'password': priv_pass},
+                'authentication': {'type': user.auth_type.name,
+                                   'password': user.auth_password},
+                'privacy': {'type': user.priv_type.name,
+                            'password': user.priv_password},
                 **create_base_conf()}
 
     else:
         raise ValueError('unsupported snmp version')
-
-    engine_id = bytes.fromhex(context['engine_id'])
-    auth_key = snmp.create_key(key_type=auth_key_type,
-                               password=auth_pass,
-                               engine_id=engine_id)
-    priv_key = snmp.create_key(key_type=priv_key_type,
-                               password=priv_pass,
-                               engine_id=engine_id)
 
     event_client = EventClient()
 
@@ -288,22 +283,11 @@ async def test_status(create_base_conf, create_agent, version):
         assert req == snmp.GetDataReq([(0, 0)])
         return snmp.Error(snmp.ErrorType.NO_SUCH_NAME, 1)
 
-    def on_auth_key(eid, usr):
-        assert eid == engine_id
-        assert usr == user
-        return auth_key
-
-    def on_priv_key(eid, usr):
-        assert eid == engine_id
-        assert usr == user
-        return priv_key
-
     agent = await create_agent(v1_request_cb=on_v1_request,
                                v2c_request_cb=on_v2c_request,
                                v3_request_cb=on_v3_request,
-                               engine_ids=[engine_id],
-                               auth_key_cb=on_auth_key,
-                               priv_key_cb=on_priv_key)
+                               authorative_engine_id=engine_id,
+                               users=[user])
     device = await aio.call(manager.create, conf, event_client,
                             event_type_prefix)
 
