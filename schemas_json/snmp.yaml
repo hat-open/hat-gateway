@@ -1,13 +1,12 @@
----
-"$schema": "http://json-schema.org/schema#"
-id: "hat-gateway://snmp.yaml#"
-definitions:
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "hat-gateway://snmp.yaml#"
+$defs:
     manager:
         allOf:
           - oneOf:
-                - $ref: "hat-gateway://snmp.yaml#/definitions/managers/v1"
-                - $ref: "hat-gateway://snmp.yaml#/definitions/managers/v2"
-                - $ref: "hat-gateway://snmp.yaml#/definitions/managers/v3"
+                - $ref: "hat-gateway://snmp.yaml#/$defs/managers/v1"
+                - $ref: "hat-gateway://snmp.yaml#/$defs/managers/v2c"
+                - $ref: "hat-gateway://snmp.yaml#/$defs/managers/v3"
           - type: object
             required:
                 - remote_host
@@ -54,10 +53,11 @@ definitions:
                         cycles
                 polling_oids:
                     type: array
-                    description: |
-                        List of OIDs read during polling cycle
                     items:
                         type: string
+                        description: |
+                            OID read during polling cycle formated as integers
+                            separated by '.'
     managers:
         v1:
             type: object
@@ -157,7 +157,7 @@ definitions:
                             - CHANGE
                             - REQUESTED
                         data:
-                            "$ref": "hat-gateway://snmp.yaml#/definitions/data"
+                            $ref: "hat-gateway://snmp.yaml#/$defs/data"
                 write:
                     type: object
                     required:
@@ -178,7 +178,7 @@ definitions:
                         - data
                     properties:
                         data:
-                            "$ref": "hat-gateway://snmp.yaml#/definitions/data"
+                            $ref: "hat-gateway://snmp.yaml#/$defs/data"
     data:
         oneOf:
           - type: object
@@ -240,4 +240,3 @@ definitions:
                         - NO_SUCH_OBJECT
                         - NO_SUCH_INSTANCE
                         - END_OF_MIB_VIEW
-...

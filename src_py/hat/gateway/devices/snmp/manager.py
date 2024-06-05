@@ -17,7 +17,7 @@ mlog: logging.Logger = logging.getLogger(__name__)
 
 device_type: str = 'snmp_manager'
 
-json_schema_id: str = "hat-gateway://snmp.yaml#/definitions/manager"
+json_schema_id: str = "hat-gateway://snmp.yaml#/$defs/manager"
 
 json_schema_repo: json.SchemaRepository = common.json_schema_repo
 
@@ -56,14 +56,7 @@ class SnmpManagerDevice(common.Device):
                 mlog.debug('connecting to %s:%s', self._conf['remote_host'],
                            self._conf['remote_port'])
                 try:
-                    self._manager = await snmp.create_manager(
-                        context=snmp.Context(
-                            engine_id=self._conf['snmp_context']['engine_id'],
-                            name=self._conf['snmp_context']['name']),
-                        remote_addr=udp.Address(
-                            host=self._conf['remote_host'],
-                            port=self._conf['remote_port']),
-                        version=snmp.Version[self._conf['snmp_version']])
+                    self._manager = await _create_manager(self._conf)
                 except Exception as e:
                     mlog.warning('creating manager failed %s', e, exc_info=e)
                 if self._manager:
@@ -134,15 +127,17 @@ class SnmpManagerDevice(common.Device):
     async def _process_event(self, event):
         etype_suffix = event.event_type[len(self._event_type_prefix):]
         if etype_suffix[:2] == ('system', 'read'):
-            oid = etype_suffix[2]
-            await self._process_read_event(event, oid)
+            await self._process_read_event(event)
         elif etype_suffix[:2] == ('system', 'write'):
-            oid = etype_suffix[2]
-            await self._process_write_event(event, oid)
+            await self._process_write_event(event)
         else:
             raise Exception('event type not supported')
 
-    async def _process_read_event(self, event, oid):
+    async def _process_read_event(self, event):
+        if self._manager is None:
+            raise Exception('connection not established')
+
+        oid = _oid_from_event(event)
         mlog.debug('read request for oid %s', oid)
         req = snmp.GetDataReq(names=[_oid_from_str(oid)])
         try:
@@ -155,16 +150,21 @@ class SnmpManagerDevice(common.Device):
         event = self._event_from_response(resp, oid, 'REQUESTED', session_id)
         self._event_client.register([event])
 
-    async def _process_write_event(self, event, oid):
-        set_data = _data_from_event(event, oid)
+    async def _process_write_event(self, event):
+        if self._manager is None:
+            raise Exception('connection not established')
+
+        oid = _oid_from_event(event)
+        set_data = _data_from_write_event(event)
         mlog.debug('write request for oid %s: %s', oid, set_data)
         try:
-            resp = await asyncio.wait_for(
+            resp = await aio.wait_for(
                 self._manager.send(snmp.SetDataReq(data=[set_data])),
                 timeout=self._conf['request_timeout'])
         except asyncio.TimeoutError:
             mlog.warning('set data request %s timeout', set_data)
             return
+
         session_id = event.payload.data['session_id']
         success = not _is_error_response(resp)
         mlog.debug('write for oid %s %s, response: %s',
@@ -181,7 +181,7 @@ class SnmpManagerDevice(common.Device):
     async def _request(self, request):
         for i in range(self._conf['request_retry_count'] + 1):
             try:
-                return await asyncio.wait_for(
+                return await aio.wait_for(
                     self._manager.send(request),
                     timeout=self._conf['request_timeout'])
             except asyncio.TimeoutError:
@@ -216,24 +216,85 @@ class SnmpManagerDevice(common.Device):
                     data=payload))
 
 
+async def _create_manager(conf):
+    if conf['version'] == 'V1':
+        return await snmp.create_v1_manager(
+            remote_addr=udp.Address(
+                host=conf['remote_host'],
+                port=conf['remote_port']),
+            community=conf['community'])
+
+    if conf['version'] == 'V2C':
+        return await snmp.create_v2c_manager(
+            remote_addr=udp.Address(
+                host=conf['remote_host'],
+                port=conf['remote_port']),
+            community=conf['community'])
+
+    elif conf['version'] == 'V3':
+        engine_id = bytes.fromhex(conf['context']['engine_id'])
+        return await aio.wait_for(
+            snmp.create_v3_manager(
+                remote_addr=udp.Address(
+                    host=conf['remote_host'],
+                    port=conf['remote_port']),
+                context=snmp.Context(
+                    engine_id=engine_id,
+                    name=conf['context']['name']),
+                user=conf['user'],
+                auth_key=_create_key(conf['authentication'], engine_id),
+                priv_key=_create_key(conf['privacy'], engine_id)),
+            timeout=conf['request_timeout'])
+
+    raise Exception('unknown version')
+
+
+def _create_key(conf, engine_id):
+    if conf is None:
+        return None
+
+    return snmp.create_key(
+        snmp.KeyType[conf['type']], conf['password'], engine_id)
+
+
 def _event_type_from_response(response):
     if _is_error_response(response):
         return 'ERROR'
+
     resp_data = response[0]
-    return resp_data.type.name
+    if isinstance(resp_data, snmp.IntegerData):
+        return 'INTEGER'
+    if isinstance(resp_data, snmp.UnsignedData):
+        return 'UNSIGNED'
+    if isinstance(resp_data, snmp.CounterData):
+        return 'COUNTER'
+    if isinstance(resp_data, snmp.BigCounterData):
+        return 'BIG_COUNTER'
+    if isinstance(resp_data, snmp.TimeTicksData):
+        return 'TIME_TICKS'
+    if isinstance(resp_data, snmp.StringData):
+        return 'STRING'
+    if isinstance(resp_data, snmp.ObjectIdData):
+        return 'OBJECT_ID'
+    if isinstance(resp_data, snmp.IpAddressData):
+        return 'IP_ADDRESS'
+    if isinstance(resp_data, snmp.ArbitraryData):
+        return 'ARBITRARY'
 
 
 def _event_value_from_response(response):
-    if isinstance(response, snmp.Error):
-        return response.type.name
-    resp_data = response[0]
+    if not response:
+        raise Exception('empty response')
     if _is_error_response(response):
-        return resp_data.type.name
-    if resp_data.type in [snmp.DataType.IP_ADDRESS,
-                          snmp.DataType.OBJECT_ID]:
+        return _error_name_from_error_response(response)
+
+    resp_data = response[0]
+    if isinstance(resp_data, (snmp.ObjectIdData, snmp.IpAddressData)):
         return '.'.join(str(i) for i in resp_data.value)
-    elif resp_data.type == snmp.DataType.ARBITRARY:
+
+    elif isinstance(resp_data, snmp.ArbitraryData):
         return resp_data.value.hex()
+
     return resp_data.value
 
 
@@ -241,21 +302,57 @@ def _is_error_response(response):
     if isinstance(response, snmp.Error):
         if response.type == snmp.ErrorType.NO_ERROR:
             return False
-        return True
-    if response and response[0].type in [
-            snmp.DataType.EMPTY,
-            snmp.DataType.UNSPECIFIED,
-            snmp.DataType.NO_SUCH_OBJECT,
-            snmp.DataType.NO_SUCH_INSTANCE,
-            snmp.DataType.END_OF_MIB_VIEW]:
+
         return True
 
+    if not response:
+        return False
 
-def _data_from_event(event, oid):
-    return snmp.Data(
-        type=snmp.DataType[event.payload.data['data']['type']],
-        name=_oid_from_str(oid),
+    if isinstance(response[0],
+                  (snmp.EmptyData,
+                   snmp.UnspecifiedData,
+                   snmp.NoSuchObjectData,
+                   snmp.NoSuchInstanceData,
+                   snmp.EndOfMibViewData)):
+        return True
+
+    return False
+
+
+def _error_name_from_error_response(response):
+    if isinstance(response, snmp.Error):
+        return response.type.name
+
+    resp_data = response[0]
+    if isinstance(resp_data, snmp.EmptyData):
+        return 'EMPTY'
+    if isinstance(resp_data, snmp.UnspecifiedData):
+        return 'UNSPECIFIED'
+    if isinstance(resp_data, snmp.NoSuchObjectData):
+        return 'NO_SUCH_OBJECT'
+    if isinstance(resp_data, snmp.NoSuchInstanceData):
+        return 'NO_SUCH_INSTANCE'
+    if isinstance(resp_data, snmp.EndOfMibViewData):
+        return 'END_OF_MIB_VIEW'
+
+
+def _data_from_write_event(event):
+    return _data_class_from_event(event)(
+        name=_oid_from_str(_oid_from_event(event)),
         value=_value_from_event(event))
+
+
+def _data_class_from_event(event):
+    return {
+        'INTEGER': snmp.IntegerData,
+        'UNSIGNED': snmp.UnsignedData,
+        'COUNTER': snmp.CounterData,
+        'BIG_COUNTER': snmp.BigCounterData,
+        'STRING': snmp.StringData,
+        'OBJECT_ID': snmp.ObjectIdData,
+        'IP_ADDRESS': snmp.IpAddressData,
+        'TIME_TICKS':  snmp.TimeTicksData,
+        'ARBITRARY': snmp.ArbitraryData}[event.payload.data['data']['type']]
 
 
 def _value_from_event(event):
@@ -277,3 +374,7 @@ def _value_from_event(event):
 
 def _oid_from_str(oid_str):
     return tuple(int(i) for i in oid_str.split('.'))
+
+
+def _oid_from_event(event):
+    return event.event_type[6]
