@@ -117,7 +117,7 @@ def create_base_conf(port):
 
 
 @pytest.fixture
-async def create_agent(port):
+def create_agent(port):
 
     async def create_agent(v1_request_cb=None,
                            v2c_request_cb=None,
@@ -255,7 +255,8 @@ async def test_status(create_base_conf, create_agent, version):
                 'authentication': {'type': auth_key_type.name,
                                    'password': auth_pass},
                 'privacy': {'type': priv_key_type.name,
-                            'password': priv_pass}}
+                            'password': priv_pass},
+                **create_base_conf()}
 
     else:
         raise ValueError('unsupported snmp version')
@@ -354,14 +355,12 @@ async def test_polling(create_base_conf, create_agent):
         assert len(req.names) == 1
 
         if req.names[0] == int_oid:
-            return [snmp.Data(type=snmp.DataType.INTEGER,
-                              name=int_oid,
-                              value=next(next_values))]
+            return [snmp.IntegerData(name=int_oid,
+                                     value=next(next_values))]
 
         if req.names[0] == str_oid:
-            return [snmp.Data(type=snmp.DataType.STRING,
-                              name=str_oid,
-                              value=str(next(next_values)))]
+            return [snmp.StringData(name=str_oid,
+                                    value=str(next(next_values)))]
 
         raise Exception('unexpected oid')
 
@@ -592,6 +591,9 @@ async def test_write(create_base_conf, create_agent, create_write_event,
     event_client = EventClient()
 
     def on_request(addr, comm, req):
+        if not isinstance(req, snmp.SetDataReq):
+            return []
+
         assert req.data == req_data
 
         if success:
