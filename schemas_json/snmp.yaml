@@ -1,5 +1,5 @@
-$schema: "https://json-schema.org/draft/2020-12/schema"
-$id: "hat-gateway://snmp.yaml#"
+"$schema": "http://json-schema.org/schema#"
+id: "hat-gateway://snmp.yaml#"
 $defs:
     manager:
         allOf:
