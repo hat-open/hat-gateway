@@ -17,7 +17,7 @@ Manager device
 --------------
 
 SNMP manager device configuration is specified by
-``hat-gateway://snmp.yaml#/definitions/manager``.
+``hat-gateway://snmp.yaml#/$defs/manager``.
 
 According to :ref:`gateway specification <gateway>`, all SNMP manager device
 event types have prefix::
@@ -25,35 +25,35 @@ event types have prefix::
     'gateway', <gateway_name>, 'snmp_manager', <device_name>, <source>, ...
 
 Once manager device is enabled, it will try to open UDP endpoint and start
-communication with remote agent. During this time, connection status is
+communication with remote agent - periodical polling of OIDs configured as
+`polling_oids` each `polling_delay` number of seconds. From the moment device
+is enabled, until first oid is read succesfully, connection status is
 considered ``CONNECTING``. When first agent's response is successfully
 received, connection status will transfer to ``CONNECTED`` state. During
-``CONNECTED`` state, manager expects to receive response messages in
-configured `request_timeout` period. If response is not received in this
+``CONNECTED`` state, manager on each read request expects to receive response
+in configured `request_timeout` period. If response is not received in this
 period, manager will try to re-transmit request ``request_retry_count`` number
-of times. If no response is received during this period, manager will
-close UDP endpoint, transfer to ``DISCONNECTED`` state and wait configured
+of times. If no response is received during this period, manager will close UDP
+endpoint, transfer to ``DISCONNECTED`` state and wait configured
 ``connect_delay`` time before trying to reestablish connection.
 
-Manager reads remote data as a result of received read requests or based on
-configured polling list. OIDs configured in polling list are read periodically
-and compared to cache of previously read data. If cache doesn't contain
-previous data value, new read result is generated with cause set to
-``INTERROGATE``. If new data value is changed, new read result is generated
-with cause set to ``CHANGE``. Connection's transfer to ``DISCONNECTED`` state
-clears data cache. All agent's responses, which are result of `system` read
-requests, always generate new read result events with cause set to
-``REQUESTED`` (event is registered even if received value is the same as
-previously cached value).
+OIDs configured in polling list are read periodically and compared to cache of
+previously read data. If cache doesn't contain previous data value, new gateway
+read event is generated with cause set to ``INTERROGATE``. If new data value is
+changed, new gateway read event is generated with cause set to ``CHANGE``.
+Connection's transfer to ``DISCONNECTED`` state clears data cache. All agent's
+responses, which are result of `system` events, always generate new read result
+events with cause set to ``REQUESTED`` (event is registered even if received
+value is the same as previously cached value).
 
 If configured ``polling_oids`` list is empty, manager will try to periodically
 read value of "0.0" OID. Result of this read is used only for connection
-state detection and it's value is discarded.
+state detection and its value is discarded.
 
 Events, representing `system` requests for `read` and `write` actions, contain
 arbitrary `session_id` value. This value is included in `gateway` events
-representing `read` and `write` action results.
-
+representing `read` and `write` action results. If gateway `read` events are
+result of polling request, `session_id` is ``null``. 
 
 Gateway events
 ''''''''''''''
@@ -69,21 +69,22 @@ Available gateway events are:
         Connection status.
 
         Payload is defined by
-        ``hat-gateway://snmp.yaml#/definitions/events/manager/gateway/status``.
+        ``hat-gateway://snmp.yaml#/$defs/events/manager/gateway/status``.
+        registered by the module on each status change.
 
     * ..., 'read', <oid>
 
         Get data result.
 
         Payload is defined by
-        ``hat-gateway://snmp.yaml#/definitions/events/manager/gateway/read``.
+        ``hat-gateway://snmp.yaml#/$defs/events/manager/gateway/read``.
 
     * ..., 'write', <oid>
 
         Set data result.
 
         Payload is defined by
-        ``hat-gateway://snmp.yaml#/definitions/events/manager/gateway/write``.
+        ``hat-gateway://snmp.yaml#/$defs/events/manager/gateway/write``.
 
 
 System events
@@ -101,39 +102,20 @@ Available system events are:
         Get data request.
 
         Payload is defined by
-        ``hat-gateway://snmp.yaml#/definitions/events/manager/system/read``.
+        ``hat-gateway://snmp.yaml#/$defs/events/manager/system/read``.
 
     * ..., 'write', <oid>
 
         Write data request.
 
         Payload is defined by
-        ``hat-gateway://snmp.yaml#/definitions/events/manager/system/write``.
+        ``hat-gateway://snmp.yaml#/$defs/events/manager/system/write``.
 
 
 Trap listener device
 --------------------
 
-SNMP trap listener device configuration is specified by
-``hat-gateway://snmp.yaml#/definitions/trap_listener``.
-
-According to :ref:`gateway specification <gateway>`, all SNMP trap listener
-device event types have prefix::
-
-    'gateway', <gateway_name>, 'snmp_trap_listener', <device_name>, <source>, ...
-
-
-Gateway events
-''''''''''''''
-
-Events registered by gateway have event type starting with::
-
-    'gateway', <gateway_name>, 'snmp_trap_listener', <device_name>, 'gateway', ...
-
-Available gateway events are:
-
-    * ..., 'data', <oid>
-
+...
 
 Agent device
 ------------
