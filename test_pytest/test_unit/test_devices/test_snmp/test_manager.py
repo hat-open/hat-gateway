@@ -122,7 +122,7 @@ def create_agent(port):
     async def create_agent(v1_request_cb=None,
                            v2c_request_cb=None,
                            v3_request_cb=None,
-                           authorative_engine_id=None,
+                           authoritative_engine_id=None,
                            users=[]):
         address = udp.Address('127.0.0.1', port)
         agent = await snmp.create_agent(
@@ -130,7 +130,7 @@ def create_agent(port):
             v1_request_cb=v1_request_cb,
             v2c_request_cb=v2c_request_cb,
             v3_request_cb=v3_request_cb,
-            authorative_engine_id=authorative_engine_id,
+            authoritative_engine_id=authoritative_engine_id,
             users=users)
         return agent
 
@@ -286,7 +286,7 @@ async def test_status(create_base_conf, create_agent, version):
     agent = await create_agent(v1_request_cb=on_v1_request,
                                v2c_request_cb=on_v2c_request,
                                v3_request_cb=on_v3_request,
-                               authorative_engine_id=engine_id,
+                               authoritative_engine_id=engine_id,
                                users=[user])
     device = await aio.call(manager.create, conf, event_client,
                             event_type_prefix)

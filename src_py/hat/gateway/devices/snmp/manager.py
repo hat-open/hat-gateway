@@ -232,29 +232,27 @@ async def _create_manager(conf):
             community=conf['community'])
 
     elif conf['version'] == 'V3':
-        engine_id = bytes.fromhex(conf['context']['engine_id'])
         return await aio.wait_for(
             snmp.create_v3_manager(
                 remote_addr=udp.Address(
                     host=conf['remote_host'],
                     port=conf['remote_port']),
                 context=snmp.Context(
-                    engine_id=engine_id,
-                    name=conf['context']['name']),
-                user=conf['user'],
-                auth_key=_create_key(conf['authentication'], engine_id),
-                priv_key=_create_key(conf['privacy'], engine_id)),
+                    engine_id=bytes.fromhex(conf['context']['engine_id']),
+                    name=conf['context']['name']) if conf['context'] else None,
+                user=snmp.User(
+                    name=conf['user'],
+                    auth_type=(snmp.AuthType[conf['authentication']['type']]
+                               if ['authentication'] else None),
+                    auth_password=(conf['authentication']['password']
+                                   if ['authentication'] else None),
+                    priv_type=(snmp.PrivType[conf['privacy']['type']]
+                               if conf['privacy'] else None),
+                    priv_password=(conf['privacy']['password']
+                                   if conf['privacy'] else None))),
             timeout=conf['request_timeout'])
 
     raise Exception('unknown version')
-
-
-def _create_key(conf, engine_id):
-    if conf is None:
-        return None
-
-    return snmp.create_key(
-        snmp.KeyType[conf['type']], conf['password'], engine_id)
 
 
 def _event_type_from_response(response):

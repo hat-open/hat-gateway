@@ -91,21 +91,24 @@ $defs:
                 version:
                     const: V3
                 context:
-                    type: object
-                    required:
-                        - engine_id
-                        - name
-                    properties:
-                        engine_id:
-                            type: string
-                            description: |
-                                sequence of hexadecimal digits
-                        name:
-                            type: string
+                    oneOf:
+                        - type: "null"
+                        - type: object
+                          required:
+                              - engine_id
+                              - name
+                          properties:
+                              engine_id:
+                                  type: string
+                                  description: |
+                                      sequence of hexadecimal digits
+                              name:
+                                  type: string
                 user:
                     type: string
                 authentication:
                     oneOf:
+                      - type: "null"
                       - type: object
                         required:
                             - type
@@ -117,9 +120,9 @@ $defs:
                                     - SHA
                             password:
                                 type: string
-                      - type: "null"
                 privacy:
                     oneOf:
+                      - type: "null"
                       - type: object
                         required:
                             - type
@@ -129,7 +132,6 @@ $defs:
                                 const: DES
                             password:
                                 type: string
-                      - type: "null"
     events:
         manager:
             gateway:
