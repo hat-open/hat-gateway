@@ -59,15 +59,19 @@ class SnmpManagerDevice(common.Device):
                     self._manager = await _create_manager(self._conf)
                 except Exception as e:
                     mlog.warning('creating manager failed %s', e, exc_info=e)
-                if self._manager:
-                    mlog.debug('connected to %s:%s', self._conf['remote_host'],
-                               self._conf['remote_port'])
-                    self._manager.async_group.spawn(self._polling_loop)
-                    await self._manager.wait_closed()
+                    self._register_status('DISCONNECTED')
+                    await asyncio.sleep(self._conf['connect_delay'])
+                    continue
+
+                mlog.debug('connected to %s:%s', self._conf['remote_host'],
+                           self._conf['remote_port'])
+                self._manager.async_group.spawn(self._polling_loop)
+                await self._manager.wait_closed()
+
                 self._register_status('DISCONNECTED')
                 self._manager = None
                 self._cache = {}
-                await asyncio.sleep(self._conf['connect_delay'])
+
         finally:
             mlog.debug('closing device')
             with contextlib.suppress(ConnectionError):
@@ -86,22 +90,23 @@ class SnmpManagerDevice(common.Device):
                     if (not self._conf['polling_oids'] or
                             self._cache.get(oid) == resp):
                         continue
-                    if oid not in self._cache:
-                        cause = 'INTERROGATE'
-                    else:
-                        cause = 'CHANGE'
+
+                    cause = 'CHANGE' if oid in self._cache else 'INTERROGATE'
                     self._cache[oid] = resp
-                    mlog.debug('polling oid %s resulted resp %s', oid, resp)
+                    mlog.debug('polling oid %s', oid)
                     try:
                         event = self._event_from_response(resp, oid, cause)
                     except Exception as e:
-                        mlog.warning('response %s ignored due to: %s',
-                                     resp, e, exc_info=e)
+                        mlog.warning('response ignored due to: %s',
+                                     e, exc_info=e)
                         continue
+
                     self._event_client.register([event])
                 await asyncio.sleep(self._conf['polling_delay'])
+
         except Exception as e:
             mlog.warning('polling loop error: %s', e, exc_info=e)
+
         finally:
             mlog.debug('closing manager')
             self._manager.close()
@@ -147,7 +152,14 @@ class SnmpManagerDevice(common.Device):
             raise
         mlog.debug('read response for oid %s: %s', oid, resp)
         session_id = event.payload.data['session_id']
-        event = self._event_from_response(resp, oid, 'REQUESTED', session_id)
+
+        try:
+            event = self._event_from_response(
+                resp, oid, 'REQUESTED', session_id)
+        except Exception as e:
+            mlog.warning('response ignored due to: %s', e, exc_info=e)
+            return
+
         self._event_client.register([event])
 
     async def _process_write_event(self, event):
@@ -167,8 +179,8 @@ class SnmpManagerDevice(common.Device):
 
         session_id = event.payload.data['session_id']
         success = not _is_error_response(resp)
-        mlog.debug('write for oid %s %s, response: %s',
-                   oid, 'succeeded' if success else 'failed', resp)
+        mlog.debug('write for oid %s %s',
+                   oid, 'succeeded' if success else 'failed')
         event = hat.event.common.RegisterEvent(
                 event_type=(*self._event_type_prefix, 'gateway', 'write', oid),
                 source_timestamp=None,
@@ -204,6 +216,9 @@ class SnmpManagerDevice(common.Device):
         self._status = status
 
     def _event_from_response(self, response, oid, cause, session_id=None):
+        if not response:
+            raise Exception('empty response')
+
         payload = {'session_id': session_id,
                    'cause': cause,
                    'data': {'type': _event_type_from_response(response),
@@ -281,14 +296,12 @@ def _event_type_from_response(response):
 
 
 def _event_value_from_response(response):
-    if not response:
-        raise Exception('empty response')
     if _is_error_response(response):
         return _error_name_from_error_response(response)
 
     resp_data = response[0]
     if isinstance(resp_data, (snmp.ObjectIdData, snmp.IpAddressData)):
-        return '.'.join(str(i) for i in resp_data.value)
+        return _oid_to_str(resp_data.value)
 
     elif isinstance(resp_data, snmp.ArbitraryData):
         return resp_data.value.hex()
@@ -333,6 +346,8 @@ def _error_name_from_error_response(response):
     if isinstance(resp_data, snmp.EndOfMibViewData):
         return 'END_OF_MIB_VIEW'
 
+    raise Exception('unexpected error response type')
+
 
 def _data_from_write_event(event):
     return _data_class_from_event(event)(
@@ -362,16 +377,23 @@ def _value_from_event(event):
                         'TIME_TICKS',
                         'STRING']:
         return data['value']
+
     elif data['type'] in ['OBJECT_ID',
                           'IP_ADDRESS']:
-        return tuple(int(i) for i in data['value'].split('.'))
+        return _oid_from_str(data['value'])
+
     elif data['type'] == 'ARBITRARY':
         return bytes.fromhex(data['value'])
+
     raise Exception(f"unsupported data type {data['type']} in write event")
 
 
 def _oid_from_str(oid_str):
     return tuple(int(i) for i in oid_str.split('.'))
+
+
+def _oid_to_str(oid):
+    return '.'.join(str(i) for i in oid)
 
 
 def _oid_from_event(event):
