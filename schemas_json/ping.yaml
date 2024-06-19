@@ -5,13 +5,8 @@ $defs:
     device:
         type: object
         required:
-            - local_host
             - remote_devices
         properties:
-            local_host:
-                type:
-                    - 'null'
-                    - string
             remote_devices:
                 type: array
                 items:
