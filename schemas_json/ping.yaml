@@ -1,0 +1,43 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "hat-gateway://ping.yaml"
+id: "hat-gateway://ping.yaml#"
+$defs:
+    device:
+        type: object
+        required:
+            - local_host
+            - remote_devices
+        properties:
+            local_host:
+                type:
+                    - 'null'
+                    - string
+            remote_devices:
+                type: array
+                items:
+                    type: object
+                    required:
+                        - name
+                        - host
+                        - ping_delay
+                        - ping_timeout
+                        - retry_count
+                        - retry_delay
+                    properties:
+                        name:
+                            type: string
+                        host:
+                            type: string
+                        ping_delay:
+                            type: number
+                        ping_timeout:
+                            type: number
+                        retry_count:
+                            type: number
+                        retry_delay:
+                            type: number
+    events:
+        status:
+            enum:
+                - AVAILABLE
+                - NOT_AVAILABLE
