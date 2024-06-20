@@ -18,6 +18,7 @@ $defs:
                 - request_retry_delay
                 - polling_delay
                 - polling_oids
+                - string_hex_oids
             properties:
                 remote_host:
                     type: string
@@ -59,6 +60,13 @@ $defs:
                         description: |
                             OID read during polling cycle formated as integers
                             separated by '.'
+                string_hex_oids:
+                    type: array
+                    items:
+                        type: string
+                        description: |
+                            OID associated to string hex value formated as
+                            integers separated by '.'
     managers:
         v1:
             type: object
@@ -206,6 +214,7 @@ $defs:
                 type:
                     enum:
                         - STRING
+                        - STRING_HEX
                         - OBJECT_ID
                         - IP_ADDRESS
                         - ARBITRARY

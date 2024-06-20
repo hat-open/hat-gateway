@@ -15,7 +15,7 @@ event types have prefix::
 Together with Ping specific events, generic `enable` and `running` events
 are also supported.
 
-Modbus specific events don't contain `source_timestamp`.
+Ping specific events don't contain `source_timestamp`.
 
 
 Communication

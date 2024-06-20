@@ -35,6 +35,7 @@ async def create(conf: common.DeviceConf,
     device._status = None
     device._cache = {}
     device._polling_oids = conf['polling_oids'] or ["0.0"]
+    device._string_hex_oids = set(conf['string_hex_oids'])
 
     device._async_group = aio.Group()
     device._async_group.spawn(device._connection_loop)
@@ -219,10 +220,14 @@ class SnmpManagerDevice(common.Device):
         if not response:
             raise Exception('empty response')
 
-        payload = {'session_id': session_id,
-                   'cause': cause,
-                   'data': {'type': _event_type_from_response(response),
-                            'value': _event_value_from_response(response)}}
+        is_string_hex = oid in self._string_hex_oids
+        payload = {
+            'session_id': session_id,
+            'cause': cause,
+            'data': {'type': _event_type_from_response(response,
+                                                       is_string_hex),
+                     'value': _event_value_from_response(response,
+                                                         is_string_hex)}}
         return hat.event.common.RegisterEvent(
                 event_type=(*self._event_type_prefix, 'gateway', 'read', oid),
                 source_timestamp=None,
@@ -258,9 +263,9 @@ async def _create_manager(conf):
                 user=snmp.User(
                     name=conf['user'],
                     auth_type=(snmp.AuthType[conf['authentication']['type']]
-                               if ['authentication'] else None),
+                               if conf['authentication'] else None),
                     auth_password=(conf['authentication']['password']
-                                   if ['authentication'] else None),
+                                   if conf['authentication'] else None),
                     priv_type=(snmp.PrivType[conf['privacy']['type']]
                                if conf['privacy'] else None),
                     priv_password=(conf['privacy']['password']
@@ -270,7 +275,7 @@ async def _create_manager(conf):
     raise Exception('unknown version')
 
 
-def _event_type_from_response(response):
+def _event_type_from_response(response, is_string_hex):
     if _is_error_response(response):
         return 'ERROR'
 
@@ -286,7 +291,7 @@ def _event_type_from_response(response):
     if isinstance(resp_data, snmp.TimeTicksData):
         return 'TIME_TICKS'
     if isinstance(resp_data, snmp.StringData):
-        return 'STRING'
+        return 'STRING_HEX' if is_string_hex else 'STRING'
     if isinstance(resp_data, snmp.ObjectIdData):
         return 'OBJECT_ID'
     if isinstance(resp_data, snmp.IpAddressData):
@@ -295,15 +300,20 @@ def _event_type_from_response(response):
         return 'ARBITRARY'
 
 
-def _event_value_from_response(response):
+def _event_value_from_response(response, is_string_hex):
     if _is_error_response(response):
         return _error_name_from_error_response(response)
 
     resp_data = response[0]
+
+    if isinstance(resp_data, snmp.StringData):
+        return (resp_data.value.hex() if is_string_hex
+                else str(resp_data.value, encoding='utf-8', errors='replace'))
+
     if isinstance(resp_data, (snmp.ObjectIdData, snmp.IpAddressData)):
         return _oid_to_str(resp_data.value)
 
-    elif isinstance(resp_data, snmp.ArbitraryData):
+    if isinstance(resp_data, snmp.ArbitraryData):
         return resp_data.value.hex()
 
     return resp_data.value
@@ -362,6 +372,7 @@ def _data_class_from_event(event):
         'COUNTER': snmp.CounterData,
         'BIG_COUNTER': snmp.BigCounterData,
         'STRING': snmp.StringData,
+        'STRING_HEX': snmp.StringData,
         'OBJECT_ID': snmp.ObjectIdData,
         'IP_ADDRESS': snmp.IpAddressData,
         'TIME_TICKS':  snmp.TimeTicksData,
@@ -370,20 +381,24 @@ def _data_class_from_event(event):
 
 def _value_from_event(event):
     data = event.payload.data['data']
+
     if data['type'] in ['INTEGER',
                         'UNSIGNED',
                         'COUNTER',
                         'BIG_COUNTER',
-                        'TIME_TICKS',
-                        'STRING']:
+                        'TIME_TICKS']:
         return data['value']
 
-    elif data['type'] in ['OBJECT_ID',
-                          'IP_ADDRESS']:
-        return _oid_from_str(data['value'])
+    if data['type'] == 'STRING':
+        return data['value'].encode()
 
-    elif data['type'] == 'ARBITRARY':
+    if data['type'] in ['STRING_HEX',
+                        'ARBITRARY']:
         return bytes.fromhex(data['value'])
+
+    if data['type'] in ['OBJECT_ID',
+                        'IP_ADDRESS']:
+        return _oid_from_str(data['value'])
 
     raise Exception(f"unsupported data type {data['type']} in write event")
 

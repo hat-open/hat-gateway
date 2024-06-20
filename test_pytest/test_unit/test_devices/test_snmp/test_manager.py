@@ -103,7 +103,8 @@ def create_base_conf(port):
                          request_retry_count=1,
                          request_retry_delay=0.01,
                          polling_delay=0.1,
-                         polling_oids=[]):
+                         polling_oids=[],
+                         string_hex_oids=[]):
         return {'remote_host': '127.0.0.1',
                 'remote_port': port,
                 'connect_delay': connect_delay,
@@ -111,7 +112,8 @@ def create_base_conf(port):
                 'request_retry_count': request_retry_count,
                 'request_retry_delay': request_retry_delay,
                 'polling_delay': polling_delay,
-                'polling_oids': [encode_oid(i) for i in polling_oids]}
+                'polling_oids': [encode_oid(i) for i in polling_oids],
+                'string_hex_oids': [encode_oid(i) for i in string_hex_oids]}
 
     return create_base_conf
 
@@ -344,7 +346,7 @@ async def test_polling(create_base_conf, create_agent):
 
         if req.names[0] == str_oid:
             return [snmp.StringData(name=str_oid,
-                                    value=str(next(next_values)))]
+                                    value=str(next(next_values)).encode())]
 
         raise Exception('unexpected oid')
 
@@ -415,10 +417,16 @@ async def test_polling(create_base_conf, create_agent):
       'value': 123456}),
 
     ([snmp.StringData(name=(1, 2, 3),
-                      value='abc')],
+                      value=b'abc')],
      (1, 2, 3),
      {'type': 'STRING',
       'value': 'abc'}),
+
+    ([snmp.StringData(name=(1, 2, 3),
+                      value=b'abc')],
+     (1, 2, 3),
+     {'type': 'STRING_HEX',
+      'value': '616263'}),
 
     ([snmp.ObjectIdData(name=(1, 2, 3),
                         value=(1, 2, 3, 4, 5, 6))],
@@ -476,9 +484,11 @@ async def test_read(create_base_conf, create_agent, create_read_event, res,
     community = 'name'
     session_id = 42
 
+    string_hex_oids = [oid] if data['type'] == 'STRING_HEX' else []
+
     conf = {'version': version.name,
             'community': community,
-            **create_base_conf()}
+            **create_base_conf(string_hex_oids=string_hex_oids)}
 
     event_client = EventClient()
 
@@ -532,10 +542,16 @@ async def test_read(create_base_conf, create_agent, create_read_event, res,
       'value': 123456}),
 
     ([snmp.StringData(name=(1, 2, 3),
-                      value='abc')],
+                      value=b'abc')],
      (1, 2, 3),
      {'type': 'STRING',
       'value': 'abc'}),
+
+    ([snmp.StringData(name=(1, 2, 3),
+                      value=b'abc')],
+     (1, 2, 3),
+     {'type': 'STRING_HEX',
+      'value': '616263'}),
 
     ([snmp.ObjectIdData(name=(1, 2, 3),
                         value=(1, 2, 3, 4, 5, 6))],
