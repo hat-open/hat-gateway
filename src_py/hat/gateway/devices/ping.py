@@ -26,6 +26,8 @@ async def create(conf: common.DeviceConf,
                  event_type_prefix: common.EventTypePrefix
                  ) -> 'PingDevice':
     device = PingDevice()
+    device._event_client = event_client
+    device._event_type_prefix = event_type_prefix
     device._devices_status = {}
 
     device._endpoint = await icmp.create_endpoint()
@@ -59,10 +61,16 @@ class PingDevice(common.Device):
                 self._register_status(status, name)
                 await asyncio.sleep(device_conf['ping_delay'])
 
+        except ConnectionError:
+            pass
+
+        except Exception as e:
+            mlog.error("device %s loop error: %s", name, e, exc_info=e)
+
         finally:
+            self.close()
             with contextlib.suppress(ConnectionError):
                 self._register_status("NOT_AVAILABLE", name)
-            self.close()
 
     async def _ping_retry(self, device_conf):
         retry_count = device_conf['retry_count']
@@ -87,7 +95,7 @@ class PingDevice(common.Device):
         mlog.debug('remote device %s status %s', name, status)
         self._devices_status[name] = status
         self._event_client.register([hat.event.common.RegisterEvent(
-            event_type=(*self._event_type_prefix, 'gateway', name),
+            event_type=(*self._event_type_prefix, 'gateway', 'status', name),
             source_timestamp=None,
             payload=hat.event.common.EventPayload(
                 type=hat.event.common.EventPayloadType.JSON,

@@ -70,7 +70,7 @@ class Endpoint(aio.Resource):
 def assert_status_event(event, name, status):
     assert event.event_type == (*event_type_prefix, 'gateway', 'status', name)
     assert event.source_timestamp is None
-    assert event.payload.data == 'AVAILABLE'
+    assert event.payload.data == status
 
 
 @pytest.fixture
@@ -87,6 +87,7 @@ async def patch_endpoint(monkeypatch):
 
         with monkeypatch.context() as ctx:
             ctx.setattr(icmp, 'create_endpoint', create_endpoint)
+            yield
 
     return patch_endpoint
 
@@ -149,7 +150,7 @@ async def test_status_available(patch_endpoint, remote_device_count):
             hosts.remove(host)
 
         for _ in range(3):
-            hosts = set(i['name'] for i in conf['remote_devices'])
+            hosts = set(i['host'] for i in conf['remote_devices'])
             while hosts:
                 host = await ping_queue.get()
                 hosts.remove(host)
