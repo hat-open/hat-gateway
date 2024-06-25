@@ -169,7 +169,7 @@ async def test_status_change(patch_endpoint):
                                 'host': host,
                                 'ping_delay': 0.01,
                                 'ping_timeout': 1,
-                                'retry_count': 1,
+                                'retry_count': 0,
                                 'retry_delay': 0}]}
 
     def on_create(local_addr):
@@ -230,3 +230,43 @@ async def test_ping_timeout(patch_endpoint):
 
         await device.async_close()
         await event_client.async_close()
+
+
+async def test_not_available_after_close(patch_endpoint):
+    name = 'name'
+    ping_delay = 0.01
+    conf = {'remote_devices': [{'name': name,
+                                'host': 'host',
+                                'ping_delay': ping_delay,
+                                'ping_timeout': 1,
+                                'retry_count': 1,
+                                'retry_delay': 0}]}
+
+    def on_create(local_addr):
+        assert local_addr == '0.0.0.0'
+
+    async def on_ping(remote_host):
+        await asyncio.sleep(0)
+
+    with patch_endpoint(create_cb=on_create, ping_cb=on_ping):
+        event_client = EventClient()
+        device = await aio.call(ping.create, conf, event_client,
+                                event_type_prefix)
+
+        event = await event_client.register_queue.get()
+        assert_status_event(event, name, 'NOT_AVAILABLE')
+
+        event = await event_client.register_queue.get()
+        assert_status_event(event, name, 'AVAILABLE')
+
+        await asyncio.sleep(ping_delay * 10)
+
+        assert event_client.register_queue.empty()
+
+        await device.async_close()
+        await event_client.async_close()
+
+        event = await event_client.register_queue.get()
+        assert_status_event(event, name, 'NOT_AVAILABLE')
+
+        assert event_client.register_queue.empty()
