@@ -476,7 +476,30 @@ async def test_polling(create_base_conf, create_agent):
     ([snmp.EndOfMibViewData(name=(1, 2, 3))],
      (1, 2, 3),
      {'type': 'ERROR',
-      'value': 'END_OF_MIB_VIEW'})
+      'value': 'END_OF_MIB_VIEW'}),
+    # response oid does not corrspond to requested
+    ([snmp.StringData(name=(1, 2, 4),
+                      value=b'abc')],
+     (1, 2, 3),
+     {'type': 'ERROR',
+      'value': 'GEN_ERR'}),
+    # empty response
+    ([],
+     (1, 2, 3),
+     {'type': 'ERROR',
+      'value': 'GEN_ERR'}),
+    # error oids - RFC 3414 - Statistics for the User-based Security Model
+    ([snmp.CounterData(name=(1, 3, 6, 1, 6, 3, 15, 1, 1, 1, 0),
+                       value=54321)],
+     (1, 2, 3),
+     {'type': 'ERROR',
+      'value': 'UNSUPPORTED_SECURITY_LEVELS'}),
+
+    ([snmp.CounterData(name=(1, 3, 6, 1, 6, 3, 15, 1, 1, 6, 0),
+                       value=54321)],
+     (1, 2, 3),
+     {'type': 'ERROR',
+      'value': 'DECRYPTION_ERRORS'}),
 ])
 async def test_read(create_base_conf, create_agent, create_read_event, res,
                     oid, data):
@@ -516,70 +539,140 @@ async def test_read(create_base_conf, create_agent, create_read_event, res,
     await event_client.async_close()
 
 
-@pytest.mark.parametrize("req_data, oid, data", [
+@pytest.mark.parametrize("req_data, resp_data, oid, data, success", [
     ([snmp.IntegerData(name=(1, 2, 3),
+                       value=-123)],
+     snmp.Error(snmp.ErrorType.READ_ONLY, 1),
+     (1, 2, 3),
+     {'type': 'INTEGER',
+      'value': -123},
+     False),
+
+    ([snmp.IntegerData(name=(1, 2, 3),
+                       value=-123)],
+     [snmp.IntegerData(name=(1, 2, 4),
                        value=-123)],
      (1, 2, 3),
      {'type': 'INTEGER',
-      'value': -123}),
+      'value': -123},
+     False),
+
+    ([snmp.IntegerData(name=(1, 2, 3),
+                       value=-123)],
+     [snmp.NoSuchInstanceData(name=(1, 2, 3))],
+     (1, 2, 3),
+     {'type': 'INTEGER',
+      'value': -123},
+     False),
+
+    ([snmp.IntegerData(name=(1, 2, 3),
+                       value=-123)],
+     [snmp.UnspecifiedData(name=(1, 2, 3))],
+     (1, 2, 3),
+     {'type': 'INTEGER',
+      'value': -123},
+     False),
+
+    ([snmp.IntegerData(name=(1, 2, 3),
+                       value=-123)],
+     [],
+     (1, 2, 3),
+     {'type': 'INTEGER',
+      'value': -123},
+     True),
+
+    ([snmp.IntegerData(name=(1, 2, 3),
+                       value=-123)],
+     [snmp.IntegerData(name=(1, 2, 3),
+                       value=-123)],
+     (1, 2, 3),
+     {'type': 'INTEGER',
+      'value': -123},
+     True),
 
     ([snmp.UnsignedData(name=(1, 2, 3),
                         value=123)],
+     [snmp.UnsignedData(name=(1, 2, 3),
+                        value=123)],
      (1, 2, 3),
      {'type': 'UNSIGNED',
-      'value': 123}),
+      'value': 123},
+     True),
 
     ([snmp.CounterData(name=(1, 2, 3),
                        value=321)],
+     [snmp.CounterData(name=(1, 2, 3),
+                       value=321)],
      (1, 2, 3),
      {'type': 'COUNTER',
-      'value': 321}),
+      'value': 321},
+     True),
 
     ([snmp.BigCounterData(name=(1, 2, 3),
                           value=123456)],
+     [snmp.BigCounterData(name=(1, 2, 3),
+                          value=123456)],
      (1, 2, 3),
      {'type': 'BIG_COUNTER',
-      'value': 123456}),
+      'value': 123456},
+     True),
 
     ([snmp.StringData(name=(1, 2, 3),
+                      value=b'abc')],
+     [snmp.StringData(name=(1, 2, 3),
                       value=b'abc')],
      (1, 2, 3),
      {'type': 'STRING',
-      'value': 'abc'}),
+      'value': 'abc'},
+     True),
 
     ([snmp.StringData(name=(1, 2, 3),
                       value=b'abc')],
+     [snmp.StringData(name=(1, 2, 3),
+                      value=b'abc')],
      (1, 2, 3),
      {'type': 'STRING_HEX',
-      'value': '616263'}),
+      'value': '616263'},
+     True),
 
     ([snmp.ObjectIdData(name=(1, 2, 3),
                         value=(1, 2, 3, 4, 5, 6))],
+     [snmp.ObjectIdData(name=(1, 2, 3),
+                        value=(1, 2, 3, 4, 5, 6))],
      (1, 2, 3),
      {'type': 'OBJECT_ID',
-      'value': '1.2.3.4.5.6'}),
+      'value': '1.2.3.4.5.6'},
+     True),
 
     ([snmp.IpAddressData(name=(1, 2, 3),
                          value=(192, 168, 0, 1))],
+     [snmp.IpAddressData(name=(1, 2, 3),
+                         value=(192, 168, 0, 1))],
      (1, 2, 3),
      {'type': 'IP_ADDRESS',
-      'value': '192.168.0.1'}),
+      'value': '192.168.0.1'},
+     True),
 
     ([snmp.TimeTicksData(name=(1, 2, 3),
                          value=42)],
+     [snmp.TimeTicksData(name=(1, 2, 3),
+                         value=42)],
      (1, 2, 3),
      {'type': 'TIME_TICKS',
-      'value': 42}),
+      'value': 42},
+     True),
 
     ([snmp.ArbitraryData(name=(1, 2, 3),
                          value=b'\x01\x02\x03')],
+     [snmp.ArbitraryData(name=(1, 2, 3),
+                         value=b'\x01\x02\x03')],
      (1, 2, 3),
      {'type': 'ARBITRARY',
-      'value': '010203'}),
+      'value': '010203'},
+     True),
 ])
-@pytest.mark.parametrize('success', [True, False])
 async def test_write(create_base_conf, create_agent, create_write_event,
-                     req_data, oid, data, success):
+                     req_data, resp_data, oid, data, success):
     version = snmp.Version.V2C
     community = 'name'
     session_id = 42
@@ -596,10 +689,7 @@ async def test_write(create_base_conf, create_agent, create_write_event,
 
         assert req.data == req_data
 
-        if success:
-            return req.data
-
-        return snmp.Error(snmp.ErrorType.READ_ONLY, 1)
+        return resp_data
 
     agent = await create_agent(v2c_request_cb=on_request)
     device = await aio.call(manager.create, conf, event_client,

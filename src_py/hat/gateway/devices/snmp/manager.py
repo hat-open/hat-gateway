@@ -6,6 +6,7 @@ import logging
 
 from hat import aio
 from hat import json
+from hat import util
 from hat.drivers import snmp
 from hat.drivers import udp
 import hat.event.common
@@ -179,7 +180,7 @@ class SnmpManagerDevice(common.Device):
             return
 
         session_id = event.payload.data['session_id']
-        success = not _is_error_response(resp)
+        success = _write_succeeded(resp, oid)
         mlog.debug('write for oid %s %s',
                    oid, 'succeeded' if success else 'failed')
         event = hat.event.common.RegisterEvent(
@@ -217,16 +218,13 @@ class SnmpManagerDevice(common.Device):
         self._status = status
 
     def _event_from_response(self, response, oid, cause, session_id=None):
-        if not response:
-            raise Exception('empty response')
-
         is_string_hex = oid in self._string_hex_oids
         payload = {
             'session_id': session_id,
             'cause': cause,
-            'data': {'type': _event_type_from_response(response,
+            'data': {'type': _event_type_from_response(response, oid,
                                                        is_string_hex),
-                     'value': _event_value_from_response(response,
+                     'value': _event_value_from_response(response, oid,
                                                          is_string_hex)}}
         return hat.event.common.RegisterEvent(
                 event_type=(*self._event_type_prefix, 'gateway', 'read', oid),
@@ -275,36 +273,82 @@ async def _create_manager(conf):
     raise Exception('unknown version')
 
 
-def _event_type_from_response(response, is_string_hex):
-    if _is_error_response(response):
+def _event_type_from_response(response, oid, is_string_hex):
+    if isinstance(response, snmp.Error):
         return 'ERROR'
 
-    resp_data = response[0]
+    data_name = _oid_from_str(oid)
+    resp_data = util.first(response, lambda i: i.name == data_name)
+    if resp_data is None:
+        return 'ERROR'
+
+    if isinstance(resp_data,
+                  (snmp.EmptyData,
+                   snmp.UnspecifiedData,
+                   snmp.NoSuchObjectData,
+                   snmp.NoSuchInstanceData,
+                   snmp.EndOfMibViewData)):
+        return 'ERROR'
+
     if isinstance(resp_data, snmp.IntegerData):
         return 'INTEGER'
+
     if isinstance(resp_data, snmp.UnsignedData):
         return 'UNSIGNED'
+
     if isinstance(resp_data, snmp.CounterData):
         return 'COUNTER'
+
     if isinstance(resp_data, snmp.BigCounterData):
         return 'BIG_COUNTER'
+
     if isinstance(resp_data, snmp.TimeTicksData):
         return 'TIME_TICKS'
+
     if isinstance(resp_data, snmp.StringData):
         return 'STRING_HEX' if is_string_hex else 'STRING'
+
     if isinstance(resp_data, snmp.ObjectIdData):
         return 'OBJECT_ID'
+
     if isinstance(resp_data, snmp.IpAddressData):
         return 'IP_ADDRESS'
+
     if isinstance(resp_data, snmp.ArbitraryData):
         return 'ARBITRARY'
 
+    raise Exception(f'unexpected response data {type(resp_data)}')
 
-def _event_value_from_response(response, is_string_hex):
-    if _is_error_response(response):
-        return _error_name_from_error_response(response)
 
-    resp_data = response[0]
+def _event_value_from_response(response, oid, is_string_hex):
+    if isinstance(response, snmp.Error):
+        if response.type == snmp.ErrorType.NO_ERROR:
+            raise Exception('received unexpected error type NO_ERROR')
+        return response.type.name
+
+    data_name = _oid_from_str(oid)
+    resp_data = util.first(response, lambda i: i.name == data_name)
+    if resp_data is None:
+        if response:
+            resp_data = response[0]
+            if resp_data.name in _erro_oids_usm:
+                return _erro_oids_usm[resp_data.name]
+        return 'GEN_ERR'
+
+    if isinstance(resp_data, snmp.EmptyData):
+        return 'EMPTY'
+
+    if isinstance(resp_data, snmp.UnspecifiedData):
+        return 'UNSPECIFIED'
+
+    if isinstance(resp_data, snmp.NoSuchObjectData):
+        return 'NO_SUCH_OBJECT'
+
+    if isinstance(resp_data, snmp.NoSuchInstanceData):
+        return 'NO_SUCH_INSTANCE'
+
+    if isinstance(resp_data, snmp.EndOfMibViewData):
+        return 'END_OF_MIB_VIEW'
 
     if isinstance(resp_data, snmp.StringData):
         return (resp_data.value.hex() if is_string_hex
@@ -319,44 +363,30 @@ def _event_value_from_response(response, is_string_hex):
     return resp_data.value
 
 
-def _is_error_response(response):
+def _write_succeeded(response, oid):
     if isinstance(response, snmp.Error):
         if response.type == snmp.ErrorType.NO_ERROR:
-            return False
+            return True
 
-        return True
-
-    if not response:
         return False
 
-    if isinstance(response[0],
+    if not response:
+        return True
+
+    data_name = _oid_from_str(oid)
+    resp_data = util.first(response, lambda i: i.name == data_name)
+    if not resp_data:
+        return False
+
+    if isinstance(resp_data,
                   (snmp.EmptyData,
                    snmp.UnspecifiedData,
                    snmp.NoSuchObjectData,
                    snmp.NoSuchInstanceData,
                    snmp.EndOfMibViewData)):
-        return True
+        return False
 
-    return False
-
-
-def _error_name_from_error_response(response):
-    if isinstance(response, snmp.Error):
-        return response.type.name
-
-    resp_data = response[0]
-    if isinstance(resp_data, snmp.EmptyData):
-        return 'EMPTY'
-    if isinstance(resp_data, snmp.UnspecifiedData):
-        return 'UNSPECIFIED'
-    if isinstance(resp_data, snmp.NoSuchObjectData):
-        return 'NO_SUCH_OBJECT'
-    if isinstance(resp_data, snmp.NoSuchInstanceData):
-        return 'NO_SUCH_INSTANCE'
-    if isinstance(resp_data, snmp.EndOfMibViewData):
-        return 'END_OF_MIB_VIEW'
-
-    raise Exception('unexpected error response type')
+    return True
 
 
 def _data_from_write_event(event):
@@ -413,3 +443,12 @@ def _oid_to_str(oid):
 
 def _oid_from_event(event):
     return event.event_type[6]
+
+
+_erro_oids_usm = {
+    (1, 3, 6, 1, 6, 3, 15, 1, 1, 1, 0): 'UNSUPPORTED_SECURITY_LEVELS',
+    (1, 3, 6, 1, 6, 3, 15, 1, 1, 2, 0): 'NOT_IN_TIME_WINDOWS',
+    (1, 3, 6, 1, 6, 3, 15, 1, 1, 3, 0): 'UNKNOWN_USER_NAMES',
+    (1, 3, 6, 1, 6, 3, 15, 1, 1, 4, 0): 'UNKNOWN_ENGINE_IDS',
+    (1, 3, 6, 1, 6, 3, 15, 1, 1, 5, 0): 'WRONG_DIGESTS',
+    (1, 3, 6, 1, 6, 3, 15, 1, 1, 6, 0): 'DECRYPTION_ERRORS'}
