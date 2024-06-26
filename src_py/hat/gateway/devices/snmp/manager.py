@@ -70,6 +70,10 @@ class SnmpManagerDevice(common.Device):
                 self._manager.async_group.spawn(self._polling_loop)
                 await self._manager.wait_closed()
 
+                if self._status != 'CONNECTED':
+                    self._register_status('DISCONNECTED')
+                    await asyncio.sleep(self._conf['connect_delay'])
+
                 self._register_status('DISCONNECTED')
                 self._manager = None
                 self._cache = {}
@@ -88,6 +92,13 @@ class SnmpManagerDevice(common.Device):
                 for oid in self._polling_oids:
                     req = snmp.GetDataReq(names=[_oid_from_str(oid)])
                     resp = await self._request(req)
+                    try:
+                        _verify_response(resp, oid)
+                    except Exception as e:
+                        mlog.warning('connection closing, error response: %s',
+                                     e, exc_info=e)
+                        return
+
                     self._register_status('CONNECTED')
                     if (not self._conf['polling_oids'] or
                             self._cache.get(oid) == resp):
@@ -107,7 +118,7 @@ class SnmpManagerDevice(common.Device):
                 await asyncio.sleep(self._conf['polling_delay'])
 
         except Exception as e:
-            mlog.warning('polling loop error: %s', e, exc_info=e)
+            mlog.error('polling loop error: %s', e, exc_info=e)
 
         finally:
             mlog.debug('closing manager')
@@ -207,6 +218,7 @@ class SnmpManagerDevice(common.Device):
     def _register_status(self, status):
         if self._status == status:
             return
+
         event = hat.event.common.RegisterEvent(
             event_type=(*self._event_type_prefix, 'gateway', 'status'),
             source_timestamp=None,
@@ -320,6 +332,23 @@ def _event_type_from_response(response, oid, is_string_hex):
     raise Exception(f'unexpected response data {type(resp_data)}')
 
 
+def _verify_response(response, oid):
+    if isinstance(response, snmp.Error):
+        return
+
+    data_name = _oid_from_str(oid)
+    resp_data = util.first(response, lambda i: i.name == data_name)
+    if resp_data:
+        return
+
+    if not response:
+        return
+
+    resp_data = response[0]
+    if resp_data.name[:10] in _conn_close_oids:
+        raise Exception('unsupported security levels')
+
+
 def _event_value_from_response(response, oid, is_string_hex):
     if isinstance(response, snmp.Error):
         if response.type == snmp.ErrorType.NO_ERROR:
@@ -331,8 +360,9 @@ def _event_value_from_response(response, oid, is_string_hex):
     if resp_data is None:
         if response:
             resp_data = response[0]
-            if resp_data.name in _erro_oids_usm:
-                return _erro_oids_usm[resp_data.name]
+            if resp_data.name[:10] in _error_oids:
+                return _error_oids[resp_data.name]
+
         return 'GEN_ERR'
 
     if isinstance(resp_data, snmp.EmptyData):
@@ -445,10 +475,11 @@ def _oid_from_event(event):
     return event.event_type[6]
 
 
-_erro_oids_usm = {
-    (1, 3, 6, 1, 6, 3, 15, 1, 1, 1, 0): 'UNSUPPORTED_SECURITY_LEVELS',
-    (1, 3, 6, 1, 6, 3, 15, 1, 1, 2, 0): 'NOT_IN_TIME_WINDOWS',
-    (1, 3, 6, 1, 6, 3, 15, 1, 1, 3, 0): 'UNKNOWN_USER_NAMES',
-    (1, 3, 6, 1, 6, 3, 15, 1, 1, 4, 0): 'UNKNOWN_ENGINE_IDS',
-    (1, 3, 6, 1, 6, 3, 15, 1, 1, 5, 0): 'WRONG_DIGESTS',
-    (1, 3, 6, 1, 6, 3, 15, 1, 1, 6, 0): 'DECRYPTION_ERRORS'}
+_error_oids = {
+    (1, 3, 6, 1, 6, 3, 15, 1, 1, 2): 'NOT_IN_TIME_WINDOWS',
+    (1, 3, 6, 1, 6, 3, 15, 1, 1, 3): 'UNKNOWN_USER_NAMES',
+    (1, 3, 6, 1, 6, 3, 15, 1, 1, 4): 'UNKNOWN_ENGINE_IDS',
+    (1, 3, 6, 1, 6, 3, 15, 1, 1, 5): 'WRONG_DIGESTS',
+    (1, 3, 6, 1, 6, 3, 15, 1, 1, 6): 'DECRYPTION_ERRORS'}
+
+_conn_close_oids = {(1, 3, 6, 1, 6, 3, 15, 1, 1, 1)}

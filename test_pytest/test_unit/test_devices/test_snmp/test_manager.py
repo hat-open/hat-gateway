@@ -1,3 +1,4 @@
+import asyncio
 import itertools
 
 import pytest
@@ -391,6 +392,56 @@ async def test_polling(create_base_conf, create_agent):
     await event_client.async_close()
 
 
+@pytest.mark.parametrize('version', snmp.Version)
+async def test_disconnect_on_error_oid(create_base_conf, create_agent,
+                                       version):
+    if version in [snmp.Version.V1, snmp.Version.V2C]:
+        version_conf = {
+            'version': version.name,
+            'community': 'xyz'}
+    else:
+        version_conf = {
+            'version': 'V3',
+            'context': {'engine_id': '01 23 45 67 89 ab cd ef',
+                        'name': 'context name'},
+            'user': 'some user',
+            'authentication': {'type': 'MD5',
+                               'password': 'abc'},
+            'privacy': {'type': 'DES',
+                        'password': 'xyz'}}
+
+    connect_delay = 0.05
+
+    conf = {**version_conf,
+            **create_base_conf(connect_delay=connect_delay,
+                               polling_oids=[(1, 2, 3)])}
+
+    event_client = EventClient()
+
+    def on_request(addr, comm, req):
+        return [snmp.CounterData(name=(1, 3, 6, 1, 6, 3, 15, 1, 1, 1),
+                                 value=654321)]
+
+    agent = await create_agent(v1_request_cb=on_request)
+    device = await aio.call(manager.create, conf, event_client,
+                            event_type_prefix)
+
+    event = await event_client.register_queue.get()
+    assert_status_event(event, 'CONNECTING')
+
+    event = await event_client.register_queue.get()
+    assert_status_event(event, 'DISCONNECTED')
+
+    await asyncio.sleep(connect_delay * 0.9)
+    assert event_client.register_queue.empty()
+    event = await event_client.register_queue.get()
+    assert_status_event(event, 'CONNECTING')
+
+    await device.async_close()
+    await agent.async_close()
+    await event_client.async_close()
+
+
 @pytest.mark.parametrize("res, oid, data", [
     ([snmp.IntegerData(name=(1, 2, 3),
                        value=-123)],
@@ -489,13 +540,13 @@ async def test_polling(create_base_conf, create_agent):
      {'type': 'ERROR',
       'value': 'GEN_ERR'}),
     # error oids - RFC 3414 - Statistics for the User-based Security Model
-    ([snmp.CounterData(name=(1, 3, 6, 1, 6, 3, 15, 1, 1, 1, 0),
+    ([snmp.CounterData(name=(1, 3, 6, 1, 6, 3, 15, 1, 1, 2),
                        value=54321)],
      (1, 2, 3),
      {'type': 'ERROR',
-      'value': 'UNSUPPORTED_SECURITY_LEVELS'}),
+      'value': 'NOT_IN_TIME_WINDOWS'}),
 
-    ([snmp.CounterData(name=(1, 3, 6, 1, 6, 3, 15, 1, 1, 6, 0),
+    ([snmp.CounterData(name=(1, 3, 6, 1, 6, 3, 15, 1, 1, 6),
                        value=54321)],
      (1, 2, 3),
      {'type': 'ERROR',

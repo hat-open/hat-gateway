@@ -35,7 +35,9 @@ in configured `request_timeout` period. If response is not received in this
 period, manager will try to re-transmit request ``request_retry_count`` number
 of times. If no response is received during this period, manager will close UDP
 endpoint, transfer to ``DISCONNECTED`` state and wait configured
-``connect_delay`` time before trying to reestablish connection.
+`connect_delay` time before trying to reestablish connection.
+If connection was ``CONNECTED`` and then transferred to ``DISCONNECTED``
+`connect_delay` is not waited, but ``CONNECTING`` state starts immediately.
 
 OIDs configured in polling list are read periodically and compared to cache of
 previously read data. If cache doesn't contain previous data value, new gateway
@@ -50,6 +52,9 @@ If configured ``polling_oids`` list is empty, manager will try to periodically
 read value of "0.0" OID. Result of this read is used only for connection
 state detection and its value is discarded.
 
+In case received oid is ``1.3.6.1.6.3.15.1.1.1`` and that oid was not
+requested, endpoint is closed, and state is changed to `DISCONNECTED`.
+
 Gateway read event will have `data/type` equal to ``ERROR`` in the following
 scenarios:
 
@@ -60,12 +65,11 @@ scenarios:
   Model, RFC 3414), `data/value` is set to the corresponding value, otherwise
   is `GEN_ERR`:
 
-  * 1.3.6.1.6.3.15.1.1.1.0 - 'UNSUPPORTED_SECURITY_LEVELS'
-  * 1.3.6.1.6.3.15.1.1.2.0 - 'NOT_IN_TIME_WINDOWS'
-  * 1.3.6.1.6.3.15.1.1.3.0 - 'UNKNOWN_USER_NAMES'
-  * 1.3.6.1.6.3.15.1.1.4.0 - 'UNKNOWN_ENGINE_IDS'
-  * 1.3.6.1.6.3.15.1.1.5.0 - 'WRONG_DIGESTS'
-  * 1.3.6.1.6.3.15.1.1.6.0 - 'DECRYPTION_ERRORS'
+  * 1.3.6.1.6.3.15.1.1.2 - 'NOT_IN_TIME_WINDOWS'
+  * 1.3.6.1.6.3.15.1.1.3 - 'UNKNOWN_USER_NAMES'
+  * 1.3.6.1.6.3.15.1.1.4 - 'UNKNOWN_ENGINE_IDS'
+  * 1.3.6.1.6.3.15.1.1.5 - 'WRONG_DIGESTS'
+  * 1.3.6.1.6.3.15.1.1.6 - 'DECRYPTION_ERRORS'
 
 * response `Data` is one of one of the following types: `EmptyData`,
   `UnspecifiedData`, `NoSuchObjectData`, `NoSuchInstanceData`,
