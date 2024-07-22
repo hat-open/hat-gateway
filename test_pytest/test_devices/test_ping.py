@@ -9,13 +9,12 @@ from hat import util
 from hat.drivers import icmp
 import hat.event.common
 
-from hat.gateway import common
 from hat.gateway.devices.ping import info
 
 
 gateway_name = 'gateway_name'
 device_name = 'device_name'
-event_type_prefix = 'gateway', gateway_name, info.device_type, device_name
+event_type_prefix = 'gateway', gateway_name, info.type, device_name
 
 
 class EventerClient(aio.Resource):
@@ -30,14 +29,14 @@ class EventerClient(aio.Resource):
         return self._async_group
 
     @property
-    def status(self) -> common.Status:
+    def status(self):
         return hat.event.common.Status.OPERATIONAL
 
     @property
     def register_queue(self):
         return self._register_queue
 
-    def register(self, events, with_response=False):
+    async def register(self, events, with_response=False):
         try:
             for event in events:
                 self._register_queue.put_nowait(event)
@@ -67,7 +66,7 @@ class Endpoint(aio.Resource):
 
 
 def assert_status_event(event, name, status):
-    assert event.event_type == (*event_type_prefix, 'gateway', 'status', name)
+    assert event.type == (*event_type_prefix, 'gateway', 'status', name)
     assert event.source_timestamp is None
     assert event.payload.data == status
 
@@ -131,7 +130,7 @@ async def test_status_available(patch_endpoint, remote_device_count):
         names = set(i['name'] for i in conf['remote_devices'])
         while names:
             event = await eventer_client.register_queue.get()
-            name = event.event_type[len(event_type_prefix) + 2]
+            name = event.type[len(event_type_prefix) + 2]
             assert_status_event(event, name, 'NOT_AVAILABLE')
 
             names.remove(name)
