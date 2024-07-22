@@ -113,11 +113,11 @@ class SnmpManagerDevice(common.Device):
                             self._cache.get(oid) == resp):
                         continue
 
+                    cause = ('CHANGE' if oid in self._cache
+                             else 'INTERROGATE')
                     self._cache[oid] = resp
                     mlog.debug('polling oid %s', oid)
                     try:
-                        cause = ('CHANGE' if oid in self._cache
-                                 else 'INTERROGATE')
                         event = self._response_to_read_event(resp=resp,
                                                              oid=oid,
                                                              cause=cause,
@@ -449,8 +449,8 @@ def _event_data_to_snmp_data(data, oid):
                                value=bytes.fromhex(data_value))
 
     if data_type == 'OBJECT_ID':
-        return snmp.ObjectIdDatasnmp(name=oid,
-                                     value=_oid_from_str(data_value))
+        return snmp.ObjectIdData(name=oid,
+                                 value=_oid_from_str(data_value))
 
     if data_type == 'IP_ADDRESS':
         return snmp.IpAddressData(
