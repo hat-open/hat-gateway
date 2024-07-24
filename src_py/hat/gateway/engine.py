@@ -4,7 +4,6 @@ from collections.abc import Collection, Iterable
 import asyncio
 import collections
 import contextlib
-import importlib
 import logging
 
 from hat import aio
@@ -32,10 +31,10 @@ class Engine(aio.Resource):
         self._devices = {}
 
         for device_conf in conf['devices']:
-            module = importlib.import_module(device_conf['module'])
+            info = common.import_device_info(device_conf['module'])
             event_type_prefix = ('gateway',
-                                 conf['gateway_name'],
-                                 module.info.type,
+                                 conf['name'],
+                                 info.type,
                                  device_conf['name'])
 
             self._devices[event_type_prefix] = _DeviceProxy(
@@ -43,7 +42,7 @@ class Engine(aio.Resource):
                 eventer_client=eventer_client,
                 event_type_prefix=event_type_prefix,
                 async_group=self.async_group,
-                create_device=module.info.create,
+                create_device=info.create,
                 events_queue_size=events_queue_size)
 
         self.async_group.spawn(self._run)

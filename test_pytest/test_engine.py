@@ -13,8 +13,8 @@ from hat.gateway import common
 import hat.gateway.engine
 
 
-gateway_name = 'gateway_name'
-device_type = 'device_type'
+gateway_name = 'gateway name'
+device_type = 'device type'
 
 next_event_ids = (hat.event.common.EventId(1, 1, instance)
                   for instance in itertools.count(1))
@@ -126,7 +126,7 @@ def create_device_module():
 
 
 async def test_empty_engine():
-    conf = {'gateway_name': gateway_name,
+    conf = {'name': gateway_name,
             'devices': []}
 
     eventer_client = EventerClient()
@@ -149,7 +149,7 @@ async def test_create_engine_with_disabled_devices(device_count,
     device_names = [f'name{i}' for i in range(device_count)]
     device_modules = [create_device_module(device_cb=device_queue.put_nowait)
                       for _ in device_names]
-    conf = {'gateway_name': gateway_name,
+    conf = {'name': gateway_name,
             'devices': [{'module': device_module,
                          'name': device_name}
                         for device_name, device_module in zip(device_names,
@@ -185,7 +185,7 @@ async def test_create_engine_with_enabled_devices(device_count,
     device_names = [f'name{i}' for i in range(device_count)]
     device_modules = [create_device_module(device_cb=device_queue.put_nowait)
                       for _ in device_names]
-    conf = {'gateway_name': gateway_name,
+    conf = {'name': gateway_name,
             'devices': [{'module': device_module,
                          'name': device_name}
                         for device_name, device_module in zip(device_names,
@@ -223,7 +223,7 @@ async def test_close_engine_when_device_closed(create_device_module):
 
     device_name = 'device name'
     device_module = create_device_module(device_cb=device_queue.put_nowait)
-    conf = {'gateway_name': gateway_name,
+    conf = {'name': gateway_name,
             'devices': [{'module': device_module,
                          'name': device_name}]}
 
@@ -251,7 +251,7 @@ async def test_enable_disable(create_device_module):
 
     device_name = 'device name'
     device_module = create_device_module(device_cb=device_queue.put_nowait)
-    conf = {'gateway_name': gateway_name,
+    conf = {'name': gateway_name,
             'devices': [{'module': device_module,
                          'name': device_name}]}
 
@@ -288,7 +288,7 @@ async def test_running_event(create_device_module):
 
     device_name = 'device name'
     device_module = create_device_module()
-    conf = {'gateway_name': gateway_name,
+    conf = {'name': gateway_name,
             'devices': [{'module': device_module,
                          'name': device_name}]}
 
@@ -326,7 +326,7 @@ async def test_process_events(create_device_module):
     device_module = create_device_module(
         device_cb=device_queue.put_nowait,
         process_events_cb=process_queue.put_nowait)
-    conf = {'gateway_name': gateway_name,
+    conf = {'name': gateway_name,
             'devices': [{'module': device_module,
                          'name': device_name}]}
 

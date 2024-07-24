@@ -4,7 +4,7 @@ title: Gateway
 description: Gateway's configuration
 type: object
 required:
-    - gateway_name
+    - name
     - event_server
     - devices
 properties:
@@ -16,8 +16,9 @@ properties:
         description: component version
     log:
         $ref: "hat-json://logging.yaml"
-    gateway_name:
+    name:
         type: string
+        description: component name
     event_server:
         oneOf:
           - type: object
