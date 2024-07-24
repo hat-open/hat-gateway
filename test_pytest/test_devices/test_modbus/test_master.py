@@ -8,14 +8,11 @@ from hat.drivers import modbus
 from hat.drivers import tcp
 import hat.event.common
 
-import hat.gateway.devices.modbus.master
+from hat.gateway.devices.modbus.master import info
 
 
-gateway_name = 'gateway_name'
 device_name = 'device_name'
-event_type_prefix = ('gateway', gateway_name,
-                     hat.gateway.devices.modbus.master.info.type,
-                     device_name)
+event_type_prefix = ('gateway', info.type, device_name)
 
 next_event_ids = (hat.event.common.EventId(1, 1, instance)
                   for instance in itertools.count(1))
@@ -176,8 +173,7 @@ def connection_conf(slave_addr):
                                    'bit_count': 2}]}]},
 ])
 def test_valid_conf(conf):
-    hat.gateway.devices.modbus.master.info.json_schema_repo.validate(
-        hat.gateway.devices.modbus.master.info.json_schema_id, conf)
+    info.json_schema_repo.validate(info.json_schema_id, conf)
 
 
 async def test_create(slave_addr, connection_conf):
@@ -194,8 +190,8 @@ async def test_create(slave_addr, connection_conf):
     assert slave_queue.empty()
 
     eventer_client = EventerClient()
-    device = await aio.call(hat.gateway.devices.modbus.master.info.create,
-                            conf, eventer_client, event_type_prefix)
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
 
     assert device.is_open
 
@@ -218,8 +214,8 @@ async def test_reconnect(slave_addr, connection_conf):
     eventer_client = EventerClient()
     server = await modbus.create_tcp_server(modbus.ModbusType.TCP, slave_addr,
                                             slave_cb=slave_queue.put_nowait)
-    device = await aio.call(hat.gateway.devices.modbus.master.info.create,
-                            conf, eventer_client, event_type_prefix)
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
 
     slave = await slave_queue.get()
     assert slave.is_open
@@ -252,8 +248,8 @@ async def test_status(slave_addr, connection_conf):
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     server = await modbus.create_tcp_server(modbus.ModbusType.TCP, slave_addr,
                                             slave_cb=slave_queue.put_nowait)
-    device = await aio.call(hat.gateway.devices.modbus.master.info.create,
-                            conf, eventer_client, event_type_prefix)
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
 
     event = await event_queue.get()
     assert_status_event(event, 'CONNECTING')
@@ -302,8 +298,8 @@ async def test_remote_device_status(slave_addr, connection_conf):
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     server = await modbus.create_tcp_server(modbus.ModbusType.TCP, slave_addr,
                                             slave_cb=slave_queue.put_nowait)
-    device = await aio.call(hat.gateway.devices.modbus.master.info.create,
-                            conf, eventer_client, event_type_prefix)
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
 
     event = await event_queue.get()
     assert_status_event(event, 'CONNECTING')
@@ -421,8 +417,8 @@ async def test_read(slave_addr, connection_conf, data_type, bit_offset,
                                    query_cb=on_query)
     server = await modbus.create_tcp_server(modbus.ModbusType.TCP, slave_addr,
                                             read_cb=on_read)
-    device = await aio.call(hat.gateway.devices.modbus.master.info.create,
-                            conf, eventer_client, event_type_prefix)
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
 
     event = await event_queue.get()
     assert_status_event(event, 'CONNECTING')
@@ -540,8 +536,8 @@ async def test_write(slave_addr, connection_conf, data_type, bit_offset,
     server = await modbus.create_tcp_server(modbus.ModbusType.TCP, slave_addr,
                                             write_cb=on_write,
                                             write_mask_cb=on_write_mask)
-    device = await aio.call(hat.gateway.devices.modbus.master.info.create,
-                            conf, eventer_client, event_type_prefix)
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
 
     event = await event_queue.get()
     assert_status_event(event, 'CONNECTING')

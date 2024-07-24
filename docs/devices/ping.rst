@@ -10,7 +10,7 @@ Ping device configuration is specified by
 According to :ref:`gateway specification <gateway>`, all Ping device
 event types have prefix::
 
-    'gateway', <gateway_name>, 'ping', <device_name>, <source>, ...
+    gateway/ping/<device_name>/<source>/...
 
 Together with Ping specific events, generic `enable` and `running` events
 are also supported.
@@ -41,11 +41,11 @@ Gateway events
 
 Events registered by gateway have event type starting with::
 
-    'gateway', <gateway_name>, 'ping', <device_name>, 'gateway', ...
+    gateway/ping/<device_name>/gateway/...
 
 Available gateway events are:
 
-    * ..., 'status', <name>
+    * .../status/<name>
 
         Remote host availability status.
 

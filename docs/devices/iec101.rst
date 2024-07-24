@@ -39,7 +39,7 @@ IEC101 master device configuration is specified by
 According to :ref:`gateway specification <gateway>`, all IEC101 master device
 event types have prefix::
 
-    'gateway', <gateway_name>, 'iec101_master', <device_name>, <source>, ...
+    gateway/iec101_master/<device_name>/<source>/...
 
 .. todo::
 
@@ -62,11 +62,11 @@ Gateway events
 
 Events registered by gateway have event type starting with::
 
-    'gateway', <gateway_name>, 'iec101_master', <device_name>, 'gateway', ...
+    gateway/iec101_master/<device_name>/gateway/...
 
 Available gateway events are:
 
-    * ..., 'status'
+    * .../status
 
         Represents change in serial endpoint status. Upon enabling device,
         new ``CONNECTING`` status should be registered, and ``CONNECTED``
@@ -81,7 +81,7 @@ Available gateway events are:
         Payload is specified by
         ``hat-gateway://iec101.yaml#/$defs/events/master/gateway/status``.
 
-    * ..., 'remote_device', <device_address>, 'status'
+    * .../remote_device/<device_address>/status
 
         Represents change in remote device connection status. Once serial
         endpoint is opened and remote device enabled, new ``CONNECTING``
@@ -96,7 +96,7 @@ Available gateway events are:
         Payload is specified by
         ``hat-gateway://iec101.yaml#/$defs/events/master/gateway/status``.
 
-    * ..., 'remote_device', <device_address>, 'data', <data_type>, <asdu_address>, <io_address>
+    * .../remote_device/<device_address>/data/<data_type>/<asdu_address>/<io_address>
 
         Represents received IEC101 data message.
 
@@ -106,7 +106,7 @@ Available gateway events are:
         Payload is specified by
         ``hat-gateway://iec101.yaml#/$defs/events/master/gateway/data``.
 
-    * ..., 'remote_device', <device_address>, 'command', <command_type>, <asdu_address>, <io_address>
+    * .../remote_device/<device_address>/command/<command_type>/<asdu_address>/<io_address>
 
         Represents received IEC101 command message.
 
@@ -115,7 +115,7 @@ Available gateway events are:
         Payload is specified by
         ``hat-gateway://iec101.yaml#/$defs/events/master/gateway/command``.
 
-    * ..., 'remote_device', <device_address>, 'interrogation', <asdu_address>
+    * .../remote_device/<device_address>/interrogation/<asdu_address>
 
         Represents received IEC101 interrogation message.
 
@@ -124,7 +124,7 @@ Available gateway events are:
         Payload is specified by
         ``hat-gateway://iec101.yaml#/$defs/events/master/gateway/interrogation``.
 
-    * ..., 'remote_device', <device_address>, 'counter_interrogation', <asdu_address>
+    * .../remote_device/<device_address>/counter_interrogation/<asdu_address>
 
         Represents received IEC101 counter interrogation message.
 
@@ -140,11 +140,11 @@ System events
 Events registered by other Hat components, which are consumed by gateway, have
 event type starting with::
 
-    'gateway', <gateway_name>, 'iec101_master', <device_name>, 'system', ...
+    gateway/iec101_master/<device_name>/system/...
 
 Available system events are:
 
-    * ..., 'remote_device', <device_address>, 'enable'
+    * .../remote_device/<device_address>/enable
 
         Represents request for enable/disable remote device.
 
@@ -153,7 +153,7 @@ Available system events are:
         Payload is specified by
         ``hat-gateway://iec101.yaml#/$defs/events/master/system/enable``.
 
-    * ..., 'remote_device', <device_address>, 'command', <command_type>, <asdu_address>, <io_address>
+    * .../remote_device/<device_address>/command/<command_type>/<asdu_address>/<io_address>
 
         Represents request for command execution.
 
@@ -162,7 +162,7 @@ Available system events are:
         Payload is specified by
         ``hat-gateway://iec101.yaml#/$defs/events/master/system/command``.
 
-    * ..., 'remote_device', <device_address>, 'interrogation', <asdu_address>
+    * .../remote_device/<device_address>/interrogation/<asdu_address>
 
         Represents request for interrogation (interrogation activation).
 
@@ -171,7 +171,7 @@ Available system events are:
         Payload is specified by
         ``hat-gateway://iec101.yaml#/$defs/events/master/system/interrogation``.
 
-    * ..., 'remote_device', <device_address>, 'counter_interrogation', <asdu_address>
+    * .../remote_device/<device_address>/counter_interrogation/<asdu_address>
 
         Represents request for counter interrogation (interrogation
         activation).
@@ -191,7 +191,7 @@ IEC101 slave device configuration is specified by
 According to :ref:`gateway specification <gateway>`, all IEC101 slave device
 event types have prefix::
 
-    'gateway', <gateway_name>, 'iec101_slave', <device_name>, <source>, ...
+    gateway/iec101_slave/<device_name>/<source>/...
 
 IEC101 slave device provides implementation of IEC101 slave which accepts
 multiple parallel remote master connections, one for each configured device
@@ -236,11 +236,11 @@ Gateway events
 
 Events registered by gateway have event type starting with::
 
-    'gateway', <gateway_name>, 'iec101_slave', <device_name>, 'gateway', ...
+    gateway/iec101_slave/<device_name>/gateway/...
 
 Available gateway events are:
 
-    * ..., 'connections'
+    * .../connections
 
         Represents change in list of all active connections. When device
         is disabled, empty list of connections is assumed (when device is
@@ -252,7 +252,7 @@ Available gateway events are:
         Payload is specified by
         ``hat-gateway://iec101.yaml#/$defs/events/slave/gateway/connections``.
 
-    * ..., 'command', <command_type>, <asdu_address>, <io_address>
+    * .../command/<command_type>/<asdu_address>/<io_address>
 
         Represents received IEC101 command message.
 
@@ -269,11 +269,11 @@ System events
 Events registered by other Hat components, which are consumed by gateway, have
 event type starting with::
 
-    'gateway', <gateway_name>, 'iec101_slave', <device_name>, 'system', ...
+    gateway/iec101_slave/<device_name>/system/...
 
 Available system events are:
 
-    * ..., 'data', <data_type>, <asdu_address>, <io_address>
+    * .../data/<data_type>/<asdu_address>/<io_address>
 
         Represents data change.
 
@@ -283,7 +283,7 @@ Available system events are:
         Payload is specified by
         ``hat-gateway://iec101.yaml#/$defs/events/slave/system/data``.
 
-    * ..., 'command', <command_type>, <asdu_address>, <io_address>
+    * .../command/<command_type>/<asdu_address>/<io_address>
 
         Represents command response.
 

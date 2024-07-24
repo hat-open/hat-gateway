@@ -22,7 +22,7 @@ SNMP manager device configuration is specified by
 According to :ref:`gateway specification <gateway>`, all SNMP manager device
 event types have prefix::
 
-    'gateway', <gateway_name>, 'snmp_manager', <device_name>, <source>, ...
+    gateway/snmp_manager/<device_name>/<source>/...
 
 Once manager device is enabled, it will try to open UDP endpoint and start
 communication with remote agent - periodical polling of OIDs configured as
@@ -97,11 +97,11 @@ Gateway events
 
 Events registered by gateway have event type starting with::
 
-    'gateway', <gateway_name>, 'snmp_manager', <device_name>, 'gateway', ...
+    gateway/snmp_manager/<device_name>/gateway/...
 
 Available gateway events are:
 
-    * ..., 'status'
+    * .../status
 
         Connection status.
 
@@ -109,14 +109,14 @@ Available gateway events are:
         ``hat-gateway://snmp.yaml#/$defs/events/manager/gateway/status``.
         registered by the module on each status change.
 
-    * ..., 'read', <oid>
+    * .../read/<oid>
 
         Get data result.
 
         Payload is defined by
         ``hat-gateway://snmp.yaml#/$defs/events/manager/gateway/read``.
 
-    * ..., 'write', <oid>
+    * .../write/<oid>
 
         Set data result.
 
@@ -130,18 +130,18 @@ System events
 Events registered by other Hat components, which are consumed by gateway, have
 event type starting with::
 
-    'gateway', <gateway_name>, 'snmp_manager', <device_name>, 'system', ...
+    gateway/snmp_manager/<device_name>/system/...
 
 Available system events are:
 
-    * ..., 'read', <oid>
+    * .../read/<oid>
 
         Get data request.
 
         Payload is defined by
         ``hat-gateway://snmp.yaml#/$defs/events/manager/system/read``.
 
-    * ..., 'write', <oid>
+    * .../write/<oid>
 
         Write data request.
 
@@ -158,7 +158,7 @@ SNMP trap listener device configuration is specified by
 According to :ref:`gateway specification <gateway>`, all SNMP trap listener
 device event types have prefix::
 
-    'gateway', <gateway_name>, 'snmp_trap_listener', <device_name>, <source>, ...
+    gateway/snmp_trap_listener/<device_name>/<source>/...
 
 
 Gateway events
@@ -166,11 +166,11 @@ Gateway events
 
 Events registered by gateway have event type starting with::
 
-    'gateway', <gateway_name>, 'snmp_trap_listener', <device_name>, 'gateway', ...
+    gateway/snmp_trap_listener/<device_name>/gateway/...
 
 Available gateway events are:
 
-    * ..., 'data', <oid>
+    * .../data/<oid>
 
 
 Agent device

@@ -11,7 +11,7 @@ from hat import aio
 from hat.drivers import modbus
 import hat.event.common
 
-import hat.gateway.devices.modbus.master
+from hat.gateway.devices.modbus.master import info
 
 
 pytestmark = [pytest.mark.skipif(sys.platform == 'win32',
@@ -19,11 +19,8 @@ pytestmark = [pytest.mark.skipif(sys.platform == 'win32',
               pytest.mark.perf]
 
 
-gateway_name = 'gateway_name'
 device_name = 'device_name'
-event_type_prefix = ('gateway', gateway_name,
-                     hat.gateway.devices.modbus.master.info.type,
-                     device_name)
+event_type_prefix = ('gateway', info.type, device_name)
 
 next_event_ids = (hat.event.common.EventId(1, 1, instance)
                   for instance in itertools.count(1))
@@ -163,8 +160,8 @@ async def test_read(profile, nullmodem, conn_conf, remote_device_count,
                  f"data_count_{data_count}_"
                  f"interval_{interval}_"
                  f"duration_{duration}"):
-        device = await aio.call(hat.gateway.devices.modbus.master.info.create,
-                                conf, eventer_client, event_type_prefix)
+        device = await aio.call(info.create, conf, eventer_client,
+                                event_type_prefix)
         await asyncio.sleep(duration)
 
     await device.async_close()

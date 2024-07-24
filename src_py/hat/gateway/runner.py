@@ -1,13 +1,14 @@
 import asyncio
+import collections
 import logging
 
 from hat import aio
 from hat import json
 from hat.drivers import tcp
-
-import hat.event.eventer
 import hat.event.component
+import hat.event.eventer
 
+from hat.gateway import common
 import hat.gateway.engine
 
 
@@ -45,8 +46,12 @@ class MainRunner(aio.Resource):
 
     async def _start(self):
         event_server_conf = self._conf['event_server']
-        subscriptions = [('gateway', self._conf['name'], '?', '?',
-                          'system', '*')]
+
+        subscriptions = collections.deque()
+        for device_conf in self._conf['devices']:
+            info = common.import_device_info(device_conf['module'])
+            subscriptions.append(('gateway', info.type, device_conf['name'],
+                                  'system', '*'))
 
         if 'monitor_component' in event_server_conf:
             monitor_component_conf = event_server_conf['monitor_component']

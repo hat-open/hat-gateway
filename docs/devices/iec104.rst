@@ -39,7 +39,7 @@ IEC104 master device configuration is specified by
 According to :ref:`gateway specification <gateway>`, all IEC104 master device
 event types have prefix::
 
-    'gateway', <gateway_name>, 'iec104_master', <device_name>, <source>, ...
+    gateway/iec104_master/<device_name>/<source>/...
 
 When IEC104 master device is enabled, connection establishment loop is started.
 Device will try to connect to one of configured remote slave devices in order
@@ -98,11 +98,11 @@ Gateway events
 
 Events registered by gateway have event type starting with::
 
-    'gateway', <gateway_name>, 'iec104_master', <device_name>, 'gateway', ...
+    gateway/iec104_master/<device_name>/gateway/...
 
 Available gateway events are:
 
-    * ..., 'status'
+    * .../status
 
         Represents change in connection status. Upon enabling device,
         new ``CONNECTING`` status should be registered. Once device is
@@ -116,7 +116,7 @@ Available gateway events are:
         Payload is specified by
         ``hat-gateway://iec104.yaml#/$defs/events/master/gateway/status``.
 
-    * ..., 'data', <data_type>, <asdu_address>, <io_address>
+    * .../data/<data_type>/<asdu_address>/<io_address>
 
         Represents received IEC104 data message.
 
@@ -126,7 +126,7 @@ Available gateway events are:
         Payload is specified by
         ``hat-gateway://iec104.yaml#/$defs/events/master/gateway/data/res``.
 
-    * ..., 'command', <command_type>, <asdu_address>, <io_address>
+    * .../command/<command_type>/<asdu_address>/<io_address>
 
         Represents received IEC104 command message.
 
@@ -136,7 +136,7 @@ Available gateway events are:
         Payload is specified by
         ``hat-gateway://iec104.yaml#/$defs/events/master/gateway/command/res``.
 
-    * ..., 'interrogation', <asdu_address>
+    * .../interrogation/<asdu_address>
 
         Represents received IEC104 interrogation message.
 
@@ -145,7 +145,7 @@ Available gateway events are:
         Payload is specified by
         ``hat-gateway://iec104.yaml#/$defs/events/master/gateway/interrogation/res``.
 
-    * ..., 'counter_interrogation', <asdu_address>
+    * .../counter_interrogation/<asdu_address>
 
         Represents received IEC104 counter interrogation message.
 
@@ -161,11 +161,11 @@ System events
 Events registered by other Hat components, which are consumed by gateway, have
 event type starting with::
 
-    'gateway', <gateway_name>, 'iec104_master', <device_name>, 'system', ...
+    gateway/iec104_master/<device_name>/system/...
 
 Available system events are:
 
-    * ..., 'command', <command_type>, <asdu_address>, <io_address>
+    * .../command/<command_type>/<asdu_address>/<io_address>
 
         Represents request for command execution.
 
@@ -175,7 +175,7 @@ Available system events are:
         Payload is specified by
         ``hat-gateway://iec104.yaml#/$defs/events/master/system/command/req``.
 
-    * ..., 'interrogation', <asdu_address>
+    * .../interrogation/<asdu_address>
 
         Represents request for interrogation (interrogation activation).
 
@@ -184,7 +184,7 @@ Available system events are:
         Payload is specified by
         ``hat-gateway://iec104.yaml#/$defs/events/master/system/interrogation/req``.
 
-    * ..., 'counter_interrogation', <asdu_address>
+    * .../counter_interrogation/<asdu_address>
 
         Represents request for counter interrogation (interrogation
         activation).
@@ -204,7 +204,7 @@ IEC104 slave device configuration is specified by
 According to :ref:`gateway specification <gateway>`, all IEC104 slave device
 event types have prefix::
 
-    'gateway', <gateway_name>, 'iec104_slave', <device_name>, <source>, ...
+    gateway/iec104_slave/<device_name>/<source>/...
 
 IEC104 slave device provides implementation of IEC104 slave which accepts
 multiple parallel remote master connections. If configured, allowed master
@@ -250,11 +250,11 @@ Gateway events
 
 Events registered by gateway have event type starting with::
 
-    'gateway', <gateway_name>, 'iec104_slave', <device_name>, 'gateway', ...
+    gateway/iec104_slave/<device_name>/gateway/...
 
 Available gateway events are:
 
-    * ..., 'connections'
+    * .../connections
 
         Represents change in list of all active connections. When device
         is disabled, empty list of connections is assumed (when device is
@@ -266,7 +266,7 @@ Available gateway events are:
         Payload is specified by
         ``hat-gateway://iec104.yaml#/$defs/events/slave/gateway/connections``.
 
-    * ..., 'command', <command_type>, <asdu_address>, <io_address>
+    * .../command/<command_type>/<asdu_address>/<io_address>
 
         Represents received IEC104 command message.
 
@@ -283,11 +283,11 @@ System events
 Events registered by other Hat components, which are consumed by gateway, have
 event type starting with::
 
-    'gateway', <gateway_name>, 'iec104_slave', <device_name>, 'system', ...
+    gateway/iec104_slave/<device_name>/system/...
 
 Available system events are:
 
-    * ..., 'data', <data_type>, <asdu_address>, <io_address>
+    * .../data/<data_type>/<asdu_address>/<io_address>
 
         Represents data change.
 
@@ -297,7 +297,7 @@ Available system events are:
         Payload is specified by
         ``hat-gateway://iec104.yaml#/$defs/events/slave/system/data``.
 
-    * ..., 'command', <command_type>, <asdu_address>, <io_address>
+    * .../command/<command_type>/<asdu_address>/<io_address>
 
         Represents command response.
 

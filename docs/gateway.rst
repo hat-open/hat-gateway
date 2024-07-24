@@ -76,24 +76,25 @@ by Event Server.
 All events, consumed and registered by Gateway's request, have event type
 prefixed with::
 
-    gateway/<gateway_name>/<device_type>/<device_name>/<source>/...
+    gateway/<device_type>/<device_name>/<source>/...
 
 where:
 
-* `<gateway_name>` - gateway instance identifier
 * `<device_type>` - device type identifier
-* `<device_name>` - device instance identifier
+* `<device_name>` - device name identifier
 * `<source>` - ``gateway`` for events registered by Gateway and ``system``
   for events registered by other components
 
 While establishing connection with Event Server, Gateway subscribes for events
 that match::
 
-    gateway/<gateway_name>/?/?/system/*
+    gateway/<device_type>/<device_name>/system/*
+
+where `<device_type>/<device_name>` are all configured devices.
 
 All devices, regardless of device type, support following events:
 
-* `gateway/<gateway_name>/<device_type>/<device_name>/system/enable`
+* `gateway/<device_type>/<device_name>/system/enable`
 
   * `source timestamp` - optional timestamp when component issued event
     register request
@@ -101,7 +102,7 @@ All devices, regardless of device type, support following events:
   * `payload` - JSON payload encoding boolean value which represents
     device's enabled status
 
-* `gateway/<gateway_name>/<device_type>/<device_name>/gateway/running`
+* `gateway/<device_type>/<device_name>/gateway/running`
 
   * `source timestamp` - required timestamp when Device is successfully
     created (started) or destroyed (stopped)

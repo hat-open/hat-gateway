@@ -78,7 +78,7 @@ class EventerClientProxy(aio.Resource):
         self._log(logging.DEBUG, 'received %s events', len(events))
         for event in events:
             try:
-                yield _request_from_event(event)
+                yield _request_from_event(self._event_type_prefix, event)
 
             except Exception as e:
                 self._log(logging.INFO, 'received invalid event: %s', e,
@@ -103,7 +103,7 @@ class EventerClientProxy(aio.Resource):
             if not event.payload or not bool(event.payload.data):
                 continue
 
-            device_id_str = event.type[6]
+            device_id_str = event.type[len(self._event_type_prefix) + 2]
             with contextlib.suppress(ValueError):
                 enabled_devices.add(int(device_id_str))
 
@@ -118,21 +118,21 @@ class EventerClientProxy(aio.Resource):
         mlog.log(level, f"{self._log_prefix}: {msg}", *args, **kwargs)
 
 
-def _request_from_event(event):
-    event_type_suffix = event.type[5:]
+def _request_from_event(event_type_prefix, event):
+    event_type_suffix = event.type[len(event_type_prefix):]
 
-    if event_type_suffix[0] != 'remote_device':
+    if event_type_suffix[:2] != ('system', 'remote_device'):
         raise Exception('unsupported event type')
 
-    device_id = int(event_type_suffix[1])
+    device_id = int(event_type_suffix[2])
 
-    if event_type_suffix[2] == 'enable':
+    if event_type_suffix[3] == 'enable':
         enable = bool(event.payload.data)
         return RemoteDeviceEnableReq(device_id=device_id,
                                      enable=enable)
 
-    if event_type_suffix[2] == 'write':
-        data_name = event_type_suffix[3]
+    if event_type_suffix[3] == 'write':
+        data_name = event_type_suffix[4]
         request_id = event.payload.data['request_id']
         value = event.payload.data['value']
         return RemoteDeviceWriteReq(device_id=device_id,

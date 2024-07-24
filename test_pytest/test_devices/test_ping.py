@@ -12,9 +12,8 @@ import hat.event.common
 from hat.gateway.devices.ping import info
 
 
-gateway_name = 'gateway_name'
 device_name = 'device_name'
-event_type_prefix = 'gateway', gateway_name, info.type, device_name
+event_type_prefix = 'gateway', info.type, device_name
 
 
 class EventerClient(aio.Resource):

@@ -13,14 +13,11 @@ from hat.drivers import tcp
 import hat.event.common
 
 from hat.gateway.devices.iec104 import common
-import hat.gateway.devices.iec104.master
+from hat.gateway.devices.iec104.master import info
 
 
-gateway_name = 'gateway_name'
 device_name = 'device_name'
-event_type_prefix = ('gateway', gateway_name,
-                     hat.gateway.devices.iec104.master.info.type,
-                     device_name)
+event_type_prefix = ('gateway', info.type, device_name)
 
 next_event_ids = (hat.event.common.EventId(1, 1, instance)
                   for instance in itertools.count(1))
@@ -272,8 +269,7 @@ def create_command_event(cmd_type, asdu_addr, io_address, time, is_test, cause,
 
 
 async def create_device(conf, eventer_client):
-    return await aio.call(hat.gateway.devices.iec104.master.info.create,
-                          conf, eventer_client, event_type_prefix)
+    return await aio.call(info.create, conf, eventer_client, event_type_prefix)
 
 
 @pytest.fixture
@@ -319,8 +315,7 @@ async def create_server(port):
 
 def test_conf(create_conf):
     conf = create_conf()
-    hat.gateway.devices.iec104.master.info.json_schema_repo.validate(
-        hat.gateway.devices.iec104.master.info.json_schema_id, conf)
+    info.json_schema_repo.validate(info.json_schema_id, conf)
 
 
 async def test_create(create_conf):

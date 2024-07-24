@@ -38,9 +38,8 @@ DeviceConf: typing.TypeAlias = json.Data
 
 EventTypePrefix: typing.TypeAlias = tuple[hat.event.common.EventTypeSegment,
                                           hat.event.common.EventTypeSegment,
-                                          hat.event.common.EventTypeSegment,
                                           hat.event.common.EventTypeSegment]
-"""Event type prefix"""
+"""Event type prefix (``gateway/<device_type>/<device_name>``)"""
 
 CreateDevice: typing.TypeAlias = aio.AsyncCallable[[DeviceConf,
                                                     hat.event.eventer.Client,

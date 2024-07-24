@@ -32,10 +32,7 @@ class Engine(aio.Resource):
 
         for device_conf in conf['devices']:
             info = common.import_device_info(device_conf['module'])
-            event_type_prefix = ('gateway',
-                                 conf['name'],
-                                 info.type,
-                                 device_conf['name'])
+            event_type_prefix = ('gateway', info.type, device_conf['name'])
 
             self._devices[event_type_prefix] = _DeviceProxy(
                 conf=device_conf,
@@ -63,9 +60,9 @@ class Engine(aio.Resource):
             result = await self._eventer_client.query(params)
 
             for event in result.events:
-                event_type_prefix = event.type[:4]
+                event_type_prefix = event.type[:3]
                 device = self._devices.get(event_type_prefix)
-                if not device or event.type[4:] != ('system', 'enable'):
+                if not device or event.type[3:] != ('system', 'enable'):
                     continue
 
                 device.set_enable(
@@ -79,14 +76,14 @@ class Engine(aio.Resource):
                 device_events = collections.defaultdict(collections.deque)
 
                 for event in events:
-                    event_type_prefix = event.type[:4]
+                    event_type_prefix = event.type[:3]
                     device = self._devices.get(event_type_prefix)
                     if not device:
                         mlog.warning("received invalid event type prefix %s",
                                      event_type_prefix)
                         continue
 
-                    if event.type[4:] == ('system', 'enable'):
+                    if event.type[3:] == ('system', 'enable'):
                         device.set_enable(
                             isinstance(event.payload,
                                        hat.event.common.EventPayloadJson) and

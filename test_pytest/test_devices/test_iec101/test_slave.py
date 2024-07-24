@@ -13,14 +13,11 @@ from hat.drivers.iec60870 import link
 import hat.event.common
 
 from hat.gateway import common
-import hat.gateway.devices.iec101.slave
+from hat.gateway.devices.iec101.slave import info
 
 
-gateway_name = 'gateway_name'
 device_name = 'device_name'
-event_type_prefix = ('gateway', gateway_name,
-                     hat.gateway.devices.iec101.slave.info.type,
-                     device_name)
+event_type_prefix = ('gateway', info.type, device_name)
 
 next_event_ids = (hat.event.common.EventId(1, 1, instance)
                   for instance in itertools.count(1))
@@ -136,8 +133,7 @@ def assert_connections_event(event, addresses):
 
 
 async def create_device(conf, eventer_client):
-    return await aio.call(hat.gateway.devices.iec101.slave.info.create,
-                          conf, eventer_client, event_type_prefix)
+    return await aio.call(info.create, conf, eventer_client, event_type_prefix)
 
 
 @pytest.fixture
@@ -242,13 +238,12 @@ async def create_master_conn(serial_conns):
 
 
 def test_device_type():
-    assert hat.gateway.devices.iec101.slave.info.type == 'iec101_slave'
+    assert info.type == 'iec101_slave'
 
 
 def test_schema_validate():
     conf = get_conf()
-    hat.gateway.devices.iec101.slave.info.json_schema_repo.validate(
-        hat.gateway.devices.iec101.slave.info.json_schema_id, conf)
+    info.json_schema_repo.validate(info.json_schema_id, conf)
 
 
 async def test_create(serial_conns):
@@ -390,8 +385,10 @@ async def test_interrogate(serial_conns, create_master_conn):
         assert gi_data_msg.cause == iec101.DataResCause.INTERROGATED_STATION
         assert gi_data_msg.data.value.name == \
             data_event.payload.data['data']['value']
-        assert gi_data_msg.asdu_address == int(data_event.type[7])
-        assert gi_data_msg.io_address == int(data_event.type[8])
+        assert gi_data_msg.asdu_address == int(
+            data_event.type[len(event_type_prefix) + 3])
+        assert gi_data_msg.io_address == int(
+            data_event.type[len(event_type_prefix) + 4])
         assert gi_data_msg.time is None
 
     msgs = await conn.receive()
@@ -532,8 +529,10 @@ async def test_counter_interrogate(serial_conns, create_master_conn):
     assert isinstance(data_msg.data.value, iec101.BinaryCounterValue)
     assert data_msg.data.value.value == \
         counter_event.payload.data['data']['value']
-    assert data_msg.asdu_address == int(counter_event.type[7])
-    assert data_msg.io_address == int(counter_event.type[8])
+    assert data_msg.asdu_address == int(
+        counter_event.type[len(event_type_prefix) + 3])
+    assert data_msg.io_address == int(
+        counter_event.type[len(event_type_prefix) + 4])
     assert_quality(counter_event.payload.data['data']['quality'],
                    data_msg.data.quality)
     assert data_msg.time is None
@@ -731,8 +730,10 @@ async def test_data(serial_conns, create_master_conn, data_type, event_data,
     assert isinstance(data_msg, iec101.DataMsg)
     assert data_msg.is_test == data_event.payload.data['is_test']
     assert data_msg.cause == iec101.DataResCause.SPONTANEOUS
-    assert data_msg.asdu_address == int(data_event.type[7])
-    assert data_msg.io_address == int(data_event.type[8])
+    assert data_msg.asdu_address == int(
+        data_event.type[len(event_type_prefix) + 3])
+    assert data_msg.io_address == int(
+        data_event.type[len(event_type_prefix) + 4])
     if data_type in ['NORMALIZED', 'FLOATING']:
         assert math.isclose(event_data['value'], data_msg.data.value.value,
                             rel_tol=1e-3)
@@ -781,8 +782,10 @@ async def test_data_bulk(serial_conns, create_master_conn):
         assert data_msg.cause == iec101.DataResCause.SPONTANEOUS
         assert data_msg.data.value.name == \
             data_event.payload.data['data']['value']
-        assert data_msg.asdu_address == int(data_event.type[7])
-        assert data_msg.io_address == int(data_event.type[8])
+        assert data_msg.asdu_address == int(
+            data_event.type[len(event_type_prefix) + 3])
+        assert data_msg.io_address == int(
+            data_event.type[len(event_type_prefix) + 4])
         assert data_msg.time is None
         # TODO check quality
         # TODO check time
@@ -1011,8 +1014,10 @@ async def test_buffer(serial_conns, create_master_conn):
         data_msg = msgs[0]
         assert data_msg.is_test == data_event.payload.data['is_test']
         assert data_msg.cause.name == data_event.payload.data['cause']
-        assert data_msg.asdu_address == int(data_event.type[7])
-        assert data_msg.io_address == int(data_event.type[8])
+        assert data_msg.asdu_address == int(
+            data_event.type[len(event_type_prefix) + 3])
+        assert data_msg.io_address == int(
+            data_event.type[len(event_type_prefix) + 4])
         assert data_msg.data.value.name == \
             data_event.payload.data['data']['value']
         assert_quality(data_event.payload.data['data']['quality'],
@@ -1077,8 +1082,10 @@ async def test_buffer_size(serial_conns, create_master_conn):
         data_msg = msgs[0]
         assert data_msg.is_test == data_event.payload.data['is_test']
         assert data_msg.cause.name == data_event.payload.data['cause']
-        assert data_msg.asdu_address == int(data_event.type[7])
-        assert data_msg.io_address == int(data_event.type[8])
+        assert data_msg.asdu_address == int(
+            data_event.type[len(event_type_prefix) + 3])
+        assert data_msg.io_address == int(
+            data_event.type[len(event_type_prefix) + 4])
         assert data_msg.data.value.name == \
             data_event.payload.data['data']['value']
         assert_quality(data_event.payload.data['data']['quality'],

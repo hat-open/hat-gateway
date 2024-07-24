@@ -4,7 +4,7 @@ Modbus devices
 According to :ref:`gateway specification <gateway>`, all modbus device event
 types have prefix::
 
-    'gateway', <gateway_name>, 'modbus_master', <device_name>, <source>, ...
+    gateway/modbus_master/<device_name>/<source>/...
 
 Together with modbus specific events, generic `enable` and `running` events
 are also supported.
@@ -111,18 +111,18 @@ Gateway events
 
 Events registered by gateway have event type starting with::
 
-    'gateway', <gateway_name>, 'modbus_master', <device_name>, 'gateway', ...
+    gateway/modbus_master/<device_name>/gateway/...
 
 Available gateway events are:
 
-    * ..., 'status'
+    * .../status
 
         Connection status of a modbus master device.
 
         Payload is defined by
         ``hat-gateway://modbus.yaml#/$defs/events/master/gateway/status``.
 
-    * ..., 'remote_device', <device_id>, 'status'
+    * .../remote_device/<device_id>/status
 
         Status of a remote modbus device, where `<device_id>` is
         remote modbus device identifier `device_id` defined in
@@ -131,7 +131,7 @@ Available gateway events are:
         Payload is defined by
         ``hat-gateway://modbus.yaml#/$defs/events/master/gateway/remote_device_status``.
 
-    * ..., 'remote_device', <device_id>, 'read', <data_name>
+    * .../remote_device/<device_id>/read/<data_name>
 
         Read response reporting current data value. Data value and cause
         of event reporting are available only in case of successful read.
@@ -149,7 +149,7 @@ Available gateway events are:
         Payload is defined by
         ``hat-gateway://modbus.yaml#/$defs/events/master/gateway/read``.
 
-    * ..., 'remote_device', <device_id>, 'write', <data_name>
+    * .../remote_device/<device_id>/write/<data_name>
 
         Write response reporting resulting success value. Together with
         `result` that contains success value, this event contains the same
@@ -169,11 +169,11 @@ System events
 Events registered by other Hat components, which are consumed by gateway, have
 event type starting with::
 
-    'gateway', <gateway_name>, 'modbus_master', <device_name>, 'system', ...
+    gateway/modbus_master/<device_name>/system/...
 
 Available system events are:
 
-    * ..., 'remote_device', <device_id>, 'enable'
+    * .../remote_device/<device_id>/enable
 
         Enable polling of data associated with remote modbus device with
         `<device_id>` identifier.
@@ -181,7 +181,7 @@ Available system events are:
         Payload is defined by
         ``hat-gateway://modbus.yaml#/$defs/events/master/system/enable``.
 
-    * ..., 'remote_device', <device_id>, 'write', <data_name>
+    * .../remote_device/<device_id>/write/<data_name>
 
         Write request containing data value and session identifier used
         for pairing of request/response messages.

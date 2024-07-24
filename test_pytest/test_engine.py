@@ -68,14 +68,13 @@ def create_event(event_type, payload_data):
 
 
 def create_enable_event(device_name, is_enabled):
-    event_type = ('gateway', gateway_name, device_type, device_name,
-                  'system', 'enable')
+    event_type = ('gateway', device_type, device_name, 'system', 'enable')
     return create_event(event_type, is_enabled)
 
 
 def assert_running_event(event, device_name, is_running):
-    assert event.type == ('gateway', gateway_name, device_type, device_name,
-                          'gateway', 'running')
+    assert event.type == ('gateway', device_type, device_name, 'gateway',
+                          'running')
     assert event.payload.data == is_running
 
 
@@ -101,8 +100,7 @@ def create_device_module():
                     await aio.call(process_events_cb, events)
 
         async def create(conf, eventer_client, event_type_prefix):
-            assert event_type_prefix == ('gateway', gateway_name, device_type,
-                                         conf['name'])
+            assert event_type_prefix == ('gateway', device_type, conf['name'])
 
             device = Device()
             if device_cb:
@@ -167,8 +165,7 @@ async def test_create_engine_with_disabled_devices(device_count,
     params = await query_queue.get()
     subscription = hat.event.common.create_subscription(params.event_types)
     for device_name in device_names:
-        event_type = ('gateway', gateway_name, device_type, device_name,
-                      'system', 'enable')
+        event_type = ('gateway', device_type, device_name, 'system', 'enable')
         assert subscription.matches(event_type)
 
     assert device_queue.empty()
@@ -338,8 +335,7 @@ async def test_process_events(create_device_module):
 
     assert process_queue.empty()
 
-    event_type = ('gateway', gateway_name, device_type, device_name,
-                  'system', 'abc')
+    event_type = ('gateway', device_type, device_name, 'system', 'abc')
     payload_data = 123
     await engine.process_events([create_event(event_type, payload_data)])
     events = await process_queue.get()
@@ -347,16 +343,15 @@ async def test_process_events(create_device_module):
     assert events[0].type == event_type
     assert events[0].payload.data == payload_data
 
-    event_type = ('gateway', gateway_name, device_type, f'not {device_name}',
-                  'system', 'abc')
+    event_type = ('gateway', device_type, f'not {device_name}', 'system',
+                  'abc')
     payload_data = 123
     await engine.process_events([create_event(event_type, payload_data)])
     assert process_queue.empty()
 
-    event_types = [('gateway', gateway_name, device_type, f'not {device_name}',
-                    'system', 'abc'),
-                   ('gateway', gateway_name, device_type, device_name,
-                    'system', 'abc')]
+    event_types = [('gateway', device_type, f'not {device_name}', 'system',
+                    'abc'),
+                   ('gateway', device_type, device_name, 'system', 'abc')]
     payload_data = 123
     await engine.process_events([create_event(event_type, payload_data)
                                  for event_type in event_types])

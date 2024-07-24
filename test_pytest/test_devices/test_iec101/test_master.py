@@ -13,14 +13,11 @@ from hat.drivers.iec60870 import link
 import hat.event.common
 
 from hat.gateway.devices.iec101 import common
-import hat.gateway.devices.iec101.master
+from hat.gateway.devices.iec101.master import info
 
 
-gateway_name = 'gateway_name'
 device_name = 'device_name'
-event_type_prefix = ('gateway', gateway_name,
-                     hat.gateway.devices.iec101.master.info.type,
-                     device_name)
+event_type_prefix = ('gateway', info.type, device_name)
 
 next_event_ids = (hat.event.common.EventId(1, 1, instance)
                   for instance in itertools.count(1))
@@ -397,21 +394,20 @@ async def serial_conns(monkeypatch):
 
 @pytest.mark.parametrize("conf", [get_conf(remote_addresses=[1, 2, 3])])
 def test_valid_conf(conf):
-    hat.gateway.devices.iec101.master.info.json_schema_repo.validate(
-        hat.gateway.devices.iec101.master.info.json_schema_id, conf)
+    info.json_schema_repo.validate(info.json_schema_id, conf)
 
 
 async def test_create(serial_conns):
     conf = get_conf()
 
-    event_client = EventerClient()
-    device = await aio.call(hat.gateway.devices.iec101.master.info.create,
-                            conf, event_client, event_type_prefix)
+    eventer_client = EventerClient()
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
 
     assert device.is_open
 
     await device.async_close()
-    await event_client.async_close()
+    await eventer_client.async_close()
 
 
 @pytest.mark.parametrize("conn_count", [0, 1, 5])
@@ -427,8 +423,8 @@ async def test_connect(serial_conns, conn_count):
 
     eventer_client = EventerClient(query_cb=on_query)
     slave = await create_slave(conf, conn_queue.put_nowait)
-    device = await aio.call(hat.gateway.devices.iec101.master.info.create,
-                            conf, eventer_client, event_type_prefix)
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
 
     for _ in range(conn_count):
         conn = await conn_queue.get()
@@ -447,8 +443,8 @@ async def test_status(serial_conns):
     conf = get_conf()
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
-    device = await aio.call(hat.gateway.devices.iec101.master.info.create,
-                            conf, eventer_client, event_type_prefix)
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
 
     event = await event_queue.get()
     assert_status_event(event, 'CONNECTING')
@@ -489,8 +485,8 @@ async def test_enable_remote_device(serial_conns, address):
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     slave = await create_slave(conf, conn_queue.put_nowait)
-    device = await aio.call(hat.gateway.devices.iec101.master.info.create,
-                            conf, eventer_client, event_type_prefix)
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
 
     event = await event_queue.get()
     assert_status_event(event, 'CONNECTING')
@@ -569,8 +565,8 @@ async def test_time_sync(serial_conns, address, asdu_address_size,
     eventer_client = EventerClient(event_cb=event_queue.put_nowait,
                                    query_cb=on_query)
     slave = await create_slave(conf, conn_queue.put_nowait)
-    device = await aio.call(hat.gateway.devices.iec101.master.info.create,
-                            conf, eventer_client, event_type_prefix)
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
     conn = await conn_queue.get()
 
     for _ in range(10):
@@ -654,8 +650,8 @@ async def test_command_request(serial_conns, is_test, address, asdu_address,
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     slave = await create_slave(conf, conn_queue.put_nowait)
-    device = await aio.call(hat.gateway.devices.iec101.master.info.create,
-                            conf, eventer_client, event_type_prefix)
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
 
     await aio.call(device.process_events, [create_enable_event(address, True)])
     conn = await conn_queue.get()
@@ -696,8 +692,8 @@ async def test_interrogation_request(serial_conns, is_test, address,
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     slave = await create_slave(conf, conn_queue.put_nowait)
-    device = await aio.call(hat.gateway.devices.iec101.master.info.create,
-                            conf, eventer_client, event_type_prefix)
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
 
     await aio.call(device.process_events, [create_enable_event(address, True)])
     conn = await conn_queue.get()
@@ -740,8 +736,8 @@ async def test_counter_interrogation_request(serial_conns, is_test, address,
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     slave = await create_slave(conf, conn_queue.put_nowait)
-    device = await aio.call(hat.gateway.devices.iec101.master.info.create,
-                            conf, eventer_client, event_type_prefix)
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
 
     await aio.call(device.process_events, [create_enable_event(address, True)])
     conn = await conn_queue.get()
@@ -893,8 +889,8 @@ async def test_data_response(serial_conns, address, asdu_address, io_address,
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     slave = await create_slave(conf, conn_queue.put_nowait)
-    device = await aio.call(hat.gateway.devices.iec101.master.info.create,
-                            conf, eventer_client, event_type_prefix)
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
 
     await aio.call(device.process_events, [create_enable_event(address, True)])
     conn = await conn_queue.get()
@@ -982,8 +978,8 @@ async def test_command_response(serial_conns, is_test, address, asdu_address,
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     slave = await create_slave(conf, conn_queue.put_nowait)
-    device = await aio.call(hat.gateway.devices.iec101.master.info.create,
-                            conf, eventer_client, event_type_prefix)
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
 
     await aio.call(device.process_events, [create_enable_event(address, True)])
     conn = await conn_queue.get()
@@ -1025,8 +1021,8 @@ async def test_interrogation_response(serial_conns, is_test, address,
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     slave = await create_slave(conf, conn_queue.put_nowait)
-    device = await aio.call(hat.gateway.devices.iec101.master.info.create,
-                            conf, eventer_client, event_type_prefix)
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
 
     await aio.call(device.process_events, [create_enable_event(address, True)])
     conn = await conn_queue.get()
@@ -1067,8 +1063,8 @@ async def test_counter_interrogation_response(serial_conns, is_test, address,
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     slave = await create_slave(conf, conn_queue.put_nowait)
-    device = await aio.call(hat.gateway.devices.iec101.master.info.create,
-                            conf, eventer_client, event_type_prefix)
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
 
     await aio.call(device.process_events, [create_enable_event(address, True)])
     conn = await conn_queue.get()

@@ -9,14 +9,11 @@ from hat.drivers import snmp
 from hat.drivers import udp
 import hat.event.common
 
-import hat.gateway.devices.snmp.manager
+from hat.gateway.devices.snmp.manager import info
 
 
-gateway_name = 'gateway_name'
 device_name = 'device_name'
-event_type_prefix = ('gateway', gateway_name,
-                     hat.gateway.devices.snmp.manager.info.type,
-                     device_name)
+event_type_prefix = ('gateway', info.type, device_name)
 
 next_event_ids = (hat.event.common.EventId(1, 1, instance)
                   for instance in itertools.count(1))
@@ -195,8 +192,7 @@ async def create_agent(port):
 @pytest.mark.parametrize('version', snmp.Version)
 def test_conf(version, create_conf):
     conf = create_conf(version)
-    hat.gateway.devices.snmp.manager.info.json_schema_repo.validate(
-        hat.gateway.devices.snmp.manager.info.json_schema_id, conf)
+    info.json_schema_repo.validate(info.json_schema_id, conf)
 
 
 @pytest.mark.parametrize('version', snmp.Version)
@@ -204,8 +200,8 @@ async def test_create(version, create_conf):
     conf = create_conf(version)
 
     eventer_client = EventerClient()
-    device = await aio.call(hat.gateway.devices.snmp.manager.info.create, conf,
-                            eventer_client, event_type_prefix)
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
 
     assert device.is_open
 
@@ -260,8 +256,8 @@ async def test_status(version, create_conf, create_agent):
 
     event_queue = aio.Queue()
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
-    device = await aio.call(hat.gateway.devices.snmp.manager.info.create, conf,
-                            eventer_client, event_type_prefix)
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
 
     event = await event_queue.get()
     assert_status_event(event, 'CONNECTING')
@@ -348,8 +344,8 @@ async def test_polling(version, create_conf, create_agent):
                                users=users)
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
-    device = await aio.call(hat.gateway.devices.snmp.manager.info.create, conf,
-                            eventer_client, event_type_prefix)
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
 
     event = await event_queue.get()
     assert_status_event(event, 'CONNECTING')
@@ -419,9 +415,7 @@ async def test_disconnect_on_error_oid(create_conf, create_agent,
                                v2c_request_cb=on_request,
                                v3_request_cb=on_v3_request)
 
-    device = await aio.call(
-        hat.gateway.devices.snmp.manager.info.create, conf, event_client,
-        event_type_prefix)
+    device = await aio.call(info.create, conf, event_client, event_type_prefix)
 
     event = await event_queue.get()
     assert_status_event(event, 'CONNECTING')
@@ -569,8 +563,8 @@ async def test_read(create_conf, create_agent, res, oid, data):
     agent = await create_agent(v1_request_cb=on_request,
                                v2c_request_cb=on_request,
                                v3_request_cb=on_v3_request)
-    device = await aio.call(hat.gateway.devices.snmp.manager.info.create, conf,
-                            eventer_client, event_type_prefix)
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
 
     event = await event_queue.get()
     assert_status_event(event, 'CONNECTING')
@@ -739,8 +733,8 @@ async def test_write(create_conf, create_agent,
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     agent = await create_agent(v2c_request_cb=on_request)
-    device = await aio.call(hat.gateway.devices.snmp.manager.info.create, conf,
-                            eventer_client, event_type_prefix)
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
 
     event = await event_queue.get()
     assert_status_event(event, 'CONNECTING')
