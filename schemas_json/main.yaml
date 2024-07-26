@@ -20,45 +20,50 @@ properties:
         type: string
         description: component name
     event_server:
-        oneOf:
+        allOf:
           - type: object
-            required:
-                - monitor_component
             properties:
-                monitor_component:
-                    type: object
-                    required:
-                        - host
-                        - port
-                        - gateway_group
-                        - event_server_group
-                    properties:
-                        host:
-                            type: string
-                            default: "127.0.0.1"
-                        port:
-                            type: integer
-                            default: 23010
-                        gateway_group:
-                            type: string
-                        event_server_group:
-                            type: string
-          - type: object
-            required:
-                - eventer_server
-            properties:
-                eventer_server:
-                    type: object
-                    required:
-                        - host
-                        - port
-                    properties:
-                        host:
-                            type: string
-                            default: "127.0.0.1"
-                        port:
-                            type: integer
-                            default: 23012
+                require_operational:
+                    type: boolean
+          - oneOf:
+              - type: object
+                required:
+                    - monitor_component
+                properties:
+                    monitor_component:
+                        type: object
+                        required:
+                            - host
+                            - port
+                            - gateway_group
+                            - event_server_group
+                        properties:
+                            host:
+                                type: string
+                                default: "127.0.0.1"
+                            port:
+                                type: integer
+                                default: 23010
+                            gateway_group:
+                                type: string
+                            event_server_group:
+                                type: string
+              - type: object
+                required:
+                    - eventer_server
+                properties:
+                    eventer_server:
+                        type: object
+                        required:
+                            - host
+                            - port
+                        properties:
+                            host:
+                                type: string
+                                default: "127.0.0.1"
+                            port:
+                                type: integer
+                                default: 23012
     devices:
         type: array
         items:
