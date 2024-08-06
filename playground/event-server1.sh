@@ -8,7 +8,7 @@ PLAYGROUND_PATH=$(dirname "$(realpath "$0")")
 LOG_LEVEL=DEBUG
 CONF_PATH=$DATA_PATH/event1.yaml
 
-cat > $CONF_PATH << EOF
+cat >$CONF_PATH <<EOF
 log:
     version: 1
     formatters:
@@ -36,9 +36,10 @@ log:
             - console_handler
             - syslog_handler
     disable_existing_loggers: false
+name: event1
 server_id: 1
 backend:
-    module: hat.event.server.backends.dummy
+    module: hat.event.backends.dummy
 modules: []
 eventer_server:
     host: "127.0.0.1"
@@ -46,7 +47,6 @@ eventer_server:
 monitor_component:
     host: "127.0.0.1"
     port: 23010
-    name: event1
     group: event
 EOF
 

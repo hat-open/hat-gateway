@@ -35,13 +35,16 @@ class MainRunner(aio.Resource):
 
     async def _run(self):
         try:
+            mlog.debug("starting main runner loop")
             await self._start()
+
             await self._loop.create_future()
 
         except Exception as e:
             mlog.error("main runner loop error: %s", e, exc_info=e)
 
         finally:
+            mlog.debug("closing main runner loop")
             self.close()
             await aio.uncancellable(self._stop())
 
@@ -57,6 +60,7 @@ class MainRunner(aio.Resource):
         if 'monitor_component' in event_server_conf:
             monitor_component_conf = event_server_conf['monitor_component']
 
+            mlog.debug("creating event component")
             self._eventer_component = await hat.event.component.connect(
                 addr=tcp.Address(monitor_component_conf['host'],
                                  monitor_component_conf['port']),
@@ -74,6 +78,7 @@ class MainRunner(aio.Resource):
         elif 'eventer_server' in event_server_conf:
             eventer_server_conf = event_server_conf['eventer_server']
 
+            mlog.debug("creating eventer client")
             self._eventer_client = await hat.event.eventer.connect(
                 addr=tcp.Address(eventer_server_conf['host'],
                                  eventer_server_conf['port']),
@@ -83,6 +88,7 @@ class MainRunner(aio.Resource):
                 events_cb=self._on_client_events)
             _bind_resource(self.async_group, self._eventer_client)
 
+            mlog.debug("creating eventer runner")
             self._eventer_runner = EventerRunner(
                 conf=self._conf,
                 eventer_client=self._eventer_client)
@@ -103,6 +109,7 @@ class MainRunner(aio.Resource):
 
     async def _create_eventer_runner(self, monitor_component, server_data,
                                      eventer_client):
+        mlog.debug("creating eventer runner")
         self._eventer_runner = EventerRunner(conf=self._conf,
                                              eventer_client=eventer_client)
 
@@ -142,7 +149,7 @@ class EventerRunner(aio.Resource):
         self._conf = conf
         self._eventer_client = eventer_client
         self._engine = None
-        self._status_event = aio.Event()
+        self._status_event = asyncio.Event()
         self._async_group = aio.Group()
 
         self._status_event.set()
@@ -163,6 +170,7 @@ class EventerRunner(aio.Resource):
 
     async def _run(self):
         try:
+            mlog.debug("starting eventer runner loop")
             while True:
                 await self._status_event.wait()
 
@@ -170,6 +178,7 @@ class EventerRunner(aio.Resource):
                 if not self._is_active():
                     continue
 
+                mlog.debug("creating engine")
                 self._engine = hat.gateway.engine.Engine(
                     conf=self._conf,
                     eventer_client=self._eventer_client)
@@ -198,6 +207,7 @@ class EventerRunner(aio.Resource):
             mlog.error("eventer runner loop error: %s", e, exc_info=e)
 
         finally:
+            mlog.debug("closing eventer runner loop")
             self.close()
 
             if self._engine:

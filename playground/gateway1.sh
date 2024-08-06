@@ -8,7 +8,7 @@ PLAYGROUND_PATH=$(dirname "$(realpath "$0")")
 LOG_LEVEL=DEBUG
 CONF_PATH=$DATA_PATH/gateway1.yaml
 
-cat > $CONF_PATH << EOF
+cat >$CONF_PATH <<EOF
 log:
     version: 1
     formatters:
@@ -36,8 +36,9 @@ log:
             - console_handler
             - syslog_handler
     disable_existing_loggers: false
-gateway_name: gateway1
+name: gateway1
 event_server:
+    require_operational: true
     monitor_component:
         host: "127.0.0.1"
         port: 23010

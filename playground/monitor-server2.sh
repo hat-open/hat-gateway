@@ -8,7 +8,7 @@ PLAYGROUND_PATH=$(dirname "$(realpath "$0")")
 LOG_LEVEL=DEBUG
 CONF_PATH=$DATA_PATH/monitor2.yaml
 
-cat > $CONF_PATH << EOF
+cat >$CONF_PATH <<EOF
 log:
     version: 1
     formatters:
