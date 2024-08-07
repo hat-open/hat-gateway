@@ -60,7 +60,7 @@ class MainRunner(aio.Resource):
         if 'monitor_component' in event_server_conf:
             monitor_component_conf = event_server_conf['monitor_component']
 
-            mlog.debug("creating event component")
+            mlog.debug("creating eventer component")
             self._eventer_component = await hat.event.component.connect(
                 addr=tcp.Address(monitor_component_conf['host'],
                                  monitor_component_conf['port']),
@@ -183,7 +183,7 @@ class EventerRunner(aio.Resource):
                     conf=self._conf,
                     eventer_client=self._eventer_client)
 
-                async with self._async_group.create_subgroup() as subgroup:
+                async with self.async_group.create_subgroup() as subgroup:
                     engine_closing_task = subgroup.spawn(
                         self._engine.wait_closing)
 
