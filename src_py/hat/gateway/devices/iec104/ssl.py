@@ -3,9 +3,6 @@ import asyncio
 import logging
 import typing
 
-import cryptography.hazmat.primitives.asymmetric.rsa
-import cryptography.x509
-
 from hat import aio
 from hat import json
 from hat.drivers import iec104
@@ -48,8 +45,11 @@ def create_ssl_ctx(conf: json.Data,
 def init_security(conf: json.Data,
                   conn: iec104.Connection):
     if conf.get('strict_mode'):
-        cert_bytes = conn.conn.ssl_object.getpeercert(True)
-        _check_cert(cert_bytes)
+        cert = ssl.get_peer_cert(conn.conn.ssl_object)
+        if not cert:
+            raise Exception('peer cert not available')
+
+        _check_cert(cert)
 
     mlog.info('TLS session successfully established')
 
@@ -63,18 +63,20 @@ def init_security(conf: json.Data,
                                renegotiate_delay * 2, Path(conf['ca_path']))
 
 
-def _check_cert(cert_bytes):
+def _check_cert(cert):
+    cert_bytes = cert.get_bytes()
     if len(cert_bytes) > 8192:
         mlog.warning('TLS certificate size exceeded')
 
-    cert = cryptography.x509.load_der_x509_certificate(cert_bytes)
-    key = cert.public_key()
+    key = cert.get_pub_pkey()
 
-    if isinstance(key, cryptography.hazmat.primitives.asymmetric.rsa.RSAPublicKey):  # NOQA
-        if key.key_size < 2048:
+    if key.is_rsa():
+        key_size = key.get_size()
+
+        if key_size < 2048:
             raise Exception('insufficient RSA key length')
 
-        if key.key_size > 8192:
+        if key_size > 8192:
             mlog.warning('RSA key length greater than 8192')
 
 
@@ -131,10 +133,12 @@ def _ext_renegotiate(ssl_object):
 
 
 def _ext_verify(ssl_object, ca_path):
-    cert_bytes = ssl_object.getpeercert(True)
-    cert = cryptography.x509.load_der_x509_certificate(cert_bytes)
+    cert = ssl.get_peer_cert(ssl_object)
+    if not cert:
+        raise Exception('peer cert not available')
 
-    crl = cryptography.x509.load_pem_x509_crl(ca_path.read_bytes())
+    crl = ssl.load_crl(ca_path)
 
-    if crl.get_revoked_certificate_by_serial_number(cert.serial_number):
+    serial_number = cert.get_serial_number()
+    if crl.contains_cert(serial_number):
         mlog.warning('current certificate in CRL')

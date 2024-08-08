@@ -1,15 +1,14 @@
 [project]
 name = "hat-gateway"
-version = "0.6.7"
+version = "0.6.8"
 description = "Hat gateway"
 readme = "README.rst"
 requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
 dependencies = [
     "appdirs ~=1.4.4",
-    "cryptography >=3.3.2",
     "hat-aio ~=0.7.10",
-    "hat-drivers ~=0.8.6",
+    "hat-drivers ~=0.8.7",
     "hat-event ~=0.9.8",
     "hat-json ~=0.5.28",
     "hat-monitor ~=0.8.10",
