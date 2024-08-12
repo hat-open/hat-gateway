@@ -66,6 +66,123 @@ $defs:
                         description: |
                             OID associated to string hex value formated as
                             integers separated by '.'
+    trap_listener:
+        type: object
+        required:
+            - local_host
+            - local_port
+            - users
+            - remote_devices
+        properties:
+            local_host:
+                type: string
+                description: |
+                    Local listening hostname or IP address
+            local_port:
+                type: integer
+                description: |
+                    Local listening UDP port
+            users:
+                type: array
+                items:
+                    type: object
+                    required:
+                        - name
+                        - authentication
+                        - privacy
+                    properties:
+                        user:
+                            type: string
+                        authentication:
+                            oneOf:
+                              - type: "null"
+                              - type: object
+                                required:
+                                    - type
+                                    - password
+                                properties:
+                                    type:
+                                        enum:
+                                            - MD5
+                                            - SHA
+                                    password:
+                                        type: string
+                        privacy:
+                            oneOf:
+                              - type: "null"
+                              - type: object
+                                required:
+                                    - type
+                                    - password
+                                properties:
+                                    type:
+                                        const: DES
+                                    password:
+                                        type: string
+            remote_devices:
+                type: array
+                items:
+                    allOf:
+                      - oneOf:
+                          - type: object
+                            required:
+                                - version
+                                - community
+                            properties:
+                                version:
+                                    enum:
+                                        - V1
+                                        - V2C
+                                community:
+                                    type:
+                                        - "null"
+                                        - string
+                          - type: object
+                            required:
+                                - version
+                                - context
+                            properties:
+                                version:
+                                    const: V3
+                                context:
+                                    oneOf:
+                                      - type: "null"
+                                      - type: object
+                                        required:
+                                            - engine_id
+                                            - name
+                                        properties:
+                                            engine_id:
+                                                type: string
+                                                description: |
+                                                    sequence of hexadecimal
+                                                    digits
+                                            name:
+                                                type: string
+                      - type: object
+                        required:
+                            - name
+                            - oids
+                            - string_hex_oids
+                        properties:
+                            name:
+                                type: string
+                                description: |
+                                    remote device name
+                            oids:
+                                type: array
+                                items:
+                                    type: string
+                                    description: |
+                                        data OID formated as integers separated
+                                        by '.'
+                            string_hex_oids:
+                                type: array
+                                items:
+                                    type: string
+                                    description: |
+                                        OID associated to string hex value
+                                        formated as integers separated by '.'
     managers:
         v1:
             type: object
@@ -100,18 +217,18 @@ $defs:
                     const: V3
                 context:
                     oneOf:
-                        - type: "null"
-                        - type: object
-                          required:
-                              - engine_id
-                              - name
-                          properties:
-                              engine_id:
-                                  type: string
-                                  description: |
-                                      sequence of hexadecimal digits
-                              name:
-                                  type: string
+                      - type: "null"
+                      - type: object
+                        required:
+                            - engine_id
+                            - name
+                        properties:
+                            engine_id:
+                                type: string
+                                description: |
+                                    sequence of hexadecimal digits
+                            name:
+                                type: string
                 user:
                     type: string
                 authentication:
@@ -189,6 +306,10 @@ $defs:
                     properties:
                         data:
                             $ref: "hat-gateway://snmp.yaml#/$defs/data"
+        trap_listener:
+            gateway:
+                data:
+                    $ref: "hat-gateway://snmp.yaml#/$defs/data"
     data:
         oneOf:
           - type: object

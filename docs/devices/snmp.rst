@@ -170,7 +170,12 @@ Events registered by gateway have event type starting with::
 
 Available gateway events are:
 
-    * .../data/<oid>
+    * .../data/<remote_device>/<oid>
+
+        Data notification.
+
+        Payload is defined by
+        ``hat-gateway://snmp.yaml#/$defs/events/trap_listener/gateway/data``.
 
 
 Agent device
