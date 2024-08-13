@@ -91,7 +91,7 @@ $defs:
                         - authentication
                         - privacy
                     properties:
-                        user:
+                        name:
                             type: string
                         authentication:
                             oneOf:

@@ -160,6 +160,17 @@ device event types have prefix::
 
     gateway/snmp_trap_listener/<device_name>/<source>/...
 
+During device creation (after device is enabled), SNMP receiving endpoint is
+created. Lifetime of device is bound to created endpoint - device will not
+be created if endpoint initialization fails and by closing device, endpoint
+is also closed.
+
+Trap listener device receives SNMP traps and informs and registers events
+representing their data payload. Received data is grouped based on
+remote device as defined by configuration. Remote device is identified with
+SNMP version and optional community/context. Single received data can be
+associated with multiple remote devices.
+
 
 Gateway events
 ''''''''''''''

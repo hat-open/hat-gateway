@@ -1,4 +1,4 @@
-"""SNMP manager device"""
+"""SNMP trap listener device"""
 
 from collections.abc import Collection
 import collections
@@ -56,7 +56,7 @@ async def create(conf: common.DeviceConf,
         device._remote_devices[(version, subkey)].append(remote_device)
 
     users = [
-        common.User(
+        snmp.User(
             name=user_conf['name'],
             auth_type=(snmp.AuthType[user_conf['authentication']['type']]
                        if user_conf['authentication'] else None),
@@ -123,28 +123,35 @@ class SnmpTrapListenerDevice(common.Device):
                                  data=inform.data)
 
     async def _process_data(self, version, subkey, data):
-        events = collections.deque()
+        try:
+            events = collections.deque()
 
-        for key in [(version, subkey),
-                    (version, None)]:
-            for remote_device in self._remote_devices.get(key, []):
-                for i in data:
-                    if i.name not in remote_device.oids:
-                        continue
+            for key in [(version, subkey),
+                        (version, None)]:
+                for remote_device in self._remote_devices.get(key, []):
+                    for i in data:
+                        if i.name not in remote_device.oids:
+                            continue
 
-                    event = hat.event.common.RegisterEvent(
-                        type=(*self._event_type_prefix, 'gateway', 'data',
-                              remote_device.name, _oid_to_str(i.name)),
-                        source_timestamp=None,
-                        payload=hat.event.common.EventPayloadJson(
-                            _event_payload_from_data(
-                                i, remote_device.string_hex_oids)))
-                    events.append(event)
+                        event = hat.event.common.RegisterEvent(
+                            type=(*self._event_type_prefix, 'gateway', 'data',
+                                  remote_device.name, _oid_to_str(i.name)),
+                            source_timestamp=None,
+                            payload=hat.event.common.EventPayloadJson(
+                                _event_payload_from_data(
+                                    i, remote_device.string_hex_oids)))
+                        events.append(event)
 
-        if not events:
-            return
+            if not events:
+                return
 
-        await self._eventer_client.register(events)
+            await self._eventer_client.register(events)
+
+        except ConnectionError:
+            pass
+
+        except Exception as e:
+            mlog.error("error processing data: %s", e, exc_info=e)
 
 
 class _RemoteDevice(typing.NamedTuple):
