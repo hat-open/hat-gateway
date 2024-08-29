@@ -64,6 +64,9 @@ Gateway can also run independently of Monitor Server. In this case,
 Gateway connects to predefined Event Server address. If this connection could
 not be established or is broken, Gateway terminates it's process execution.
 
+When connecting to Event Server, Gateway will use client name
+``gateway/<name>`` where `<name>` represents configured component's name.
+
 
 Event Server communication
 --------------------------
