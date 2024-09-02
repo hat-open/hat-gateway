@@ -404,8 +404,6 @@ def _msg_to_event(event_type_prefix, address, msg):
 def _data_to_event(event_type_prefix, address, msg):
     data_type = common.get_data_type(msg.data)
     cause = common.cause_to_json(iec101.DataResCause, msg.cause)
-    if isinstance(cause, str) and cause.startswith('INTERROGATED_'):
-        cause = 'INTERROGATED'
     data = common.data_to_json(msg.data)
     event_type = (*event_type_prefix, 'gateway', 'remote_device', str(address),
                   'data', data_type.value, str(msg.asdu_address),

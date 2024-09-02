@@ -426,13 +426,8 @@ def data_msg_from_event(data_key: common.DataKey,
                         event: hat.event.common.Event
                         ) -> iec101.DataMsg:
     time = common.time_from_source_timestamp(event.source_timestamp)
-    if event.payload.data['cause'] == 'INTERROGATED':
-        cause = (iec101.DataResCause.INTERROGATED_STATION
-                 if data_key.data_type != common.DataType.BINARY_COUNTER
-                 else iec101.DataResCause.INTERROGATED_COUNTER)
-    else:
-        cause = common.cause_from_json(iec101.DataResCause,
-                                       event.payload.data['cause'])
+    cause = common.cause_from_json(iec101.DataResCause,
+                                   event.payload.data['cause'])
     data = common.data_from_json(data_key.data_type,
                                  event.payload.data['data'])
 

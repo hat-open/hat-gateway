@@ -838,7 +838,28 @@ $defs:
                         - REQUEST
                         - REMOTE_COMMAND
                         - LOCAL_COMMAND
-                        - INTERROGATED
+                        - INTERROGATED_STATION
+                        - INTERROGATED_GROUP01
+                        - INTERROGATED_GROUP02
+                        - INTERROGATED_GROUP03
+                        - INTERROGATED_GROUP04
+                        - INTERROGATED_GROUP05
+                        - INTERROGATED_GROUP06
+                        - INTERROGATED_GROUP07
+                        - INTERROGATED_GROUP08
+                        - INTERROGATED_GROUP09
+                        - INTERROGATED_GROUP10
+                        - INTERROGATED_GROUP11
+                        - INTERROGATED_GROUP12
+                        - INTERROGATED_GROUP13
+                        - INTERROGATED_GROUP14
+                        - INTERROGATED_GROUP15
+                        - INTERROGATED_GROUP16
+                        - INTERROGATED_COUNTER
+                        - INTERROGATED_COUNTER01
+                        - INTERROGATED_COUNTER02
+                        - INTERROGATED_COUNTER03
+                        - INTERROGATED_COUNTER04
                   - type: integer
                     description: |
                         other cause in range [0, 63]

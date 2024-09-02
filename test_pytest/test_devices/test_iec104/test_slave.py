@@ -539,11 +539,7 @@ async def test_command_response(create_conf, create_connection, is_test,
 @pytest.mark.parametrize("asdu_address", [123])
 @pytest.mark.parametrize("io_address", [321])
 @pytest.mark.parametrize("time", [None, default_time])
-@pytest.mark.parametrize("cause", [
-    i for i in iec104.DataResCause
-    if not (i.name.startswith('INTERROGATED_GROUP') or
-            i.name.startswith('INTERROGATED_COUNTER0'))
-])
+@pytest.mark.parametrize("cause", iec104.DataResCause)
 @pytest.mark.parametrize("data, data_type, data_json", [
     (iec104.SingleData(value=iec104.SingleValue.ON,
                        quality=default_indication_quality),
@@ -674,9 +670,7 @@ async def test_data_response(create_conf, create_connection, is_test,
     await wait_connections_event(event_queue, 1)
 
     payload = {'is_test': is_test,
-               'cause': ('INTERROGATED'
-                         if cause.name.startswith('INTERROGATED_')
-                         else cause.name),
+               'cause': cause.name,
                'data': data_json}
     event = create_data_event(data_type, asdu_address, io_address, time,
                               payload)

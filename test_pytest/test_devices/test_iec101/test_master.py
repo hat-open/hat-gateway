@@ -171,11 +171,8 @@ def assert_data_event(event, address, data_type, asdu_address, io_address,
 
     assert_time_equal(time, time_from_event_timestamp(event.source_timestamp))
 
-    cause_str = ('INTERROGATED' if cause.name.startswith('INTERROGATED_')
-                 else cause.name)
-
     assert is_test == event.payload.data['is_test']
-    assert cause_str == event.payload.data['cause']
+    assert cause.name == event.payload.data['cause']
 
     for key in {*data_json.keys(), *event.payload.data['data'].keys()}:
         if data_type in (common.DataType.NORMALIZED,
@@ -770,11 +767,7 @@ async def test_counter_interrogation_request(serial_conns, is_test, address,
 @pytest.mark.parametrize("io_address", [321])
 @pytest.mark.parametrize("time", [None, default_time])
 @pytest.mark.parametrize("is_test", [False, True])
-@pytest.mark.parametrize("cause", [
-    i for i in iec101.DataResCause
-    if not (i.name.startswith('INTERROGATED_GROUP') or
-            i.name.startswith('INTERROGATED_COUNTER0'))
-])
+@pytest.mark.parametrize("cause", iec101.DataResCause)
 @pytest.mark.parametrize("data, data_type, data_json", [
     (iec101.SingleData(value=iec101.SingleValue.ON,
                        quality=default_indication_quality),
