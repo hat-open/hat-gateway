@@ -231,6 +231,7 @@ $defs:
                     enum:
                         - DISABLED
                         - CONNECTING
+                        - INTERROGATING
                         - CONNECTED
                         - DISCONNECTED
                 read:

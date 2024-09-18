@@ -89,8 +89,12 @@ is calculated according to availability of data associated with that
 
     * ``CONNECTING``
 
-        Data polling is enabled and some data read requests have resulted
-        in timeout or haven't completed.
+        Data polling is enabled and none of the read requests have completed.
+
+    * ``INTERROGATING``
+
+        Data polling is enabled and at least one read request has completed but
+        not all of them.
 
     * ``CONNECTED``
 

@@ -29,6 +29,7 @@ ResponseCb: typing.TypeAlias = aio.AsyncCallable[[Response], None]
 
 class _Status(enum.Enum):
     CONNECTING = 'CONNECTING'
+    INTERROGATING = 'INTERROGATING'
     CONNECTED = 'CONNECTED'
     DISCONNECTED = 'DISCONNECTED'
     DISABLED = 'DISABLED'
@@ -237,6 +238,9 @@ class _Reader(aio.Resource):
                     if isinstance(result, Error) and result.name == 'TIMEOUT':
                         timeout = True
                         break
+
+                    if self._status == _Status.CONNECTING:
+                        await self._set_status(_Status.INTERROGATING)
 
                     for data_info in data_group.data_infos:
                         last_response = last_responses.get(data_info.name)
