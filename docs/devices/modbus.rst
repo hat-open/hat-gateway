@@ -103,8 +103,8 @@ is calculated according to availability of data associated with that
 
     * ``DISCONNECTED``
 
-        Transitive status signaling transition from ``CONNECTED`` to
-        ``CONNECTING``.
+        Transitive status signaling transition from
+        ``CONNECTING``/``INTERROGATING``/``CONNECTED`` to ``CONNECTING``.
 
 Polling of data values can be enabled/disabled based on `device_id`. Initially,
 polling for all remote devices is disabled and has to be explicitly enabled.
