@@ -91,20 +91,15 @@ is calculated according to availability of data associated with that
 
         Data polling is enabled and none of the read requests have completed.
 
-    * ``INTERROGATING``
-
-        Data polling is enabled and at least one read request has completed but
-        not all of them.
-
     * ``CONNECTED``
 
-        Data polling is enabled and all data read responses have been
+        Data polling is enabled and at least one data read responses have been
         received.
 
     * ``DISCONNECTED``
 
         Transitive status signaling transition from
-        ``CONNECTING``/``INTERROGATING``/``CONNECTED`` to ``CONNECTING``.
+        ``CONNECTING``/``CONNECTED`` to ``CONNECTING``.
 
 Polling of data values can be enabled/disabled based on `device_id`. Initially,
 polling for all remote devices is disabled and has to be explicitly enabled.

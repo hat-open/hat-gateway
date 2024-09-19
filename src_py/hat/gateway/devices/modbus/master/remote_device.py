@@ -28,11 +28,10 @@ ResponseCb: typing.TypeAlias = aio.AsyncCallable[[Response], None]
 
 
 class _Status(enum.Enum):
+    DISABLED = 'DISABLED'
     CONNECTING = 'CONNECTING'
-    INTERROGATING = 'INTERROGATING'
     CONNECTED = 'CONNECTED'
     DISCONNECTED = 'DISCONNECTED'
-    DISABLED = 'DISABLED'
 
 
 class _DataInfo(typing.NamedTuple):
@@ -239,8 +238,7 @@ class _Reader(aio.Resource):
                         timeout = True
                         break
 
-                    if self._status == _Status.CONNECTING:
-                        await self._set_status(_Status.INTERROGATING)
+                    await self._set_status(_Status.CONNECTED)
 
                     for data_info in data_group.data_infos:
                         last_response = last_responses.get(data_info.name)
@@ -260,9 +258,6 @@ class _Reader(aio.Resource):
                     last_read_times = [None for _ in data_groups]
                     last_responses = {}
                     await self._set_status(_Status.CONNECTING)
-
-                elif all(t is not None for t in last_read_times):
-                    await self._set_status(_Status.CONNECTED)
 
         except ConnectionError:
             self._log(logging.DEBUG, 'connection closed')

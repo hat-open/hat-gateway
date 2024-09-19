@@ -430,15 +430,12 @@ async def test_read(slave_addr, connection_conf, data_type, bit_offset,
     assert_remote_device_status_event(event, 1, 'CONNECTING')
 
     event = await event_queue.get()
-    assert_remote_device_status_event(event, 1, 'INTERROGATING')
+    assert_remote_device_status_event(event, 1, 'CONNECTED')
 
     event = await event_queue.get()
     assert_remote_device_read_event(event, 1, 'data', {'result': 'SUCCESS',
                                                        'value': value,
                                                        'cause': 'INTERROGATE'})
-
-    event = await event_queue.get()
-    assert_remote_device_status_event(event, 1, 'CONNECTED')
 
     await device.async_close()
 
