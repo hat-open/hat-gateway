@@ -68,6 +68,18 @@ properties:
         type: array
         items:
             $ref: "hat-gateway://main.yaml#/$defs/device"
+    adminer_server:
+        type: object
+        required:
+            - host
+            - port
+        properties:
+            host:
+                type: string
+                default: "127.0.0.1"
+            port:
+                type: integer
+                default: 23016
 $defs:
     device:
         type: object

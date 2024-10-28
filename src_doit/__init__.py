@@ -15,6 +15,7 @@ __all__ = ['task_clean_all',
            'task_test',
            'task_docs',
            'task_json_schema_repo',
+           'task_sbs_repo',
            'task_pip_requirements']
 
 
@@ -23,11 +24,13 @@ src_py_dir = Path('src_py')
 pytest_dir = Path('test_pytest')
 docs_dir = Path('docs')
 schemas_json_dir = Path('schemas_json')
+schemas_sbs_dir = Path('schemas_sbs')
 
 build_py_dir = build_dir / 'py'
 build_docs_dir = build_dir / 'docs'
 
 json_schema_repo_path = src_py_dir / 'hat/gateway/json_schema_repo.json'
+sbs_repo_path = src_py_dir / 'hat/gateway/sbs_repo.json'
 
 
 def task_clean_all():
@@ -40,7 +43,8 @@ def task_build():
     """Build"""
     return get_task_build_wheel(src_dir=src_py_dir,
                                 build_dir=build_py_dir,
-                                task_dep=['json_schema_repo'])
+                                task_dep=['json_schema_repo',
+                                          'sbs_repo'])
 
 
 def task_check():
@@ -51,7 +55,8 @@ def task_check():
 
 def task_test():
     """Test"""
-    return get_task_run_pytest(task_dep=['json_schema_repo'])
+    return get_task_run_pytest(task_dep=['json_schema_repo',
+                                         'sbs_repo'])
 
 
 def task_docs():
@@ -68,13 +73,20 @@ def task_docs():
                    dst_dir=build_docs_dir / 'py_api')
 
     return {'actions': [build],
-            'task_dep': ['json_schema_repo']}
+            'task_dep': ['json_schema_repo',
+                         'sbs_repo']}
 
 
 def task_json_schema_repo():
     """Generate JSON Schema Repository"""
     return common.get_task_json_schema_repo(schemas_json_dir.rglob('*.yaml'),
                                             json_schema_repo_path)
+
+
+def task_sbs_repo():
+    """Generate SBS repository"""
+    return common.get_task_sbs_repo(schemas_sbs_dir.rglob('*.sbs'),
+                                    sbs_repo_path)
 
 
 def task_pip_requirements():

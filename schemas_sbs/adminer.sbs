@@ -1,0 +1,14 @@
+module HatGatewayAdminer
+
+MsgGetLogConfReq = None
+
+MsgGetLogConfRes = Response(String)
+
+MsgSetLogConfReq = String
+
+MsgSetLogConfRes = Response(None)
+
+Response(T) = Choice {
+    success:  T
+    error:    String
+}

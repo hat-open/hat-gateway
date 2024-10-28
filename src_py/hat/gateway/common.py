@@ -7,6 +7,7 @@ import typing
 
 from hat import aio
 from hat import json
+from hat import sbs
 import hat.event.common
 import hat.event.eventer
 import hat.monitor.common
@@ -18,6 +19,11 @@ with importlib.resources.as_file(importlib.resources.files(__package__) /
         json.json_schema_repo,
         json.SchemaRepository.from_json(_path))
     """JSON schema repository"""
+
+with importlib.resources.as_file(importlib.resources.files(__package__) /
+                                 'sbs_repo.json') as _path:
+    sbs_repo: sbs.Repository = sbs.Repository.from_json(_path)
+    """SBS schema repository"""
 
 
 class Device(aio.Resource):

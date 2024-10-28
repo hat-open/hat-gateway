@@ -10,6 +10,7 @@ import hat.event.component
 import hat.event.eventer
 
 from hat.gateway import common
+from hat.gateway.adminer_server import create_adminer_server
 import hat.gateway.engine
 
 
@@ -26,6 +27,7 @@ class MainRunner(aio.Resource):
         self._eventer_component = None
         self._eventer_client = None
         self._eventer_runner = None
+        self._adminer_server = None
 
         self.async_group.spawn(self._run)
 
@@ -98,7 +100,18 @@ class MainRunner(aio.Resource):
         else:
             raise Exception('invalid configuration')
 
+        if 'adminer_server' in self._conf:
+            mlog.debug("creating adminer server")
+            self._adminer_server = await create_adminer_server(
+                addr=tcp.Address(self._conf['adminer_server']['host'],
+                                 self._conf['adminer_server']['port']),
+                log_conf=self._conf.get('log'))
+            _bind_resource(self.async_group, self._adminer_server)
+
     async def _stop(self):
+        if self._adminer_server:
+            await self._adminer_server.async_close()
+
         if self._eventer_runner and not self._eventer_component:
             await self._eventer_runner.async_close()
 
