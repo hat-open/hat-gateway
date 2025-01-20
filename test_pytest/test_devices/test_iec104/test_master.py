@@ -7,6 +7,7 @@ import subprocess
 import pytest
 
 from hat import aio
+from hat import json
 from hat import util
 from hat.drivers import iec104
 from hat.drivers import tcp
@@ -312,7 +313,8 @@ async def create_server(port):
 
 def test_conf(create_conf):
     conf = create_conf()
-    info.json_schema_repo.validate(info.json_schema_id, conf)
+    validator = json.DefaultSchemaValidator(info.json_schema_repo)
+    validator.validate(info.json_schema_id, conf)
 
 
 async def test_create(create_conf):

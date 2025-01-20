@@ -4,6 +4,7 @@ import itertools
 import pytest
 
 from hat import aio
+from hat import json
 from hat import util
 from hat.drivers import snmp
 from hat.drivers import udp
@@ -192,7 +193,8 @@ async def create_agent(port):
 @pytest.mark.parametrize('version', snmp.Version)
 def test_conf(version, create_conf):
     conf = create_conf(version)
-    info.json_schema_repo.validate(info.json_schema_id, conf)
+    validator = json.DefaultSchemaValidator(info.json_schema_repo)
+    validator.validate(info.json_schema_id, conf)
 
 
 @pytest.mark.parametrize('version', snmp.Version)

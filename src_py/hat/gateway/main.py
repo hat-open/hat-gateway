@@ -45,12 +45,14 @@ def sync_main(conf: json.Data):
     """Sync main entry point"""
     aio.init_asyncio()
 
-    common.json_schema_repo.validate('hat-gateway://main.yaml', conf)
+    validator = json.DefaultSchemaValidator(common.json_schema_repo)
+    validator.validate('hat-gateway://main.yaml', conf)
 
     for device_conf in conf['devices']:
         info = common.import_device_info(device_conf['module'])
         if info.json_schema_repo and info.json_schema_id:
-            info.json_schema_repo.validate(info.json_schema_id, device_conf)
+            validator = json.DefaultSchemaValidator(info.json_schema_repo)
+            validator.validate(info.json_schema_id, device_conf)
 
     log_conf = conf.get('log')
     if log_conf:

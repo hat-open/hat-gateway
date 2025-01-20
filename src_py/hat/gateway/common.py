@@ -15,9 +15,9 @@ import hat.monitor.common
 
 with importlib.resources.as_file(importlib.resources.files(__package__) /
                                  'json_schema_repo.json') as _path:
-    json_schema_repo: json.SchemaRepository = json.SchemaRepository(
+    json_schema_repo: json.SchemaRepository = json.merge_schema_repositories(
         json.json_schema_repo,
-        json.SchemaRepository.from_json(_path))
+        json.decode_file(_path))
     """JSON schema repository"""
 
 with importlib.resources.as_file(importlib.resources.files(__package__) /

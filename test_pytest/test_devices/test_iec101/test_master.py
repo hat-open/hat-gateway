@@ -6,6 +6,7 @@ import math
 import pytest
 
 from hat import aio
+from hat import json
 from hat import util
 from hat.drivers import iec101
 from hat.drivers import serial
@@ -391,7 +392,8 @@ async def serial_conns(monkeypatch):
 
 @pytest.mark.parametrize("conf", [get_conf(remote_addresses=[1, 2, 3])])
 def test_valid_conf(conf):
-    info.json_schema_repo.validate(info.json_schema_id, conf)
+    validator = json.DefaultSchemaValidator(info.json_schema_repo)
+    validator.validate(info.json_schema_id, conf)
 
 
 async def test_create(serial_conns):

@@ -7,6 +7,7 @@ import math
 import pytest
 
 from hat import aio
+from hat import json
 from hat.drivers import iec101
 from hat.drivers import serial
 from hat.drivers.iec60870 import link
@@ -243,7 +244,8 @@ def test_device_type():
 
 def test_schema_validate():
     conf = get_conf()
-    info.json_schema_repo.validate(info.json_schema_id, conf)
+    validator = json.DefaultSchemaValidator(info.json_schema_repo)
+    validator.validate(info.json_schema_id, conf)
 
 
 async def test_create(serial_conns):

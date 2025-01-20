@@ -3,6 +3,7 @@ import itertools
 import pytest
 
 from hat import aio
+from hat import json
 from hat import util
 from hat.drivers import modbus
 from hat.drivers import tcp
@@ -173,7 +174,8 @@ def connection_conf(slave_addr):
                                    'bit_count': 2}]}]},
 ])
 def test_valid_conf(conf):
-    info.json_schema_repo.validate(info.json_schema_id, conf)
+    validator = json.DefaultSchemaValidator(info.json_schema_repo)
+    validator.validate(info.json_schema_id, conf)
 
 
 async def test_create(slave_addr, connection_conf):

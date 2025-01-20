@@ -1,11 +1,11 @@
 appdirs ~=1.4.4
 hat-aio ~=0.7.11
-hat-doit ~=0.15.18
-hat-drivers ~=0.8.13
-hat-event ~=0.9.27
-hat-json ~=0.5.29
-hat-monitor ~=0.8.16
-hat-sbs ~=0.7.4
+hat-doit ~=0.16.0
+hat-drivers ~=0.8.14
+hat-event ~=0.9.29
+hat-json ~=0.6.0
+hat-monitor ~=0.8.17
+hat-sbs ~=0.7.5
 hat-util ~=0.6.17
 psutil >=5.9.8
 sphinxcontrib-plantuml >=0.27
