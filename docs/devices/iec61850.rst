@@ -1,0 +1,69 @@
+IEC61850 devices
+================
+
+IEC61850 client
+---------------
+
+Gateway events
+''''''''''''''
+
+Events registered by gateway have event type starting with::
+
+    gateway/iec61850_client/<device_name>/gateway/...
+
+Available gateway events are:
+
+    * .../status
+
+        Represents change in connection status. Upon enabling device,
+        new ``CONNECTING`` status should be registered. Once device is
+        disabled, ``DISCONNECTED`` status should be assumed regardless
+        of last registered `status` event (registration of
+        ``DISCONNECTED`` status event during device disabling is mandatory
+        but should not be relied upon).
+
+        Source timestamp is ``None``.
+
+        Payload is specified by
+        ``hat-gateway://iec61850.yaml#/$defs/events/client/gateway/status``.
+
+    * .../data/<data_name>
+
+        Represents data received as part of IEC61850 report.
+
+        Source timestamp is dependent on existence of IEC61850 time.
+        If IEC61850 time is not available, source timestamp is ``None``.
+
+        Payload is specified by
+        ``hat-gateway://iec61850.yaml#/$defs/events/client/gateway/data``.
+
+    * .../command/<command_name>
+
+        Payload is specified by
+        ``hat-gateway://iec61850.yaml#/$defs/events/client/gateway/command``.
+
+    * .../change/<value_name>
+
+        Payload is specified by
+        ``hat-gateway://iec61850.yaml#/$defs/events/client/gateway/change``.
+
+
+System events
+'''''''''''''
+
+Events registered by other Hat components, which are consumed by gateway, have
+event type starting with::
+
+    gateway/iec61850_client/<device_name>/system/...
+
+Available system events are:
+
+    * .../command/<command_name>
+
+        Payload is specified by
+        ``hat-gateway://iec61850.yaml#/$defs/events/client/system/command``.
+
+    * .../change/<value_name>
+
+        Payload is specified by
+        ``hat-gateway://iec61850.yaml#/$defs/events/client/system/change``.

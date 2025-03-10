@@ -124,7 +124,7 @@ Available gateway events are:
         If IEC104 time is not available, source timestamp is ``None``.
 
         Payload is specified by
-        ``hat-gateway://iec104.yaml#/$defs/events/master/gateway/data/res``.
+        ``hat-gateway://iec104.yaml#/$defs/events/master/gateway/data``.
 
     * .../command/<command_type>/<asdu_address>/<io_address>
 
@@ -134,7 +134,7 @@ Available gateway events are:
         If IEC104 time is not available, source timestamp is ``None``.
 
         Payload is specified by
-        ``hat-gateway://iec104.yaml#/$defs/events/master/gateway/command/res``.
+        ``hat-gateway://iec104.yaml#/$defs/events/master/gateway/command``.
 
     * .../interrogation/<asdu_address>
 
@@ -143,7 +143,7 @@ Available gateway events are:
         Source timestamp is ``None``.
 
         Payload is specified by
-        ``hat-gateway://iec104.yaml#/$defs/events/master/gateway/interrogation/res``.
+        ``hat-gateway://iec104.yaml#/$defs/events/master/gateway/interrogation``.
 
     * .../counter_interrogation/<asdu_address>
 
@@ -152,7 +152,7 @@ Available gateway events are:
         Source timestamp is ``None``.
 
         Payload is specified by
-        ``hat-gateway://iec104.yaml#/$defs/events/master/gateway/counter_interrogation/res``.
+        ``hat-gateway://iec104.yaml#/$defs/events/master/gateway/counter_interrogation``.
 
 
 System events
@@ -173,7 +173,7 @@ Available system events are:
         If IEC104 time is not available, source timestamp is ``None``.
 
         Payload is specified by
-        ``hat-gateway://iec104.yaml#/$defs/events/master/system/command/req``.
+        ``hat-gateway://iec104.yaml#/$defs/events/master/system/command``.
 
     * .../interrogation/<asdu_address>
 
@@ -182,7 +182,7 @@ Available system events are:
         Source timestamp is ``None``.
 
         Payload is specified by
-        ``hat-gateway://iec104.yaml#/$defs/events/master/system/interrogation/req``.
+        ``hat-gateway://iec104.yaml#/$defs/events/master/system/interrogation``.
 
     * .../counter_interrogation/<asdu_address>
 
@@ -192,7 +192,7 @@ Available system events are:
         Source timestamp is ``None``.
 
         Payload is specified by
-        ``hat-gateway://iec104.yaml#/$defs/events/master/system/counter_interrogation/req``.
+        ``hat-gateway://iec104.yaml#/$defs/events/master/system/counter_interrogation``.
 
 
 Slave device
