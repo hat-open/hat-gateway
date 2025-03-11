@@ -1,6 +1,142 @@
 $schema: "https://json-schema.org/draft/2020-12/schema"
 $id: "hat-gateway://iec61850.yaml"
 $defs:
+    client:
+        type: object
+        required:
+            - connection
+            - reports
+            - datasets
+            - rcbs
+            - data
+            - commands
+            - changes
+        properties:
+            connection:
+                type: object
+            reports:
+                type: array
+                items:
+                    type: object
+                    required:
+                        - report_id
+                        - values
+                    properties:
+                        report_id:
+                            type: string
+                        values:
+                            type: array
+                            items:
+                                type: object
+                                required:
+                                    - ref
+                                    - value_type
+                                properties:
+                                    ref:
+                                        $ref: "hat-gateway://iec61850.yaml#/$defs/refs/value"
+                                    value_type:
+                                        $ref: "hat-gateway://iec61850.yaml#/$defs/value_type"
+            datasets:
+                type: array
+                items:
+                    type: object
+            rcbs:
+                type: array
+                items:
+                    type: object
+            data:
+                type: array
+                items:
+                    allOf:
+                      - type: object
+                        required:
+                            - name
+                        properties:
+                            name:
+                                type: string
+                      - oneOf:
+                          - type: object
+                            required:
+                                - type
+                                - ref
+                            properties:
+                                type:
+                                    enum:
+                                        - SPS
+                                        - DPS
+                                        - INS
+                                        - ENS
+                                        - ACT
+                                        - ACD
+                                        - SEC
+                                        - BCR
+                                        - HST
+                                        - VSS
+                                        - MV
+                                        - CMV
+                                        - SAV
+                                        - WYE
+                                        - DEL
+                                        - SEQ
+                                        - HMV
+                                        - HWYE
+                                        - HDEL
+                                        - SPC
+                                        - DPC
+                                        - INC
+                                        - ENC
+                                        - BSC
+                                        - ISC
+                                        - APC
+                                        - BAC
+                                ref:
+                                    $ref: "hat-gateway://iec61850.yaml#/$defs/refs/data"
+                          - type: object
+                            required:
+                                - type
+                                - ref
+                            properties:
+                                type:
+                                    const: GENERIC
+                                ref:
+                                    $ref: "hat-gateway://iec61850.yaml#/$defs/refs/value"
+            commands:
+                type: array
+                items:
+                    type: object
+                    required:
+                        - name
+                        - model
+                        - ref
+                        - value_type
+                    properties:
+                        name:
+                            type: string
+                        model:
+                            enum:
+                                - DIRECT_WITH_NORMAL_SECURITY
+                                - SBO_WITH_NORMAL_SECURITY
+                                - DIRECT_WITH_ENHANCED_SECURITY
+                                - SBO_WITH_ENHANCED_SECURITY
+                        ref:
+                            $ref: "hat-gateway://iec61850.yaml#/$defs/refs/command"
+                        value_type:
+                            $ref: "hat-gateway://iec61850.yaml#/$defs/value_type"
+            changes:
+                type: array
+                items:
+                    type: object
+                    required:
+                        - name
+                        - ref
+                        - value_type
+                    properties:
+                        name:
+                            type: string
+                        ref:
+                            $ref: "hat-gateway://iec61850.yaml#/$defs/refs/value"
+                        value_type:
+                            $ref: "hat-gateway://iec61850.yaml#/$defs/value_type"
     events:
         client:
             gateway:
@@ -717,3 +853,84 @@ $defs:
                     - LOWER
                     - HIGHER
                     - RESERVED
+    value_type:
+        enum:
+            - BOOLEAN
+            - INTEGER
+            - UNSIGNED
+            - FLOAT
+            - BIT_STRING
+            - OCTET_STRING
+            - VISIBLE_STRING
+            - MMS_STRING
+            - ARRAY
+            - STRUCT
+            - QUALITY
+            - TIMESTAMP
+            - DOUBLE_POINT
+            - DIRECTION
+            - SEVERITY
+            - ANALOGUE
+            - VECTOR
+            - STEP_POSITION
+            - BINARY_CONTROL
+    refs:
+        data:
+            type: object
+            required:
+                - logical_device
+                - logical_node
+                - names
+            properties:
+                logical_device:
+                    type: string
+                logical_node:
+                    type: string
+                names:
+                    type: array
+                    items:
+                        type: string
+        value:
+            type: object
+            required:
+                - logical_device
+                - logical_node
+                - fc
+                - names
+            properties:
+                logical_device:
+                    type: string
+                logical_node:
+                    type: string
+                fc:
+                    type: string
+                names:
+                    type: array
+                    items:
+                        type: string
+        command:
+            type: object
+            required:
+                - logical_device
+                - logical_node
+                - name
+            properties:
+                logical_device:
+                    type: string
+                logical_node:
+                    type: string
+                name:
+                    type: string
+        rcb:
+            type: object
+            required:
+                - logical_device
+                - logical_node
+                - name
+            properties:
+                logical_device:
+                    type: string
+                logical_node:
+                    type: string
+                name:
+                    type: string
