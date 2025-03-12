@@ -854,26 +854,45 @@ $defs:
                     - HIGHER
                     - RESERVED
     value_type:
-        enum:
-            - BOOLEAN
-            - INTEGER
-            - UNSIGNED
-            - FLOAT
-            - BIT_STRING
-            - OCTET_STRING
-            - VISIBLE_STRING
-            - MMS_STRING
-            - ARRAY
-            - STRUCT
-            - QUALITY
-            - TIMESTAMP
-            - DOUBLE_POINT
-            - DIRECTION
-            - SEVERITY
-            - ANALOGUE
-            - VECTOR
-            - STEP_POSITION
-            - BINARY_CONTROL
+        oneOf:
+          - enum:
+                - BOOLEAN
+                - INTEGER
+                - UNSIGNED
+                - FLOAT
+                - BIT_STRING
+                - OCTET_STRING
+                - VISIBLE_STRING
+                - MMS_STRING
+                - QUALITY
+                - TIMESTAMP
+                - DOUBLE_POINT
+                - DIRECTION
+                - SEVERITY
+                - ANALOGUE
+                - VECTOR
+                - STEP_POSITION
+                - BINARY_CONTROL
+          - type: object
+            required:
+                - type
+                - elements
+            properties:
+                type:
+                    const: ARRAY
+                elements:
+                    $ref: "hat-gateway://iec61850.yaml#/$defs/value_type"
+          - type: object
+            required:
+                - type
+                - elements
+            properties:
+                type:
+                    const: STRUCT
+                elements:
+                    type: array
+                    items:
+                        $ref: "hat-gateway://iec61850.yaml#/$defs/value_type"
     refs:
         data:
             type: object
