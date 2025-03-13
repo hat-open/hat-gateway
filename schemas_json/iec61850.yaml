@@ -5,6 +5,7 @@ $defs:
         type: object
         required:
             - connection
+            - data_types
             - reports
             - datasets
             - rcbs
@@ -14,6 +15,61 @@ $defs:
         properties:
             connection:
                 type: object
+                required:
+                    - host
+                    - port
+                properties:
+                    host:
+                        type: string
+                    port:
+                        type: integer
+                    local_tsel:
+                        type: integer
+                    remote_tsel:
+                        type: integer
+                    local_ssel:
+                        type: integer
+                    remote_ssel:
+                        type: integer
+                    local_psel:
+                        type: integer
+                    remote_psel:
+                        type: integer
+                    local_ap_title:
+                        type: array
+                        items:
+                            type: integer
+                    remote_ap_title:
+                        type: array
+                        items:
+                            type: integer
+                    local_ae_qualifier:
+                        type: integer
+                    remote_ae_qualifier:
+                        type: integer
+                    local_detail_calling:
+                        type: integer
+            data_types:
+                type: array
+                items:
+                    type: object
+                    required:
+                        - logical_device
+                        - logical_node
+                        - fc
+                        - name
+                        - type
+                    properties:
+                        logical_device:
+                            type: string
+                        logical_node:
+                            type: string
+                        fc:
+                            type: string
+                        name:
+                            type: string
+                        type:
+                            $ref: "hat-gateway://iec61850.yaml#/$defs/value_type"
             reports:
                 type: array
                 items:
@@ -27,79 +83,66 @@ $defs:
                         values:
                             type: array
                             items:
-                                type: object
-                                required:
-                                    - ref
-                                    - value_type
-                                properties:
-                                    ref:
-                                        $ref: "hat-gateway://iec61850.yaml#/$defs/refs/value"
-                                    value_type:
-                                        $ref: "hat-gateway://iec61850.yaml#/$defs/value_type"
+                                $ref: "hat-gateway://iec61850.yaml#/$defs/refs/value"
             datasets:
                 type: array
                 items:
                     type: object
+                    required:
+                        - ref
+                        - values
+                    properties:
+                        ref:
+                            $ref: "hat-gateway://iec61850.yaml#/$defs/refs/dataset"
+                        values:
+                            type: array
+                            items:
+                                $ref: "hat-gateway://iec61850.yaml#/$defs/refs/value"
             rcbs:
                 type: array
                 items:
                     type: object
+                    required:
+                        - ref
+                        - report_id
+                        - dataset
+                        - trigger_options
+                    properties:
+                        ref:
+                            $ref: "hat-gateway://iec61850.yaml#/$defs/refs/rcb"
+                        report_id:
+                            type: string
+                        dataset:
+                            $ref: "hat-gateway://iec61850.yaml#/$defs/refs/dataset"
+                        trigger_options:
+                            type: array
+                            items:
+                                enum:
+                                    - DATA_CHANGE
+                                    - QUALITY_CHANGE
+                                    - DATA_UPDATE
+                                    - INTEGRITY
+                                    - GENERAL_INTERROGATION
+                        conf_revision:
+                            type: integer
+                        buffer_time:
+                            type: integer
+                        integrity_period:
+                            type: integer
+                        purge_buffer:
+                            type: boolean
             data:
                 type: array
                 items:
-                    allOf:
-                      - type: object
-                        required:
-                            - name
-                        properties:
-                            name:
-                                type: string
-                      - oneOf:
-                          - type: object
-                            required:
-                                - type
-                                - ref
-                            properties:
-                                type:
-                                    enum:
-                                        - SPS
-                                        - DPS
-                                        - INS
-                                        - ENS
-                                        - ACT
-                                        - ACD
-                                        - SEC
-                                        - BCR
-                                        - HST
-                                        - VSS
-                                        - MV
-                                        - CMV
-                                        - SAV
-                                        - WYE
-                                        - DEL
-                                        - SEQ
-                                        - HMV
-                                        - HWYE
-                                        - HDEL
-                                        - SPC
-                                        - DPC
-                                        - INC
-                                        - ENC
-                                        - BSC
-                                        - ISC
-                                        - APC
-                                        - BAC
-                                ref:
-                                    $ref: "hat-gateway://iec61850.yaml#/$defs/refs/data"
-                          - type: object
-                            required:
-                                - type
-                                - ref
-                            properties:
-                                type:
-                                    const: GENERIC
-                                ref:
-                                    $ref: "hat-gateway://iec61850.yaml#/$defs/refs/value"
+                    type: object
+                    required:
+                        - name
+                        - ref
+                    properties:
+                        name:
+                            type: string
+                        ref:
+                            $ref: "hat-gateway://iec61850.yaml#/$defs/refs/data"
             commands:
                 type: array
                 items:
@@ -129,14 +172,11 @@ $defs:
                     required:
                         - name
                         - ref
-                        - value_type
                     properties:
                         name:
                             type: string
                         ref:
                             $ref: "hat-gateway://iec61850.yaml#/$defs/refs/value"
-                        value_type:
-                            $ref: "hat-gateway://iec61850.yaml#/$defs/value_type"
     events:
         client:
             gateway:
@@ -152,7 +192,7 @@ $defs:
                         - reasons
                     properties:
                         data:
-                            $ref: "hat-gateway://iec61850.yaml#/$defs/data"
+                            $ref: "hat-gateway://iec61850.yaml#/$defs/value"
                         reasons:
                             type: array
                             items:
@@ -171,7 +211,7 @@ $defs:
                             - action
                         properties:
                             session_id:
-                                type: integer
+                                type: string
                             action:
                                 enum:
                                     - SELECT
@@ -193,19 +233,34 @@ $defs:
                                     const: false
                                 error:
                                     enum:
-                                        - NO_ERROR
-                                        - INSTANCE_NOT_AVAILABLE
-                                        - INSTANCE_IN_USE
-                                        - ACCESS_VIOLATION
-                                        - ACCESS_NOT_ALLOWED_IN_CURRENT_STATE
-                                        - PARAMETER_VALUE_INAPPROPRIATE
-                                        - PARAMETER_VALUE_INCONSISTENT
-                                        - CLASS_NOT_SUPPORTED
-                                        - INSTANCE_LOCKED_BY_OTHER_CLIENT
-                                        - CONTROL_MUST_BE_SELECTED
-                                        - TYPE_CONFLICT
-                                        - FAILED_DUE_TO_COMMUNICATIONS_CONSTRAINT
-                                        - FAILED_DUE_TO_SERVER_CONTRAINT
+                                        - UNKNOWN
+                                        - NOT_SUPPORTED
+                                        - BLOCKED_BY_SWITCHING_HIERARCHY
+                                        - SELECT_FAILED
+                                        - INVALID_POSITION
+                                        - POSITION_REACHED
+                                        - PARAMETER_CHANGE_IN_EXECUTION
+                                        - STEP_LIMIT
+                                        - BLOCKED_BY_MODE
+                                        - BLOCKED_BY_PROCESS
+                                        - BLOCKED_BY_INTERLOCKING
+                                        - BLOCKED_BY_SYNCHROCHECK
+                                        - COMMAND_ALREADY_IN_EXECUTION
+                                        - BLOCKED_BY_HEALTH
+                                        - ONE_OF_N_CONTROL
+                                        - ABORTION_BY_CANCEL
+                                        - TIME_LIMIT_OVER
+                                        - ABORTION_BY_TRIP
+                                        - OBJECT_NOT_SELECTED
+                                        - OBJECT_ALREADY_SELECTED
+                                        - NO_ACCESS_AUTHORITY
+                                        - ENDED_WITH_OVERSHOOT
+                                        - ABORTION_DUE_TO_DEVIATION
+                                        - ABORTION_BY_COMMUNICATION_LOSS
+                                        - BLOCKED_BY_COMMAND
+                                        - NONE
+                                        - INCONSISTENT_PARAMETERS
+                                        - LOCKED_BY_OTHER_CLIENT
                 change:
                     allOf:
                       - type: object
@@ -213,7 +268,7 @@ $defs:
                             - session_id
                         properties:
                             session_id:
-                                type: integer
+                                type: string
                       - oneOf:
                           - type: object
                             requried:
@@ -253,7 +308,7 @@ $defs:
                         - test
                     properties:
                         session_id:
-                            type: integer
+                            type: string
                         action:
                             enum:
                                 - SELECT
@@ -262,15 +317,23 @@ $defs:
                         value:
                             $ref: "hat-gateway://iec61850.yaml#/$defs/value"
                         origin:
-                            enum:
-                                - BAY_CONTROL
-                                - STATION_CONTROL
-                                - REMOTE_CONTROL
-                                - AUTOMATIC_BAY
-                                - AUTOMATIC_STATION
-                                - AUTOMATIC_REMOTE
-                                - MAINTENANCE
-                                - PROCESS
+                            type: object
+                            required:
+                                - category
+                                - identification
+                            properties:
+                                category:
+                                    enum:
+                                        - BAY_CONTROL
+                                        - STATION_CONTROL
+                                        - REMOTE_CONTROL
+                                        - AUTOMATIC_BAY
+                                        - AUTOMATIC_STATION
+                                        - AUTOMATIC_REMOTE
+                                        - MAINTENANCE
+                                        - PROCESS
+                                identification:
+                                    type: string
                         test:
                             type: boolean
                         check:
@@ -284,422 +347,9 @@ $defs:
                         - value
                     properties:
                         session_id:
-                            type: integer
+                            type: string
                         value:
                             $ref: "hat-gateway://iec61850.yaml#/$defs/value"
-    data:
-        oneOf:
-            - $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/generic"
-            - $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/single_point_status"
-            - $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/double_point_status"
-            - $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/integer_status"
-            - $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/enumerated_status"
-            - $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/protection_activation_information"
-            - $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/directional_protection_activation_information"
-            - $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/security_violation_counting"
-            - $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/binary_counter_reading"
-            - $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/histogram"
-            - $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/visible_string_status"
-            - $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/measured_value"
-            - $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/complex_measured_value"
-            - $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/sampled_value"
-            - $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/phase_to_ground_measured_value"
-            - $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/phase_to_phase_measured_value"
-            - $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/sequence"
-            - $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/harmonic_value"
-            - $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/harmonic_value_for_wye"
-            - $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/harmonic_value_for_del"
-            - $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/controllable_single_point"
-            - $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/controllable_double_point"
-            - $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/controllable_integer_status"
-            - $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/controllable_enumerated_status"
-            - $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/binary_controlled_step_position_information"
-            - $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/integer_controlled_step_position_information"
-            - $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/controllable_analogue_process_value"
-            - $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/binary_controlled_analog_process_value"
-        $defs:
-            generic:
-                type: object
-                required:
-                    - type
-                    - value
-                properties:
-                    type:
-                        const: GENERIC
-                    value:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value"
-            single_point_status:
-                type: object
-                required:
-                    - type
-                properties:
-                    type:
-                        const: SPS
-                    value:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/boolean"
-                    quality:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/quality"
-                    timestamp:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/timestamp"
-            double_point_status:
-                type: object
-                required:
-                    - type
-                properties:
-                    type:
-                        const: DPS
-                    value:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/double_point"
-                    quality:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/quality"
-                    timestamp:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/timestamp"
-            integer_status:
-                type: object
-                required:
-                    - type
-                properties:
-                    type:
-                        const: INS
-                    value:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/integer"
-                    quality:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/quality"
-                    timestamp:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/timestamp"
-            enumerated_status:
-                type: object
-                required:
-                    - type
-                properties:
-                    type:
-                        const: ENS
-                    value:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/integer"
-                    quality:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/quality"
-                    timestamp:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/timestamp"
-            protection_activation_information:
-                type: object
-                required:
-                    - type
-                properties:
-                    type:
-                        const: ACT
-                    general:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/boolean"
-                    quality:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/quality"
-                    timestamp:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/timestamp"
-            directional_protection_activation_information:
-                type: object
-                required:
-                    - type
-                properties:
-                    type:
-                        const: ACD
-                    general:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/boolean"
-                    general_direction:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/direction"
-                    quality:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/quality"
-                    timestamp:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/timestamp"
-            security_violation_counting:
-                type: object
-                required:
-                    - type
-                properties:
-                    type:
-                        const: SEC
-                    count:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/unsigned"
-                    severity:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/severity"
-                    timestamp:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/timestamp"
-            histogram:
-                type: object
-                required:
-                    - type
-                properties:
-                    type:
-                        const: HST
-                    value:
-                        type: array
-                        items:
-                            $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/integer"
-                    quality:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/quality"
-                    timestamp:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/timestamp"
-            visible_string_status:
-                type: object
-                required:
-                    - type
-                properties:
-                    type:
-                        const: VSS
-                    value:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/visible_string"
-                    quality:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/quality"
-                    timestamp:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/timestamp"
-            measured_value:
-                type: object
-                required:
-                    - type
-                properties:
-                    type:
-                        const: MV
-                    value:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/analogue"
-                    quality:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/quality"
-                    timestamp:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/timestamp"
-            complex_measured_value:
-                type: object
-                required:
-                    - type
-                properties:
-                    type:
-                        const: CMV
-                    value:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/vector"
-                    quality:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/quality"
-                    timestamp:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/timestamp"
-            sampled_value:
-                type: object
-                required:
-                    - type
-                properties:
-                    type:
-                        const: SAV
-                    value:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/analogue"
-                    quality:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/quality"
-            phase_to_ground_measured_value:
-                type: object
-                required:
-                    - type
-                properties:
-                    type:
-                        const: WYE
-                    phase_a:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/complex_measured_value"
-                    phase_b:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/complex_measured_value"
-                    phase_c:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/complex_measured_value"
-                    neutral:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/complex_measured_value"
-                    net:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/complex_measured_value"
-                    residual:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/complex_measured_value"
-            phase_to_phase_measured_value:
-                type: object
-                required:
-                    - type
-                properties:
-                    type:
-                        const: WYE
-                    phase_ab:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/complex_measured_value"
-                    phase_bc:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/complex_measured_value"
-                    phase_ca:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/complex_measured_value"
-            sequence:
-                type: object
-                required:
-                    - type
-                properties:
-                    type:
-                        const: SEQ
-                    c1:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/complex_measured_value"
-                    c2:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/complex_measured_value"
-                    c3:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/complex_measured_value"
-                    sequence_type:
-                        enum:
-                            - 0
-                            - 1
-            harmonic_value:
-                type: object
-                required:
-                    - type
-                properties:
-                    type:
-                        const: HMV
-                    harmonics:
-                        type: array
-                        items:
-                            $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/complex_measured_value"
-            harmonic_value_for_wye:
-                type: object
-                required:
-                    - type
-                properties:
-                    type:
-                        const: HWYE
-                    phase_a_harmonics:
-                        type: array
-                        items:
-                            $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/complex_measured_value"
-                    phase_b_harmonics:
-                        type: array
-                        items:
-                            $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/complex_measured_value"
-                    phase_c_harmonics:
-                        type: array
-                        items:
-                            $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/complex_measured_value"
-                    neutral_harmonics:
-                        type: array
-                        items:
-                            $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/complex_measured_value"
-                    net_harmonics:
-                        type: array
-                        items:
-                            $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/complex_measured_value"
-                    residual_harmonics:
-                        type: array
-                        items:
-                            $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/complex_measured_value"
-            harmonic_value_for_del:
-                type: object
-                required:
-                    - type
-                properties:
-                    type:
-                        const: HDEL
-                    phase_ab_harmonics:
-                        type: array
-                        items:
-                            $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/complex_measured_value"
-                    phase_bc_harmonics:
-                        type: array
-                        items:
-                            $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/complex_measured_value"
-                    phase_ca_harmonics:
-                        type: array
-                        items:
-                            $ref: "hat-gateway://iec61850.yaml#/$defs/data/$defs/complex_measured_value"
-            controllable_single_point:
-                type: object
-                required:
-                    - type
-                properties:
-                    type:
-                        const: SPC
-                    value:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/boolean"
-                    quality:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/quality"
-                    timestamp:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/timestamp"
-            controllable_double_point:
-                type: object
-                required:
-                    - type
-                properties:
-                    type:
-                        const: DPC
-                    value:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/double_point"
-                    quality:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/quality"
-                    timestamp:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/timestamp"
-            controllable_integer_status:
-                type: object
-                required:
-                    - type
-                properties:
-                    type:
-                        const: INC
-                    value:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/integer"
-                    quality:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/quality"
-                    timestamp:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/timestamp"
-            controllable_enumerated_status:
-                type: object
-                required:
-                    - type
-                properties:
-                    type:
-                        const: ENC
-                    value:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/integer"
-                    quality:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/quality"
-                    timestamp:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/timestamp"
-            binary_controlled_step_position_information:
-                type: object
-                required:
-                    - type
-                properties:
-                    type:
-                        const: BSC
-                    value:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/step_position"
-                    quality:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/quality"
-                    timestamp:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/timestamp"
-            integer_controlled_step_position_information:
-                type: object
-                required:
-                    - type
-                properties:
-                    type:
-                        const: ISC
-                    value:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/step_position"
-                    quality:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/quality"
-                    timestamp:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/timestamp"
-            controllable_analogue_process_value:
-                type: object
-                required:
-                    - type
-                properties:
-                    type:
-                        const: APC
-                    value:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/analogue"
-                    quality:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/quality"
-                    timestamp:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/timestamp"
-            binary_controlled_analog_process_value:
-                type: object
-                required:
-                    - type
-                properties:
-                    type:
-                        const: BAC
-                    value:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/analogue"
-                    quality:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/quality"
-                    timestamp:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/timestamp"
     value:
         anyOf:
             - $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/boolean"
@@ -746,9 +396,10 @@ $defs:
                 items:
                     $ref: "hat-gateway://iec61850.yaml#/$defs/value"
             struct:
-                type: array
-                items:
-                    $ref: "hat-gateway://iec61850.yaml#/$defs/value"
+                type: object
+                patternProperties:
+                    '.+':
+                        $ref: "hat-gateway://iec61850.yaml#/$defs/value"
             quality:
                 type: object
                 required:
@@ -880,7 +531,7 @@ $defs:
             properties:
                 type:
                     const: ARRAY
-                elements:
+                element_type:
                     $ref: "hat-gateway://iec61850.yaml#/$defs/value_type"
           - type: object
             required:
@@ -892,7 +543,15 @@ $defs:
                 elements:
                     type: array
                     items:
-                        $ref: "hat-gateway://iec61850.yaml#/$defs/value_type"
+                        type: object
+                        requried:
+                            - name
+                            - type
+                        properties:
+                            name:
+                                type: string
+                            type:
+                                $ref: "hat-gateway://iec61850.yaml#/$defs/value_type"
     refs:
         data:
             type: object
@@ -908,7 +567,9 @@ $defs:
                 names:
                     type: array
                     items:
-                        type: string
+                        type:
+                            - string
+                            - integer
         value:
             type: object
             required:
@@ -926,7 +587,9 @@ $defs:
                 names:
                     type: array
                     items:
-                        type: string
+                        type:
+                            - string
+                            - integer
         command:
             type: object
             required:
@@ -945,11 +608,31 @@ $defs:
             required:
                 - logical_device
                 - logical_node
+                - type
                 - name
             properties:
                 logical_device:
                     type: string
                 logical_node:
                     type: string
+                type:
+                    enum:
+                        - BUFFERED
+                        - UNBUFFERED
                 name:
                     type: string
+        dataset:
+            oneOf:
+              - type: string
+              - type: object
+                required:
+                    - logical_device
+                    - logical_node
+                    - name
+                properties:
+                    logical_device:
+                        type: string
+                    logical_node:
+                        type: string
+                    name:
+                        type: string
