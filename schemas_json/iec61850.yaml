@@ -438,21 +438,21 @@ $defs:
             timestamp:
                 type: object
                 required:
-                    - t
-                    - leap_seconds_known
+                    - value
+                    - leap_second
                     - clock_failure
-                    - clock_not_synchronized
+                    - not_synchronized
                 properties:
-                    t:
+                    value:
                         type: number
                         description: seconds since 1970-01-01
-                    leap_seconds_known:
+                    leap_second:
                         type: boolean
                     clock_failure:
                         type: boolean
-                    clock_not_synchronized:
+                    not_synchronized:
                         type: boolean
-                    time_accuracy:
+                    accuracy:
                         type: integer
             double_point:
                 enum:
