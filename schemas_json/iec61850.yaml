@@ -5,7 +5,7 @@ $defs:
         type: object
         required:
             - connection
-            - data_types
+            - value_types
             - reports
             - datasets
             - rcbs
@@ -49,7 +49,7 @@ $defs:
                         type: integer
                     local_detail_calling:
                         type: integer
-            data_types:
+            value_types:
                 type: array
                 items:
                     type: object
@@ -151,7 +151,7 @@ $defs:
                         - name
                         - model
                         - ref
-                        - value_type
+                        - with_operate_time
                     properties:
                         name:
                             type: string
@@ -163,8 +163,8 @@ $defs:
                                 - SBO_WITH_ENHANCED_SECURITY
                         ref:
                             $ref: "hat-gateway://iec61850.yaml#/$defs/refs/command"
-                        value_type:
-                            $ref: "hat-gateway://iec61850.yaml#/$defs/value_type"
+                        with_operate_time:
+                            type: boolean
             changes:
                 type: array
                 items:
@@ -231,36 +231,12 @@ $defs:
                             properties:
                                 success:
                                     const: false
-                                error:
-                                    enum:
-                                        - UNKNOWN
-                                        - NOT_SUPPORTED
-                                        - BLOCKED_BY_SWITCHING_HIERARCHY
-                                        - SELECT_FAILED
-                                        - INVALID_POSITION
-                                        - POSITION_REACHED
-                                        - PARAMETER_CHANGE_IN_EXECUTION
-                                        - STEP_LIMIT
-                                        - BLOCKED_BY_MODE
-                                        - BLOCKED_BY_PROCESS
-                                        - BLOCKED_BY_INTERLOCKING
-                                        - BLOCKED_BY_SYNCHROCHECK
-                                        - COMMAND_ALREADY_IN_EXECUTION
-                                        - BLOCKED_BY_HEALTH
-                                        - ONE_OF_N_CONTROL
-                                        - ABORTION_BY_CANCEL
-                                        - TIME_LIMIT_OVER
-                                        - ABORTION_BY_TRIP
-                                        - OBJECT_NOT_SELECTED
-                                        - OBJECT_ALREADY_SELECTED
-                                        - NO_ACCESS_AUTHORITY
-                                        - ENDED_WITH_OVERSHOOT
-                                        - ABORTION_DUE_TO_DEVIATION
-                                        - ABORTION_BY_COMMUNICATION_LOSS
-                                        - BLOCKED_BY_COMMAND
-                                        - NONE
-                                        - INCONSISTENT_PARAMETERS
-                                        - LOCKED_BY_OTHER_CLIENT
+                                service_error:
+                                    $ref: "hat-gateway://iec61850.yaml#/$defs/errors/service_error"
+                                additional_cause:
+                                    $ref: "hat-gateway://iec61850.yaml#/$defs/errors/additional_cause"
+                                test_error:
+                                    $ref: "hat-gateway://iec61850.yaml#/$defs/errors/test_error"
                 change:
                     allOf:
                       - type: object
@@ -283,20 +259,7 @@ $defs:
                                 success:
                                     const: false
                                 error:
-                                    enum:
-                                        - NO_ERROR
-                                        - INSTANCE_NOT_AVAILABLE
-                                        - INSTANCE_IN_USE
-                                        - ACCESS_VIOLATION
-                                        - ACCESS_NOT_ALLOWED_IN_CURRENT_STATE
-                                        - PARAMETER_VALUE_INAPPROPRIATE
-                                        - PARAMETER_VALUE_INCONSISTENT
-                                        - CLASS_NOT_SUPPORTED
-                                        - INSTANCE_LOCKED_BY_OTHER_CLIENT
-                                        - CONTROL_MUST_BE_SELECTED
-                                        - TYPE_CONFLICT
-                                        - FAILED_DUE_TO_COMMUNICATIONS_CONSTRAINT
-                                        - FAILED_DUE_TO_SERVER_CONTRAINT
+                                    $ref: "hat-gateway://iec61850.yaml#/$defs/errors/service_error"
             system:
                 command:
                     type: object
@@ -306,6 +269,7 @@ $defs:
                         - value
                         - origin
                         - test
+                        - check
                     properties:
                         session_id:
                             type: string
@@ -339,7 +303,9 @@ $defs:
                         check:
                             type: array
                             items:
-                                type: boolean
+                                enum:
+                                    - SYNCHRO
+                                    - INTERLOCK
                 change:
                     type: object
                     requried:
@@ -636,3 +602,55 @@ $defs:
                         type: string
                     name:
                         type: string
+    errors:
+        service_error:
+            enum:
+                - NO_ERROR
+                - INSTANCE_NOT_AVAILABLE
+                - INSTANCE_IN_USE
+                - ACCESS_VIOLATION
+                - ACCESS_NOT_ALLOWED_IN_CURRENT_STATE
+                - PARAMETER_VALUE_INAPPROPRIATE
+                - PARAMETER_VALUE_INCONSISTENT
+                - CLASS_NOT_SUPPORTED
+                - INSTANCE_LOCKED_BY_OTHER_CLIENT
+                - CONTROL_MUST_BE_SELECTED
+                - TYPE_CONFLICT
+                - FAILED_DUE_TO_COMMUNICATIONS_CONSTRAINT
+                - FAILED_DUE_TO_SERVER_CONTRAINT
+        additional_cause:
+            enum:
+                - UNKNOWN
+                - NOT_SUPPORTED
+                - BLOCKED_BY_SWITCHING_HIERARCHY
+                - SELECT_FAILED
+                - INVALID_POSITION
+                - POSITION_REACHED
+                - PARAMETER_CHANGE_IN_EXECUTION
+                - STEP_LIMIT
+                - BLOCKED_BY_MODE
+                - BLOCKED_BY_PROCESS
+                - BLOCKED_BY_INTERLOCKING
+                - BLOCKED_BY_SYNCHROCHECK
+                - COMMAND_ALREADY_IN_EXECUTION
+                - BLOCKED_BY_HEALTH
+                - ONE_OF_N_CONTROL
+                - ABORTION_BY_CANCEL
+                - TIME_LIMIT_OVER
+                - ABORTION_BY_TRIP
+                - OBJECT_NOT_SELECTED
+                - OBJECT_ALREADY_SELECTED
+                - NO_ACCESS_AUTHORITY
+                - ENDED_WITH_OVERSHOOT
+                - ABORTION_DUE_TO_DEVIATION
+                - ABORTION_BY_COMMUNICATION_LOSS
+                - BLOCKED_BY_COMMAND
+                - NONE
+                - INCONSISTENT_PARAMETERS
+                - LOCKED_BY_OTHER_CLIENT
+        test_error:
+            enum:
+                - NO_ERROR
+                - UNKNOWN
+                - TIMEOUT_TEST_NOT_OK
+                - OPERATOR_TEST_NOT_OK
