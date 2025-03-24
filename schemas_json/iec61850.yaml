@@ -6,7 +6,6 @@ $defs:
         required:
             - connection
             - value_types
-            - reports
             - datasets
             - rcbs
             - data
@@ -70,20 +69,6 @@ $defs:
                             type: string
                         type:
                             $ref: "hat-gateway://iec61850.yaml#/$defs/value_type"
-            reports:
-                type: array
-                items:
-                    type: object
-                    required:
-                        - report_id
-                        - values
-                    properties:
-                        report_id:
-                            type: string
-                        values:
-                            type: array
-                            items:
-                                $ref: "hat-gateway://iec61850.yaml#/$defs/refs/value"
             datasets:
                 type: array
                 items:
@@ -91,6 +76,7 @@ $defs:
                     required:
                         - ref
                         - values
+                        - dynamic
                     properties:
                         ref:
                             $ref: "hat-gateway://iec61850.yaml#/$defs/refs/dataset"
@@ -98,6 +84,8 @@ $defs:
                             type: array
                             items:
                                 $ref: "hat-gateway://iec61850.yaml#/$defs/refs/value"
+                        dynamic:
+                            type: boolean
             rcbs:
                 type: array
                 items:
