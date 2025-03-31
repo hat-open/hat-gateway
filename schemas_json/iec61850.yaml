@@ -17,11 +17,26 @@ $defs:
                 required:
                     - host
                     - port
+                    - connect_timeout
+                    - reconnect_delay
+                    - response_timeout
+                    - status_delay
+                    - status_timeout
                 properties:
                     host:
                         type: string
                     port:
                         type: integer
+                    connect_timeout:
+                        type: number
+                    reconnect_delay:
+                        type: number
+                    response_timeout:
+                        type: number
+                    status_delay:
+                        type: number
+                    status_timeout:
+                        type: number
                     local_tsel:
                         type: integer
                     remote_tsel:
@@ -119,6 +134,8 @@ $defs:
                             type: integer
                         purge_buffer:
                             type: boolean
+                        reservation_time:
+                            type: integer
             data:
                 type: array
                 items:
@@ -257,7 +274,7 @@ $defs:
                         - value
                         - origin
                         - test
-                        - check
+                        - checks
                     properties:
                         session_id:
                             type: string
@@ -288,7 +305,7 @@ $defs:
                                     type: string
                         test:
                             type: boolean
-                        check:
+                        checks:
                             type: array
                             items:
                                 enum:
@@ -304,6 +321,9 @@ $defs:
                             type: string
                         value:
                             $ref: "hat-gateway://iec61850.yaml#/$defs/value"
+                entry_id:
+                    type: string
+                    description: hex encoded bytes
     value:
         anyOf:
             - $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/boolean"
@@ -481,7 +501,7 @@ $defs:
           - type: object
             required:
                 - type
-                - elements
+                - element_type
             properties:
                 type:
                     const: ARRAY

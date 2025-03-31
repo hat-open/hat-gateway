@@ -47,6 +47,13 @@ Available gateway events are:
         Payload is specified by
         ``hat-gateway://iec61850.yaml#/$defs/events/client/gateway/change``.
 
+    * .../entry_id/<report_id>
+
+        Source timestamp is ``None``.
+
+        Payload is specified by
+        ``hat-gateway://iec61850.yaml#/$defs/events/client/gateway/entry_id``.
+
 
 System events
 '''''''''''''
