@@ -17,7 +17,7 @@ DatasetCb: typing.TypeAlias = aio.AsyncCallable[
     None]
 
 RcbCb: typing.TypeAlias = aio.AsyncCallable[
-    [iec61850.RcbRef, iec61850.Rcb],
+    [iec61850.RcbRef, iec61850.RcbAttrType, iec61850.RcbAttrValue],
     None]
 
 WriteCb: typing.TypeAlias = aio.AsyncCallable[
@@ -40,7 +40,9 @@ OperateCb: typing.TypeAlias = aio.AsyncCallable[
 async def create_server(addr: tcp.Address,
                         datasets: dict[iec61850.DatasetRef,
                                        Collection[iec61850.DataRef]] = {},
-                        rcbs: dict[iec61850.RcbRef, iec61850.Rcb] = {},
+                        rcbs: dict[iec61850.RcbRef,
+                                   dict[iec61850.RcbAttrType,
+                                        iec61850.RcbAttrValue]] = {},
                         cmd_value_types: dict[iec61850.CommandRef,
                                               iec61850.ValueType] = {},
                         dataset_cb: DatasetCb | None = None,
@@ -49,16 +51,6 @@ async def create_server(addr: tcp.Address,
                         select_cb: SelectCb | None = None,
                         cancel_cb: CancelCb | None = None,
                         operate_cb: OperateCb | None = None):
-    for rcb_ref, rcb in rcbs.items():
-        if not ((rcb_ref.type == iec61850.RcbType.BUFFERED and
-                 isinstance(rcb, iec61850.Brcb)) or
-                (rcb_ref.type == iec61850.RcbType.UNBUFFERED and
-                 isinstance(rcb, iec61850.Urcb))):
-            raise Exception('invalid rcb reference/type')
-
-        if any(i is None for i in rcb):
-            raise Exception('invalid rcb value')
-
     server = Server()
     server._datasets = datasets
     server._rcbs = rcbs
@@ -91,7 +83,8 @@ class Server(aio.Resource):
         return self._datasets
 
     @property
-    def rcbs(self) -> dict[iec61850.RcbRef, iec61850.Rcb]:
+    def rcbs(self) -> dict[iec61850.RcbRef,
+                           dict[iec61850.RcbAttrType, iec61850.RcbAttrValue]]:
         return self._rcbs
 
     async def send_report(self,
@@ -224,10 +217,7 @@ class Server(aio.Resource):
 
             data_ref = _data_ref_from_object_name(i.name)
 
-            if data_ref.names[-1] in {'RptID', 'RptEna', 'DatSet', 'ConfRev',
-                                      'OptFlds', 'BufTm', 'SqNum', 'TrgOps',
-                                      'IntgPd', 'GI', 'PurgeBuf', 'EntryID',
-                                      'TimeOfEntry', 'ResvTms', 'Resv'}:
+            if data_ref.names[-1] == 'ConfRev':
                 result = await self._process_read_rcb(data_ref)
 
             elif data_ref.names[-1] == 'SBO':
@@ -261,73 +251,12 @@ class Server(aio.Resource):
         if rcb is None:
             return mms.DataAccessError.OBJECT_UNDEFINED
 
-        if attr == 'RptID':
-            return _value_to_mms_data(rcb.report_id,
-                                      iec61850.BasicValueType.VISIBLE_STRING)
+        attr_type = iec61850.RcbAttrType(attr)
 
-        if attr == 'RptEna':
-            return _value_to_mms_data(rcb.report_enable,
-                                      iec61850.BasicValueType.BOOLEAN)
+        if attr_type not in rcb:
+            return mms.DataAccessError.OBJECT_UNDEFINED
 
-        if attr == 'DatSet':
-            return _value_to_mms_data(_dataset_ref_to_str(rcb.dataset),
-                                      iec61850.BasicValueType.VISIBLE_STRING)
-
-        if attr == 'ConfRev':
-            return _value_to_mms_data(rcb.conf_revision,
-                                      iec61850.BasicValueType.UNSIGNED)
-
-        if attr == 'OptFlds':
-            return _value_to_mms_data(
-                [False,
-                 *(iec61850.OptionalField(i) in rcb.optional_fields
-                   for i in range(1, 9)),
-                 False],
-                iec61850.BasicValueType.BIT_STRING)
-
-        if attr == 'BufTm':
-            return _value_to_mms_data(rcb.buffer_time,
-                                      iec61850.BasicValueType.UNSIGNED)
-
-        if attr == 'SqNum':
-            return _value_to_mms_data(rcb.sequence_number,
-                                      iec61850.BasicValueType.UNSIGNED)
-
-        if attr == 'TrgOps':
-            return _value_to_mms_data(
-                [False,
-                 *(iec61850.TriggerCondition(i) in rcb.trigger_options
-                   for i in range(1, 6))],
-                iec61850.BasicValueType.BIT_STRING)
-
-        if attr == 'IntgPd':
-            return _value_to_mms_data(rcb.integrity_period,
-                                      iec61850.BasicValueType.UNSIGNED)
-
-        if attr == 'GI':
-            return _value_to_mms_data(rcb.gi,
-                                      iec61850.BasicValueType.BOOLEAN)
-
-        if attr == 'PurgeBuf':
-            return _value_to_mms_data(rcb.purge_buffer,
-                                      iec61850.BasicValueType.BOOLEAN)
-
-        if attr == 'EntryID':
-            return _value_to_mms_data(rcb.entry_id,
-                                      iec61850.BasicValueType.OCTET_STRING)
-
-        if attr == 'TimeOfEntry':
-            return mms.BinaryTimeData(rcb.time_of_entry)
-
-        if attr == 'ResvTms':
-            return _value_to_mms_data(rcb.reservation_time,
-                                      iec61850.BasicValueType.INTEGER)
-
-        if attr == 'Resv':
-            return _value_to_mms_data(rcb.reserve,
-                                      iec61850.BasicValueType.BOOLEAN)
-
-        return mms.DataAccessError.OBJECT_UNDEFINED
+        return _rcb_attr_value_to_mms_data(rcb[attr_type], attr_type)
 
     async def _process_read_select(self, data_ref):
         if len(data_ref.names) != 2:
@@ -358,10 +287,7 @@ class Server(aio.Resource):
 
             data_ref = _data_ref_from_object_name(specification.name)
 
-            if data_ref.names[-1] in {'RptID', 'RptEna', 'DatSet', 'ConfRev',
-                                      'OptFlds', 'BufTm', 'SqNum', 'TrgOps',
-                                      'IntgPd', 'GI', 'PurgeBuf', 'EntryID',
-                                      'TimeOfEntry', 'ResvTms', 'Resv'}:
+            if data_ref.names[-1] in {i.value for i in iec61850.RcbAttrType}:
                 result = await self._process_write_rcb(data_ref, mms_data)
 
             elif data_ref.names[-1] == 'SBOw':
@@ -401,102 +327,13 @@ class Server(aio.Resource):
         if rcb is None:
             return mms.DataAccessError.OBJECT_UNDEFINED
 
-        if attr == 'RptID':
-            rcb = rcb._replace(
-                report_id=_value_from_mms_data(
-                    mms_data, iec61850.BasicValueType.VISIBLE_STRING))
+        attr_type = iec61850.RcbAttrType(attr)
+        attr_value = _rcb_attr_value_from_mms_data(mms_data, attr_type)
 
-        elif attr == 'RptEna':
-            rcb = rcb._replace(
-                report_enable=_value_from_mms_data(
-                    mms_data, iec61850.BasicValueType.BOOLEAN))
-
-        elif attr == 'DatSet':
-            value = _value_from_mms_data(
-                mms_data, iec61850.BasicValueType.VISIBLE_STRING)
-            rcb = rcb._replace(
-                dataset=_dataset_ref_from_str(value))
-
-        elif attr == 'ConfRev':
-            rcb = rcb._replace(
-                conf_revision=_value_from_mms_data(
-                    mms_data, iec61850.BasicValueType.UNSIGNED))
-
-        elif attr == 'OptFlds':
-            value = _value_from_mms_data(
-                mms_data, iec61850.BasicValueType.BIT_STRING)
-            if len(value) != 10:
-                raise Exception('invalid optional fields size')
-
-            rcb = rcb._replace(
-                optional_fields={iec61850.OptionalField(index)
-                                 for index, i in enumerate(value)
-                                 if (1 <= index <= 8) and i})
-
-        elif attr == 'BufTm':
-            rcb = rcb._replace(
-                buffer_time=_value_from_mms_data(
-                    mms_data, iec61850.BasicValueType.UNSIGNED))
-
-        elif attr == 'SqNum':
-            rcb = rcb._replace(
-                sequence_number=_value_from_mms_data(
-                    mms_data, iec61850.BasicValueType.UNSIGNED))
-
-        elif attr == 'TrgOps':
-            value = _value_from_mms_data(
-                mms_data, iec61850.BasicValueType.BIT_STRING)
-            if len(value) != 6:
-                raise Exception('invalid trigger options size')
-
-            rcb = rcb._replace(
-                trigger_options={iec61850.TriggerCondition(index)
-                                 for index, i in enumerate(value)
-                                 if index >= 1 and i})
-
-        elif attr == 'IntgPd':
-            rcb = rcb._replace(
-                integrity_period=_value_from_mms_data(
-                    mms_data, iec61850.BasicValueType.UNSIGNED))
-
-        elif attr == 'GI':
-            rcb = rcb._replace(
-                gi=_value_from_mms_data(
-                    mms_data, iec61850.BasicValueType.BOOLEAN))
-
-        elif attr == 'PurgeBuf':
-            rcb = rcb._replace(
-                purge_buffer=_value_from_mms_data(
-                    mms_data, iec61850.BasicValueType.BOOLEAN))
-
-        elif attr == 'EntryID':
-            rcb = rcb._replace(
-                entry_id=_value_from_mms_data(
-                    mms_data, iec61850.BasicValueType.OCTET_STRING))
-
-        elif attr == 'TimeOfEntry':
-            if not isinstance(mms_data, mms.BinaryTimeData):
-                raise Exception('unexpected data type')
-
-            rcb = rcb._replace(time_of_entry=mms_data.value)
-
-        elif attr == 'ResvTms':
-            rcb = rcb._replace(
-                reservation_time=_value_from_mms_data(
-                    mms_data, iec61850.BasicValueType.INTEGER))
-
-        elif attr == 'Resv':
-            rcb = rcb._replace(
-                reserve=_value_from_mms_data(
-                    mms_data, iec61850.BasicValueType.BOOLEAN))
-
-        else:
-            return mms.DataAccessError.OBJECT_UNDEFINED
-
-        self._rcbs[rcb_ref] = rcb
+        rcb[attr_type] = attr_value
 
         if self._rcb_cb:
-            await aio.call(self._rcb_cb, rcb_ref, rcb)
+            await aio.call(self._rcb_cb, rcb_ref, attr_type, attr_value)
 
     async def _process_write_select(self, data_ref, mms_data):
         if len(data_ref.names) != 2:
@@ -564,17 +401,7 @@ class Server(aio.Resource):
 
 
 def _dataset_ref_from_object_name(object_name):
-    if isinstance(object_name, mms.DomainSpecificObjectName):
-        logical_node, name = object_name.item_id.split('$', 1)
-        return iec61850.PersistedDatasetRef(
-            logical_device=object_name.domain_id,
-            logical_node=logical_node,
-            name=name)
-
-    if isinstance(object_name, mms.AaSpecificObjectName):
-        return iec61850.NonPersistedDatasetRef(object_name.identifier)
-
-    raise TypeError('unsupported object name type')
+    return encoder.dataset_ref_from_object_name(object_name)
 
 
 def _dataset_ref_from_str(ref_str):
@@ -594,8 +421,7 @@ def _data_ref_to_object_name(ref):
 
 
 def _data_ref_to_str(ref):
-    object_name = _data_ref_to_object_name(ref)
-    return f'{object_name.domain_id}/{object_name.item_id}'
+    return encoder.data_ref_to_str(ref)
 
 
 def _value_to_mms_data(value, value_type):
@@ -604,6 +430,14 @@ def _value_to_mms_data(value, value_type):
 
 def _value_from_mms_data(mms_data, value_type):
     return encoder.value_from_mms_data(mms_data, value_type)
+
+
+def _rcb_attr_value_to_mms_data(attr_value, attr_type):
+    return encoder.rcb_attr_value_to_mms_data(attr_value, attr_type)
+
+
+def _rcb_attr_value_from_mms_data(mms_data, attr_type):
+    return encoder.rcb_attr_value_from_mms_data(mms_data, attr_type)
 
 
 def _command_to_mms_data(cmd, value_type, with_checks):
