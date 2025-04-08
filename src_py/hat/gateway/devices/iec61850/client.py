@@ -22,8 +22,7 @@ mlog: logging.Logger = logging.getLogger(__name__)
 termination_timeout: int = 100
 
 
-async def create(self,
-                 conf: common.DeviceConf,
+async def create(conf: common.DeviceConf,
                  eventer_client: hat.event.eventer.Client,
                  event_type_prefix: common.EventTypePrefix
                  ) -> 'Iec61850ClientDevice':
@@ -63,7 +62,7 @@ async def create(self,
             tuple(i['ref']['names'])) for i in conf['changes']}
     device._datasets = {_dataset_ref_from_conf(ds_conf['ref']): ds_conf
                         for ds_conf in device._conf['datasets']}
-    device._persist_dyn_datasets = {}
+    device._persist_dyn_datasets = set()
     device._dyn_datasets = {}
     for ds_conf in device._conf['datasets']:
         if not ds_conf['dynamic']:
@@ -116,12 +115,12 @@ async def create(self,
                 logical_device=val_ref_conf['logical_device'],
                 logical_node=val_ref_conf['logical_node'],
                 fc=val_ref_conf['fc'],
-                names=val_ref_conf['names'])
+                names=tuple(val_ref_conf['names']))
             device._data_value_types[value_ref] = _value_type_from_ref(
                 device._value_types_nodes, value_ref)
 
     device._async_group = aio.Group()
-    device._async_group.spawn(self._connection_loop)
+    device._async_group.spawn(device._connection_loop)
 
     return device
 
@@ -162,7 +161,7 @@ class Iec61850ClientDevice(common.Device):
             if self._conn:
                 await self._conn.async_close()
 
-        conn_conf = self._conn['connection']
+        conn_conf = self._conf['connection']
         try:
             while True:
                 await self._register_status('CONNECTING')
