@@ -52,7 +52,7 @@ async def create_server(addr: tcp.Address,
                         cancel_cb: CancelCb | None = None,
                         operate_cb: OperateCb | None = None):
     server = Server()
-    server._datasets = datasets
+    server._datasets = dict(datasets)
     server._rcbs = rcbs
     server._cmd_value_types = cmd_value_types
     server._dataset_cb = dataset_cb
@@ -86,6 +86,10 @@ class Server(aio.Resource):
     def rcbs(self) -> dict[iec61850.RcbRef,
                            dict[iec61850.RcbAttrType, iec61850.RcbAttrValue]]:
         return self._rcbs
+
+    @property
+    def conn(self) -> mms.Connection | None:
+        return self._conn
 
     async def send_report(self,
                           report: iec61850.Report,
@@ -126,7 +130,7 @@ class Server(aio.Resource):
             return await self._process_define_named_variable_list(req)
 
         if isinstance(req, mms.DeleteNamedVariableListRequest):
-            return await self._process_define_named_variable_list(req)
+            return await self._process_delete_named_variable_list(req)
 
         if isinstance(req, mms.GetNameListRequest):
             return await self._process_get_name_list(req)
@@ -183,7 +187,7 @@ class Server(aio.Resource):
         logical_device = req.object_scope.identifier
 
         identifiers = [
-            _dataset_ref_to_str(dataset_ref)
+            f'{dataset_ref.logical_node}${dataset_ref.name}'
             for dataset_ref in self._datasets.keys()
             if (isinstance(dataset_ref, iec61850.PersistedDatasetRef) and
                 dataset_ref.logical_device == logical_device)]
@@ -275,7 +279,7 @@ class Server(aio.Resource):
         return mms.VisibleStringData('')
 
     async def _process_write(self, req):
-        if isinstance(req.value, mms.ObjectName):
+        if isinstance(req.specification, mms.ObjectName):
             return mms.OtherError(0)
 
         results = collections.deque()

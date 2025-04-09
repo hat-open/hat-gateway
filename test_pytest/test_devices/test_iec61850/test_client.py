@@ -352,3 +352,182 @@ async def test_dynamic_dataset_changed_values(addr, create_conf):
     await device.async_close()
     await server.async_close()
     await client.async_close()
+
+
+@pytest.mark.parametrize('rcb_type', iec61850.RcbType)
+async def test_rcb_enable(addr, create_conf, rcb_type):
+    rcb_queue = aio.Queue()
+
+    rcb_ref = iec61850.RcbRef(logical_device='ld',
+                              logical_node='ln',
+                              type=rcb_type,
+                              name='rcb')
+
+    conf = create_conf(datasets=[{'ref': 'ds',
+                                  'values': [],
+                                  'dynamic': True}],
+                       rcbs=[{'ref': {'logical_device': 'ld',
+                                      'logical_node': 'ln',
+                                      'type': rcb_type.name,
+                                      'name': 'rcb'},
+                              'report_id': 'report id',
+                              'dataset': 'ds',
+                              'trigger_options': []}])
+    client = EventerClient()
+
+    server = await create_server(addr=addr,
+                                 rcbs={rcb_ref: {}},
+                                 rcb_cb=create_queue_cb(rcb_queue))
+    device = await aio.call(info.create, conf, client, event_type_prefix)
+
+    result_rcb_ref, attr_type, attr_value = await rcb_queue.get()
+    assert result_rcb_ref == rcb_ref
+    assert attr_type == iec61850.RcbAttrType.REPORT_ENABLE
+    assert attr_value is False
+
+    async def wait_enable_true():
+        while True:
+            result_rcb_ref, attr_type, attr_value = await rcb_queue.get()
+            assert result_rcb_ref == rcb_ref
+
+            if attr_type != iec61850.RcbAttrType.REPORT_ENABLE:
+                continue
+
+            assert attr_value is True
+            break
+
+    await aio.wait_for(wait_enable_true(), 0.1)
+
+    await device.async_close()
+    await server.async_close()
+    await client.async_close()
+
+
+@pytest.mark.parametrize('rcb_type', iec61850.RcbType)
+async def test_rcb_gi(addr, create_conf, rcb_type):
+    rcb_queue = aio.Queue()
+
+    rcb_ref = iec61850.RcbRef(logical_device='ld',
+                              logical_node='ln',
+                              type=rcb_type,
+                              name='rcb')
+
+    conf = create_conf(datasets=[{'ref': 'ds',
+                                  'values': [],
+                                  'dynamic': True}],
+                       rcbs=[{'ref': {'logical_device': 'ld',
+                                      'logical_node': 'ln',
+                                      'type': rcb_type.name,
+                                      'name': 'rcb'},
+                              'report_id': 'report id',
+                              'dataset': 'ds',
+                              'trigger_options': []}])
+    client = EventerClient()
+
+    server = await create_server(addr=addr,
+                                 rcbs={rcb_ref: {}},
+                                 rcb_cb=create_queue_cb(rcb_queue))
+    device = await aio.call(info.create, conf, client, event_type_prefix)
+
+    async def wait_gi_true():
+        while True:
+            result_rcb_ref, attr_type, attr_value = await rcb_queue.get()
+            assert result_rcb_ref == rcb_ref
+
+            if attr_type != iec61850.RcbAttrType.GI:
+                continue
+
+            assert attr_value is True
+            break
+
+    await aio.wait_for(wait_gi_true(), 0.1)
+
+    await asyncio.sleep(0.05)
+    assert rcb_queue.empty()
+
+    await device.async_close()
+    await server.async_close()
+    await client.async_close()
+
+
+@pytest.mark.parametrize('rcb_type', iec61850.RcbType)
+async def test_rcb_conf_revision(addr, create_conf, rcb_type):
+    rcb_queue = aio.Queue()
+
+    rcb_ref = iec61850.RcbRef(logical_device='ld',
+                              logical_node='ln',
+                              type=rcb_type,
+                              name='rcb')
+
+    conf = create_conf(datasets=[{'ref': 'ds',
+                                  'values': [],
+                                  'dynamic': True}],
+                       rcbs=[{'ref': {'logical_device': 'ld',
+                                      'logical_node': 'ln',
+                                      'type': rcb_type.name,
+                                      'name': 'rcb'},
+                              'report_id': 'report id',
+                              'dataset': 'ds',
+                              'trigger_options': [],
+                              'conf_revision': 123}])
+    client = EventerClient()
+
+    server = await create_server(
+        addr=addr,
+        rcbs={rcb_ref: {iec61850.RcbAttrType.CONF_REVISION: 123}},
+        rcb_cb=create_queue_cb(rcb_queue))
+    device = await aio.call(info.create, conf, client, event_type_prefix)
+
+    async def wait_gi():
+        while True:
+            _, attr_type, __ = await rcb_queue.get()
+            if attr_type == iec61850.RcbAttrType.GI:
+                return
+
+    await aio.wait_for(wait_gi(), 0.1)
+
+    await device.async_close()
+    await server.async_close()
+    await client.async_close()
+
+
+@pytest.mark.parametrize('rcb_type', iec61850.RcbType)
+async def test_rcb_conf_revision_invalid(addr, create_conf, rcb_type):
+    rcb_queue = aio.Queue()
+
+    rcb_ref = iec61850.RcbRef(logical_device='ld',
+                              logical_node='ln',
+                              type=rcb_type,
+                              name='rcb')
+
+    conf = create_conf(datasets=[{'ref': 'ds',
+                                  'values': [],
+                                  'dynamic': True}],
+                       rcbs=[{'ref': {'logical_device': 'ld',
+                                      'logical_node': 'ln',
+                                      'type': rcb_type.name,
+                                      'name': 'rcb'},
+                              'report_id': 'report id',
+                              'dataset': 'ds',
+                              'trigger_options': [],
+                              'conf_revision': 321}])
+    client = EventerClient()
+
+    server = await create_server(
+        addr=addr,
+        rcbs={rcb_ref: {iec61850.RcbAttrType.CONF_REVISION: 123}},
+        rcb_cb=create_queue_cb(rcb_queue))
+    device = await aio.call(info.create, conf, client, event_type_prefix)
+
+    async def wait_gi():
+        while True:
+            _, attr_type, __ = await rcb_queue.get()
+            if attr_type == iec61850.RcbAttrType.GI:
+                return
+
+    with pytest.raises(asyncio.TimeoutError):
+        await aio.wait_for(wait_gi(), 0.1)
+
+    await device.async_close()
+    await server.async_close()
+    await client.async_close()
