@@ -265,6 +265,9 @@ $defs:
                                     const: false
                                 error:
                                     $ref: "hat-gateway://iec61850.yaml#/$defs/errors/service_error"
+                entry_id:
+                    type: string
+                    description: hex encoded bytes
             system:
                 command:
                     type: object
@@ -321,9 +324,6 @@ $defs:
                             type: string
                         value:
                             $ref: "hat-gateway://iec61850.yaml#/$defs/value"
-                entry_id:
-                    type: string
-                    description: hex encoded bytes
     value:
         anyOf:
             - $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/boolean"

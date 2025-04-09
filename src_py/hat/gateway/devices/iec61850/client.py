@@ -29,12 +29,13 @@ async def create(conf: common.DeviceConf,
 
     result = await eventer_client.query(
         hat.event.common.QueryLatestParams(
-            event_types=[(*event_type_prefix, 'gateway', 'entry_id', '?')]))
+            event_types=[
+                (*event_type_prefix, 'gateway', 'entry_id', i['report_id'])
+                for i in conf['rcbs']]))
     rcbs_entry_ids = {}
     for event in result.events:
         rpt_id = event.type[5]
-        rcbs_entry_ids[rpt_id] = (bytes.fromhex(event.payload.data)
-                                  if event.payload.data is not None else None)
+        rcbs_entry_ids[rpt_id] = bytes.fromhex(event.payload.data)
 
     device = Iec61850ClientDevice()
 
@@ -46,22 +47,14 @@ async def create(conf: common.DeviceConf,
     device._terminations = {}
     device._conn_status = None
 
-    device._data_refs = {(i['ref']['logical_device'],
-                         i['ref']['logical_node'],
-                         *i['ref']['names']): i['name']
-                         for i in conf['data']}
-    device._command_refs = {
-        iec61850.CommandRef(**i['ref']): i for i in conf['commands']}
-    device._command_names = {i['name']: i for i in conf['commands']}
-    device._command_ctl_num = {i['name']: 0 for i in conf['commands']}
-    device._change_names = {
-        i['name']: iec61850.DataRef(
-            i['ref']['logical_device'],
-            i['ref']['logical_node'],
-            i['ref']['fc'],
-            tuple(i['ref']['names'])) for i in conf['changes']}
-    device._datasets = {_dataset_ref_from_conf(ds_conf['ref']): ds_conf
-                        for ds_conf in device._conf['datasets']}
+    device._data_ref_names = {(i['ref']['logical_device'],
+                               i['ref']['logical_node'],
+                               *i['ref']['names']): i['name']
+                              for i in conf['data']}
+    device._command_name_confs = {i['name']: i for i in conf['commands']}
+    device._command_name_ctl_nums = {i['name']: 0 for i in conf['commands']}
+    device._change_name_value_refs = {
+        i['name']: _value_ref_from_conf(i['ref']) for i in conf['changes']}
     device._persist_dyn_datasets = set()
     device._dyn_datasets = {}
     for ds_conf in device._conf['datasets']:
@@ -78,21 +71,20 @@ async def create(conf: common.DeviceConf,
                   for val_conf in ds_conf['values']]
         device._dyn_datasets[ds_ref] = values
 
+    dataset_confs = {_dataset_ref_from_conf(ds_conf['ref']): ds_conf
+                     for ds_conf in device._conf['datasets']}
     device._report_value_refs = collections.defaultdict(collections.deque)
     device._data_values = collections.defaultdict(collections.deque)
     device._values_data = collections.defaultdict(collections.deque)
     for rcb_conf in device._conf['rcbs']:
         ds_ref = _dataset_ref_from_conf(rcb_conf['dataset'])
-        for value_conf in device._datasets[ds_ref]['values']:
-            value_ref = iec61850.DataRef(
-                    value_conf['logical_device'],
-                    value_conf['logical_node'],
-                    value_conf['fc'],
-                    tuple(value_conf['names']))
+        dataset_conf = dataset_confs[ds_ref]
+        for value_conf in dataset_conf['values']:
+            value_ref = _value_ref_from_conf(value_conf)
             device._report_value_refs[rcb_conf['report_id']].append(value_ref)
 
-            for data_ref in device._data_refs:
-                if _refs_match(data_ref, value_ref):
+            for data_ref in device._data_ref_names.keys():
+                if _data_matches_value(data_ref, value_ref):
                     device._data_values[data_ref].append(value_ref)
                     device._values_data[value_ref].append(data_ref)
 
@@ -111,12 +103,12 @@ async def create(conf: common.DeviceConf,
     device._data_value_types = {}
     for ds_conf in conf['datasets']:
         for val_ref_conf in ds_conf['values']:
-            value_ref = iec61850.DataRef(
-                logical_device=val_ref_conf['logical_device'],
-                logical_node=val_ref_conf['logical_node'],
-                fc=val_ref_conf['fc'],
-                names=tuple(val_ref_conf['names']))
+            value_ref = _value_ref_from_conf(val_ref_conf)
             device._data_value_types[value_ref] = _value_type_from_ref(
+                device._value_types_nodes, value_ref)
+    for change_conf in conf['changes']:
+        value_ref = _value_ref_from_conf(change_conf['ref'])
+        device._data_value_types[value_ref] = _value_type_from_ref(
                 device._value_types_nodes, value_ref)
 
     device._async_group = aio.Group()
@@ -220,8 +212,9 @@ class Iec61850ClientDevice(common.Device):
                     await asyncio.sleep(conn_conf['reconnect_delay'])
                     continue
 
-                await self._conn.wait_closed()
+                await self._conn.wait_closing()
                 await self._register_status('DISCONNECTED')
+                await self._conn.wait_closed()
                 self._conn = None
 
         except Exception as e:
@@ -237,10 +230,10 @@ class Iec61850ClientDevice(common.Device):
             mlog.warning('command %s ignored: no connection', cmd_name)
             return
 
-        if cmd_name not in self._command_names:
+        if cmd_name not in self._command_name_confs:
             raise Exception('unexpected command name')
 
-        cmd_conf = self._command_names[cmd_name]
+        cmd_conf = self._command_name_confs[cmd_name]
         cmd_ref = iec61850.CommandRef(**cmd_conf['ref'])
         action = event.payload.data['action']
         evt_session_id = event.payload.data['session_id']
@@ -282,15 +275,14 @@ class Iec61850ClientDevice(common.Device):
         await self._register_events([event])
 
     def _get_cmd_control_number(self, cmd_name, cmd_event, cmd_model):
-        ctl_num = self._command_ctl_num[cmd_name]
+        ctl_num = self._command_name_ctl_nums[cmd_name]
         action = cmd_event.payload.data['action']
         if action == 'SELECT' or (
             action == 'OPERATE' and
             cmd_model in ['DIRECT_WITH_NORMAL_SECURITY',
                           'DIRECT_WITH_ENHANCED_SECURITY']):
-            ctl_num += 1
-            ctl_num = 0 if ctl_num > 255 else ctl_num
-            self._command_ctl_num[cmd_name] = ctl_num
+            ctl_num = (ctl_num + 1) % 256
+            self._command_name_ctl_nums[cmd_name] = ctl_num
         return ctl_num
 
     async def _send_command(self, action, cmd_ref, cmd):
@@ -326,10 +318,10 @@ class Iec61850ClientDevice(common.Device):
             mlog.warning('change event %s ignored: no connection', value_name)
             return
 
-        if value_name not in self._change_names:
+        if value_name not in self._change_name_value_refs:
             raise Exception('unexpected command name')
 
-        ref = self._change_names[value_name]
+        ref = self._change_name_value_refs[value_name]
         node = _node_from_ref(self._value_types_nodes, ref)
         if node is None:
             raise Exception('value type undefined')
@@ -382,7 +374,7 @@ class Iec61850ClientDevice(common.Device):
                     'values of data %s, only %s', data_ref, report_values)
                 continue
 
-            data_name = self._data_refs[data_ref]
+            data_name = self._data_ref_names[data_ref]
             try:
                 event = _report_values_to_event(
                     self._event_type_prefix, report_values, data_name,
@@ -546,6 +538,7 @@ class Iec61850ClientDevice(common.Device):
             res = await self._conn.create_dataset(ds_ref, ds_value_refs)
             if res is not None:
                 raise Exception(f'create dataset {ds_ref} failed: {res}')
+
             mlog.debug("dataset %s crated", ds_ref)
 
 
@@ -626,18 +619,15 @@ def _get_command_session_id(cmd_ref, cmd):
     return (cmd_ref, cmd.control_number)
 
 
-def _refs_match(ref1, ref2):
-    if isinstance(ref1, iec61850.DataRef):
-        ref1 = _ref_to_path(ref1)
-    if isinstance(ref2, iec61850.DataRef):
-        ref2 = _ref_to_path(ref2)
-    if len(ref1) == len(ref2):
-        return ref1 == ref2
+def _data_matches_value(data_path, value_ref):
+    value_path = _ref_to_path(value_ref)
+    if len(data_path) == len(value_path):
+        return data_path == value_path
 
-    if len(ref1) > len(ref2):
-        return ref1[:len(ref2)] == ref2
+    if len(data_path) > len(value_path):
+        return data_path[:len(value_path)] == value_path
 
-    return ref2[:len(ref1)] == ref1
+    return value_path[:len(data_path)] == data_path
 
 
 def _ref_to_path(ref):
@@ -667,13 +657,13 @@ def _event_data_from_report(report_values, value_types_nodes, data_ref):
     return json.get(values_json, data_ref)
 
 
-_NodeName = str | int
+_ValueTypeNodeName = str | int
 
 
-class _Node(typing.NamedTuple):
-    name: _NodeName
+class _ValueTypeNode(typing.NamedTuple):
+    name: _ValueTypeNodeName
     type: iec61850.ValueType
-    children: typing.Dict[_NodeName, '_Node']
+    children: typing.Dict[_ValueTypeNodeName, '_ValueTypeNode']
 
 
 def _node_from_value_type(value_type, name=None):
@@ -682,26 +672,26 @@ def _node_from_value_type(value_type, name=None):
                                      name=value_type['name'])
 
     if isinstance(value_type, str):
-        return _Node(name=name,
-                     type=_value_type_from_str(value_type),
-                     children=[])
+        return _ValueTypeNode(name=name,
+                              type=_value_type_from_str(value_type),
+                              children=[])
 
     if value_type['type'] == 'ARRAY':
         child_name = 0
         children = {
             child_name: _node_from_value_type(value_type['element_type'],
                                               name=child_name)}
-        return _Node(name=name,
-                     type=iec61850.ArrayValueType,
-                     children=children)
+        return _ValueTypeNode(name=name,
+                              type=iec61850.ArrayValueType,
+                              children=children)
 
     if value_type['type'] == 'STRUCT':
         for i, elm in enumerate(value_type['elements']):
             child_name = elm['name']
             children[child_name] = _node_from_value_type(elm, name=child_name)
-        return _Node(name=name,
-                     type=iec61850.StructValueType,
-                     children=children)
+        return _ValueTypeNode(name=name,
+                              type=iec61850.StructValueType,
+                              children=children)
 
     raise Exception('unsupported value type')
 
@@ -906,3 +896,11 @@ def _value_to_json(data_value, node, value_type=None):
             return {child_name: _value_to_json(child_value, child)}
 
     raise Exception('unsupported value type')
+
+
+def _value_ref_from_conf(value_ref_conf):
+    return iec61850.DataRef(
+        logical_device=value_ref_conf['logical_device'],
+        logical_node=value_ref_conf['logical_node'],
+        fc=value_ref_conf['fc'],
+        names=tuple(value_ref_conf['names']))
