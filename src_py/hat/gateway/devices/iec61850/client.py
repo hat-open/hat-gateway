@@ -427,16 +427,17 @@ class Iec61850ClientDevice(common.Device):
             name=rcb_conf['ref']['name'])
         mlog.debug('initiating rcb %s', ref)
 
-        get_resp = await self._conn.get_rcb_attr(
-            ref, iec61850.RcbAttrType.CONF_REVISION)
-        if isinstance(get_resp, iec61850.ServiceError):
-            raise Exception(f'get rcb failed {get_resp}')
-        else:
-            conf_rev = get_resp
-            if conf_rev != rcb_conf['conf_revision']:
-                raise Exception(
-                    f"Conf revision {conf_rev} different from "
-                    f"the configuration defined {rcb_conf['conf_rev']}")
+        if 'conf_revision' in rcb_conf:
+            get_resp = await self._conn.get_rcb_attr(
+                ref, iec61850.RcbAttrType.CONF_REVISION)
+            if isinstance(get_resp, iec61850.ServiceError):
+                raise Exception(f'get rcb failed {get_resp}')
+            else:
+                conf_rev = get_resp
+                if conf_rev != rcb_conf['conf_revision']:
+                    raise Exception(
+                        f"Conf revision {conf_rev} different from "
+                        f"the configuration defined {rcb_conf['conf_rev']}")
 
         await self._set_rcb(
             ref, ((iec61850.RcbAttrType.REPORT_ENABLE, False),))
@@ -451,18 +452,18 @@ class Iec61850ClientDevice(common.Device):
             if rcb_conf.get('purge_buffer') or entry_id is None:
                 await self._set_rcb(
                     ref, ((iec61850.RcbAttrType.PURGE_BUFFER, True),))
-                return
 
-            try:
-                await self._set_rcb(
-                    ref, ((iec61850.RcbAttrType.ENTRY_ID, entry_id),),
-                    critical=True)
+            else:
+                try:
+                    await self._set_rcb(
+                        ref, ((iec61850.RcbAttrType.ENTRY_ID, entry_id),),
+                        critical=True)
 
-            except Exception as e:
-                mlog.warning('%s', e, exc_info=e)
-                # try setting entry id to 0 in order to resynchronize
-                await self._set_rcb(
-                    ref, ((iec61850.RcbAttrType.ENTRY_ID, b'\x00'),))
+                except Exception as e:
+                    mlog.warning('%s', e, exc_info=e)
+                    # try setting entry id to 0 in order to resynchronize
+                    await self._set_rcb(
+                        ref, ((iec61850.RcbAttrType.ENTRY_ID, b'\x00'),))
 
         elif ref.type == iec61850.RcbType.UNBUFFERED:
             await self._set_rcb(
@@ -472,9 +473,6 @@ class Iec61850ClientDevice(common.Device):
         attrs.append((iec61850.RcbAttrType.TRIGGER_OPTIONS,
                       set(iec61850.TriggerCondition[i]
                           for i in rcb_conf['trigger_options'])))
-        if 'conf_revision' in rcb_conf:
-            attrs.append((iec61850.RcbAttrType.CONF_REVISION,
-                          rcb_conf['conf_revision']))
         if 'buffer_time' in rcb_conf:
             attrs.append((iec61850.RcbAttrType.BUFFER_TIME,
                           rcb_conf['buffer_time']))
