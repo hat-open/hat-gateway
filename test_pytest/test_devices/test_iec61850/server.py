@@ -53,7 +53,7 @@ async def create_server(addr: tcp.Address,
                         operate_cb: OperateCb | None = None):
     server = Server()
     server._datasets = dict(datasets)
-    server._rcbs = rcbs
+    server._rcbs = {k: dict(v) for k, v in rcbs.items()}
     server._cmd_value_types = cmd_value_types
     server._dataset_cb = dataset_cb
     server._rcb_cb = rcb_cb
