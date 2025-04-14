@@ -480,7 +480,8 @@ class Iec61850ClientDevice(common.Device):
         if 'integrity_period' in rcb_conf:
             attrs.append((iec61850.RcbAttrType.INTEGRITY_PERIOD,
                           rcb_conf['integrity_period']))
-        await self._set_rcb(ref, attrs)
+        if attrs:
+            await self._set_rcb(ref, attrs)
 
         await self._set_rcb(
             ref, ((iec61850.RcbAttrType.REPORT_ENABLE, True),), critical=True)
