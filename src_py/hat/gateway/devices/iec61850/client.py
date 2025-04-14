@@ -427,17 +427,13 @@ class Iec61850ClientDevice(common.Device):
             name=rcb_conf['ref']['name'])
         mlog.debug('initiating rcb %s', ref)
 
+        get_attrs = collections.deque((iec61850.RcbAttrType.REPORT_ID,
+                                       iec61850.RcbAttrType.DATASET))
         if 'conf_revision' in rcb_conf:
-            get_resp = await self._conn.get_rcb_attr(
-                ref, iec61850.RcbAttrType.CONF_REVISION)
-            if isinstance(get_resp, iec61850.ServiceError):
-                raise Exception(f'get rcb failed {get_resp}')
-            else:
-                conf_rev = get_resp
-                if conf_rev != rcb_conf['conf_revision']:
-                    raise Exception(
-                        f"Conf revision {conf_rev} different from "
-                        f"the configuration defined {rcb_conf['conf_rev']}")
+            get_attrs.append(iec61850.RcbAttrType.CONF_REVISION)
+
+        get_rcb_resp = await self._conn.get_rcb_attrs(ref, get_attrs)
+        self._validate_get_rcb_response(get_rcb_resp, rcb_conf)
 
         await self._set_rcb(
             ref, ((iec61850.RcbAttrType.REPORT_ENABLE, False),))
@@ -470,9 +466,14 @@ class Iec61850ClientDevice(common.Device):
                 ref, ((iec61850.RcbAttrType.RESERVE, True),))
 
         attrs = collections.deque()
-        attrs.append((iec61850.RcbAttrType.TRIGGER_OPTIONS,
-                      set(iec61850.TriggerCondition[i]
-                          for i in rcb_conf['trigger_options'])))
+        if 'trigger_options' in rcb_conf:
+            attrs.append((iec61850.RcbAttrType.TRIGGER_OPTIONS,
+                          set(iec61850.TriggerCondition[i]
+                              for i in rcb_conf['trigger_options'])))
+        if 'optional_fields' in rcb_conf:
+            attrs.append((iec61850.RcbAttrType.OPTIONAL_FIELDS,
+                          set(iec61850.OptionalField[i]
+                              for i in rcb_conf['optional_fields'])))
         if 'buffer_time' in rcb_conf:
             attrs.append((iec61850.RcbAttrType.BUFFER_TIME,
                           rcb_conf['buffer_time']))
@@ -490,17 +491,39 @@ class Iec61850ClientDevice(common.Device):
     async def _set_rcb(self, ref, attrs, critical=False):
         try:
             resp = await self._conn.set_rcb_attrs(ref, attrs)
-            if isinstance(resp, iec61850.ServiceError):
-                raise Exception(str(resp))
+            attrs_failed = set((attr, attr_res)
+                               for attr, attr_res in resp.items()
+                               if isinstance(attr_res, iec61850.ServiceError))
+            if attrs_failed:
+                raise Exception(f"set attribute errors: {attrs_failed}")
 
         except Exception as e:
-            attr_names = [i[0].name for i in attrs]
             if critical:
-                raise Exception(
-                    f'set rcb {ref} on {attr_names} failed') from e
+                raise Exception(f'set rcb {ref} failed') from e
+
             else:
-                mlog.warning('set rcb %s on %s failed: %s',
-                             ref, attr_names, e, exc_info=e)
+                mlog.warning('set rcb %s failed: %s', ref, e, exc_info=e)
+
+    def _validate_get_rcb_response(self, get_rcb_resp, rcb_conf):
+        for k, v in get_rcb_resp.items():
+            if isinstance(v, iec61850.ServiceError):
+                raise Exception(f"get {k.name} failed: {v}")
+
+            if (k == iec61850.RcbAttrType.REPORT_ID and
+                    v != rcb_conf['report_id']):
+                raise Exception(f"rcb report id {v} different from "
+                                f"configured {rcb_conf['report_id']}")
+
+            if (k == iec61850.RcbAttrType.DATASET and
+                    v != _dataset_ref_from_conf(rcb_conf['dataset'])):
+                raise Exception(f"rcb dataset {v} different from "
+                                f"configured {rcb_conf['report_id']}")
+
+            if (k == iec61850.RcbAttrType.CONF_REVISION and
+                    v != rcb_conf['conf_revision']):
+                raise Exception(
+                    f"Conf revision {v} different from "
+                    f"the configuration defined {rcb_conf['conf_rev']}")
 
     async def _create_dynamic_datasets(self):
         logical_devices = set(i.logical_device

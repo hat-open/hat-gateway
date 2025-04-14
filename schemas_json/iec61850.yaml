@@ -109,7 +109,6 @@ $defs:
                         - ref
                         - report_id
                         - dataset
-                        - trigger_options
                     properties:
                         ref:
                             $ref: "hat-gateway://iec61850.yaml#/$defs/refs/rcb"
@@ -126,6 +125,18 @@ $defs:
                                     - DATA_UPDATE
                                     - INTEGRITY
                                     - GENERAL_INTERROGATION
+                        optional_fields:
+                            type: array
+                            items:
+                                enum:
+                                    - SEQUENCE_NUMBER
+                                    - REPORT_TIME_STAMP
+                                    - REASON_FOR_INCLUSION
+                                    - DATA_SET_NAME
+                                    - DATA_REFERENCE
+                                    - BUFFER_OVERFLOW
+                                    - ENTRY_ID
+                                    - CONF_REVISION
                         conf_revision:
                             type: integer
                         buffer_time:
