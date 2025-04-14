@@ -1,5 +1,8 @@
+from collections.abc import Callable, Collection, Iterable
 import asyncio
+import datetime
 import itertools
+import typing
 
 import pytest
 
@@ -20,24 +23,41 @@ event_type_prefix = ('gateway', info.type, device_name)
 
 next_event_ids = (hat.event.common.EventId(1, 1, instance)
                   for instance in itertools.count(1))
+operate_time = iec61850.Timestamp(
+    value=datetime.datetime.fromtimestamp(0, datetime.timezone.utc),
+    leap_second=False,
+    clock_failure=False,
+    not_synchronized=False,
+    accuracy=0)
+
+
+EventCb: typing.TypeAlias = aio.AsyncCallable[[hat.event.common.Event], None]
+
+QueryCb: typing.TypeAlias = aio.AsyncCallable[[hat.event.common.QueryParams],
+                                              hat.event.common.QueryResult]
 
 
 class EventerClient(aio.Resource):
 
-    def __init__(self, event_cb=None, query_cb=None):
+    def __init__(self,
+                 event_cb: EventCb | None = None,
+                 query_cb: QueryCb | None = None):
         self._event_cb = event_cb
         self._query_cb = query_cb
         self._async_group = aio.Group()
 
     @property
-    def async_group(self):
+    def async_group(self) -> aio.Group:
         return self._async_group
 
     @property
-    def status(self):
+    def status(self) -> hat.event.common.Status:
         raise NotImplementedError()
 
-    async def register(self, events, with_response=False):
+    async def register(self,
+                       events: Collection[hat.event.common.RegisterEvent],
+                       with_response: bool = False
+                       ) -> Collection[hat.event.common.Event] | None:
         if self._event_cb:
             for event in events:
                 await aio.call(self._event_cb, event)
@@ -53,32 +73,44 @@ class EventerClient(aio.Resource):
                                        payload=event.payload)
                 for event in events]
 
-    async def query(self, params):
+    async def query(self,
+                    params: hat.event.common.QueryParams
+                    ) -> hat.event.common.QueryResult:
         if not self._query_cb:
             return hat.event.common.QueryResult([], False)
 
         return await aio.call(self._query_cb, params)
 
 
-def assert_status_event(event, status):
+def assert_status_event(event: hat.event.common.Event,
+                        status: str):
     assert event.type == (*event_type_prefix, 'gateway', 'status')
     assert event.source_timestamp is None
     assert event.payload.data == status
 
 
-def assert_data_event(event, name, data, reasons):
+def assert_data_event(event: hat.event.common.Event,
+                      name: str,
+                      data: json.Data,
+                      reasons: Iterable[iec61850.Reason]):
     assert event.type == (*event_type_prefix, 'gateway', 'data', name)
 
     # TODO
     # assert event.source_timestamp
 
     assert event.payload.data == {'data': data,
-                                  'reasons': reasons}
+                                  'reasons': [reason.name
+                                              for reason in reasons]}
 
 
-def assert_command_event(event, name, session_id, action, success,
-                         service_error=None, additional_cause=None,
-                         test_error=None):
+def assert_command_event(event: hat.event.common.Event,
+                         name: str,
+                         session_id: str,
+                         action: str,
+                         success: bool,
+                         service_error: str | None = None,
+                         additional_cause: str | None = None,
+                         test_error: str | None = None):
     assert event.type == (*event_type_prefix, 'gateway', 'command', name)
 
     # TODO
@@ -98,7 +130,11 @@ def assert_command_event(event, name, session_id, action, success,
         assert event.payload.data['test_error'] == test_error
 
 
-def assert_change_event(event, name, session_id, success, error=None):
+def assert_change_event(event: hat.event.common.Event,
+                        name: str,
+                        session_id: str,
+                        success: bool,
+                        error: str = None):
     assert event.type == (*event_type_prefix, 'gateway', 'change', name)
 
     # TODO
@@ -111,16 +147,25 @@ def assert_change_event(event, name, session_id, success, error=None):
         assert event.payload.data['error'] == error
 
 
-def assert_entry_id_event(event, name, entry_id):
-    assert event.type == (*event_type_prefix, 'gateway', 'entry_id', name)
+def assert_entry_id_event(event: hat.event.common.Event,
+                          report_id: str,
+                          entry_id: util.Bytes):
+    assert event.type == (*event_type_prefix, 'gateway', 'entry_id', report_id)
 
     # TODO
     # assert event.source_timestamp
 
-    assert event.payload.data == entry_id
+    assert event.payload.data == entry_id.hex()
 
 
-def create_event(event_type, payload_data, source_timestamp=None):
+def assert_equal_timestamp(t1: float, t2: float):
+    assert round(t1 * 1000) == round(t2 * 1000)
+
+
+def create_event(event_type: hat.event.common.EventType,
+                 payload_data: json.Data,
+                 source_timestamp: hat.event.common.Timestamp | None = None
+                 ) -> hat.event.common.Event:
     return hat.event.common.Event(
         id=next(next_event_ids),
         type=event_type,
@@ -129,30 +174,65 @@ def create_event(event_type, payload_data, source_timestamp=None):
         payload=hat.event.common.EventPayloadJson(payload_data))
 
 
-def create_command_event(name, session_id, action, value, origin, test,
-                         checks):
-    return create_event((*event_type_prefix, 'system', 'command', name),
-                        {'session_id': session_id,
-                         'action': action,
-                         'value': value,
-                         'origin': origin,
-                         'test': test,
-                         'checks': checks})
+def create_command_event(name: str,
+                         session_id: str,
+                         action: str,
+                         value: json.Data,
+                         origin: iec61850.Origin,
+                         test: bool,
+                         checks: Iterable[iec61850.Check]
+                         ) -> hat.event.common.Event:
+    return create_event(
+        (*event_type_prefix, 'system', 'command', name),
+        {'session_id': session_id,
+         'action': action,
+         'value': value,
+         'origin': {'category': origin.category.name,
+                    'identification': origin.identification.decode()},
+         'test': test,
+         'checks': [check.name for check in checks]})
 
 
-def create_change_event(name, session_id, value):
+def create_change_event(name: str,
+                        session_id: str,
+                        value: json.Data
+                        ) -> hat.event.common.Event:
     return create_event((*event_type_prefix, 'system', 'change', name),
                         {'session_id': session_id,
                          'value': value})
 
 
-def create_entry_id_event(name, entry_id):
-    return create_event((*event_type_prefix, 'gateway', 'entry_id', name),
-                        entry_id)
+def create_entry_id_event(report_id: str,
+                          entry_id: util.Bytes
+                          ) -> hat.event.common.Event:
+    return create_event((*event_type_prefix, 'gateway', 'entry_id', report_id),
+                        entry_id.hex())
 
 
-def create_queue_cb(queue):
+def create_queue_cb(queue: aio.Queue) -> Callable:
     return lambda *args: queue.put_nowait(args)
+
+
+def value_type_to_json(value_type: iec61850.ValueType) -> json.Data:
+    if isinstance(value_type, iec61850.BasicValueType):
+        return value_type.value
+
+    if isinstance(value_type, iec61850.AcsiValueType):
+        return value_type.value
+
+    if isinstance(value_type, iec61850.ArrayValueType):
+        return {'type': 'ARRAY',
+                'element_type': value_type_to_json(value_type.type)}
+
+    if isinstance(value_type, iec61850.StructValueType):
+        return {
+            'type': 'STRUCT',
+            'elements': [
+                {'name': element_name,
+                 'type': value_type_to_json(element_type)}
+                for element_name, element_type in value_type.elements]}
+
+    raise TypeError('unsupported value type')
 
 
 @pytest.fixture
@@ -371,13 +451,17 @@ async def test_rcb_enable(addr, create_conf, rcb_type):
                                       'type': rcb_type.name,
                                       'name': 'rcb'},
                               'report_id': 'report id',
-                              'dataset': 'ds',
-                              'trigger_options': []}])
+                              'dataset': 'ds'}])
     client = EventerClient()
 
-    server = await create_server(addr=addr,
-                                 rcbs={rcb_ref: {}},
-                                 rcb_cb=create_queue_cb(rcb_queue))
+    server = await create_server(
+        addr=addr,
+        rcbs={
+            rcb_ref: {
+                iec61850.RcbAttrType.REPORT_ID: 'report id',
+                iec61850.RcbAttrType.DATASET: iec61850.NonPersistedDatasetRef(
+                    'ds')}},
+        rcb_cb=create_queue_cb(rcb_queue))
     device = await aio.call(info.create, conf, client, event_type_prefix)
 
     result_rcb_ref, attr_type, attr_value = await rcb_queue.get()
@@ -420,13 +504,17 @@ async def test_rcb_gi(addr, create_conf, rcb_type):
                                       'type': rcb_type.name,
                                       'name': 'rcb'},
                               'report_id': 'report id',
-                              'dataset': 'ds',
-                              'trigger_options': []}])
+                              'dataset': 'ds'}])
     client = EventerClient()
 
-    server = await create_server(addr=addr,
-                                 rcbs={rcb_ref: {}},
-                                 rcb_cb=create_queue_cb(rcb_queue))
+    server = await create_server(
+        addr=addr,
+        rcbs={
+            rcb_ref: {
+                iec61850.RcbAttrType.REPORT_ID: 'report id',
+                iec61850.RcbAttrType.DATASET: iec61850.NonPersistedDatasetRef(
+                    'ds')}},
+        rcb_cb=create_queue_cb(rcb_queue))
     device = await aio.call(info.create, conf, client, event_type_prefix)
 
     async def wait_gi_true():
@@ -451,6 +539,94 @@ async def test_rcb_gi(addr, create_conf, rcb_type):
 
 
 @pytest.mark.parametrize('rcb_type', iec61850.RcbType)
+async def test_rcb_report_id_invalid(addr, create_conf, rcb_type):
+    rcb_queue = aio.Queue()
+
+    rcb_ref = iec61850.RcbRef(logical_device='ld',
+                              logical_node='ln',
+                              type=rcb_type,
+                              name='rcb')
+
+    conf = create_conf(datasets=[{'ref': 'ds',
+                                  'values': [],
+                                  'dynamic': True}],
+                       rcbs=[{'ref': {'logical_device': 'ld',
+                                      'logical_node': 'ln',
+                                      'type': rcb_type.name,
+                                      'name': 'rcb'},
+                              'report_id': 'report id 1',
+                              'dataset': 'ds'}])
+    client = EventerClient()
+
+    server = await create_server(
+        addr=addr,
+        rcbs={
+            rcb_ref: {
+                iec61850.RcbAttrType.REPORT_ID: 'report id 2',
+                iec61850.RcbAttrType.DATASET: iec61850.NonPersistedDatasetRef(
+                    'ds')}},
+        rcb_cb=create_queue_cb(rcb_queue))
+    device = await aio.call(info.create, conf, client, event_type_prefix)
+
+    async def wait_gi():
+        while True:
+            _, attr_type, __ = await rcb_queue.get()
+            if attr_type == iec61850.RcbAttrType.GI:
+                return
+
+    with pytest.raises(asyncio.TimeoutError):
+        await aio.wait_for(wait_gi(), 0.1)
+
+    await device.async_close()
+    await server.async_close()
+    await client.async_close()
+
+
+@pytest.mark.parametrize('rcb_type', iec61850.RcbType)
+async def test_rcb_dataset_invalid(addr, create_conf, rcb_type):
+    rcb_queue = aio.Queue()
+
+    rcb_ref = iec61850.RcbRef(logical_device='ld',
+                              logical_node='ln',
+                              type=rcb_type,
+                              name='rcb')
+
+    conf = create_conf(datasets=[{'ref': 'ds 1',
+                                  'values': [],
+                                  'dynamic': True}],
+                       rcbs=[{'ref': {'logical_device': 'ld',
+                                      'logical_node': 'ln',
+                                      'type': rcb_type.name,
+                                      'name': 'rcb'},
+                              'report_id': 'report id',
+                              'dataset': 'ds 1'}])
+    client = EventerClient()
+
+    server = await create_server(
+        addr=addr,
+        rcbs={
+            rcb_ref: {
+                iec61850.RcbAttrType.REPORT_ID: 'report id',
+                iec61850.RcbAttrType.DATASET: iec61850.NonPersistedDatasetRef(
+                    'ds 2')}},
+        rcb_cb=create_queue_cb(rcb_queue))
+    device = await aio.call(info.create, conf, client, event_type_prefix)
+
+    async def wait_gi():
+        while True:
+            _, attr_type, __ = await rcb_queue.get()
+            if attr_type == iec61850.RcbAttrType.GI:
+                return
+
+    with pytest.raises(asyncio.TimeoutError):
+        await aio.wait_for(wait_gi(), 0.1)
+
+    await device.async_close()
+    await server.async_close()
+    await client.async_close()
+
+
+@pytest.mark.parametrize('rcb_type', iec61850.RcbType)
 async def test_rcb_conf_revision(addr, create_conf, rcb_type):
     rcb_queue = aio.Queue()
 
@@ -468,13 +644,17 @@ async def test_rcb_conf_revision(addr, create_conf, rcb_type):
                                       'name': 'rcb'},
                               'report_id': 'report id',
                               'dataset': 'ds',
-                              'trigger_options': [],
                               'conf_revision': 123}])
     client = EventerClient()
 
     server = await create_server(
         addr=addr,
-        rcbs={rcb_ref: {iec61850.RcbAttrType.CONF_REVISION: 123}},
+        rcbs={
+            rcb_ref: {
+                iec61850.RcbAttrType.REPORT_ID: 'report id',
+                iec61850.RcbAttrType.DATASET: iec61850.NonPersistedDatasetRef(
+                    'ds'),
+                iec61850.RcbAttrType.CONF_REVISION: 123}},
         rcb_cb=create_queue_cb(rcb_queue))
     device = await aio.call(info.create, conf, client, event_type_prefix)
 
@@ -509,13 +689,17 @@ async def test_rcb_conf_revision_invalid(addr, create_conf, rcb_type):
                                       'name': 'rcb'},
                               'report_id': 'report id',
                               'dataset': 'ds',
-                              'trigger_options': [],
                               'conf_revision': 321}])
     client = EventerClient()
 
     server = await create_server(
         addr=addr,
-        rcbs={rcb_ref: {iec61850.RcbAttrType.CONF_REVISION: 123}},
+        rcbs={
+            rcb_ref: {
+                iec61850.RcbAttrType.REPORT_ID: 'report id',
+                iec61850.RcbAttrType.DATASET: iec61850.NonPersistedDatasetRef(
+                    'ds'),
+                iec61850.RcbAttrType.CONF_REVISION: 123}},
         rcb_cb=create_queue_cb(rcb_queue))
     device = await aio.call(info.create, conf, client, event_type_prefix)
 
@@ -534,7 +718,8 @@ async def test_rcb_conf_revision_invalid(addr, create_conf, rcb_type):
 
 
 @pytest.mark.parametrize('rcb_type', iec61850.RcbType)
-@pytest.mark.parametrize('trigger_options', [set(),
+@pytest.mark.parametrize('trigger_options', [None,
+                                             set(),
                                              set(iec61850.TriggerCondition)])
 async def test_rcb_trigger_options(addr, create_conf, rcb_type,
                                    trigger_options):
@@ -545,22 +730,27 @@ async def test_rcb_trigger_options(addr, create_conf, rcb_type,
                               type=rcb_type,
                               name='rcb')
 
-    conf = create_conf(datasets=[{'ref': 'ds',
-                                  'values': [],
-                                  'dynamic': True}],
-                       rcbs=[{'ref': {'logical_device': 'ld',
-                                      'logical_node': 'ln',
-                                      'type': rcb_type.name,
-                                      'name': 'rcb'},
-                              'report_id': 'report id',
-                              'dataset': 'ds',
-                              'trigger_options': [i.name
-                                                  for i in trigger_options]}])
+    conf = create_conf(
+        datasets=[{'ref': 'ds',
+                   'values': [],
+                   'dynamic': True}],
+        rcbs=[{'ref': {'logical_device': 'ld',
+                       'logical_node': 'ln',
+                       'type': rcb_type.name,
+                       'name': 'rcb'},
+               'report_id': 'report id',
+               'dataset': 'ds',
+               **({'trigger_options': [i.name for i in trigger_options]}
+                  if trigger_options is not None else {})}])
     client = EventerClient()
 
     server = await create_server(
         addr=addr,
-        rcbs={rcb_ref: {}},
+        rcbs={
+            rcb_ref: {
+                iec61850.RcbAttrType.REPORT_ID: 'report id',
+                iec61850.RcbAttrType.DATASET: iec61850.NonPersistedDatasetRef(
+                    'ds')}},
         rcb_cb=create_queue_cb(rcb_queue))
     device = await aio.call(info.create, conf, client, event_type_prefix)
 
@@ -572,8 +762,69 @@ async def test_rcb_trigger_options(addr, create_conf, rcb_type,
 
     await aio.wait_for(wait_gi(), 0.1)
 
-    assert server.rcbs[rcb_ref][iec61850.RcbAttrType.TRIGGER_OPTIONS] == \
-        trigger_options
+    if trigger_options is None:
+        assert iec61850.RcbAttrType.TRIGGER_OPTIONS not in server.rcbs[rcb_ref]
+
+    else:
+        assert server.rcbs[rcb_ref][iec61850.RcbAttrType.TRIGGER_OPTIONS] == \
+            trigger_options
+
+    await device.async_close()
+    await server.async_close()
+    await client.async_close()
+
+
+@pytest.mark.parametrize('rcb_type', iec61850.RcbType)
+@pytest.mark.parametrize('optional_fields', [None,
+                                             set(),
+                                             set(iec61850.OptionalField)])
+async def test_rcb_optional_fields(addr, create_conf, rcb_type,
+                                   optional_fields):
+    rcb_queue = aio.Queue()
+
+    rcb_ref = iec61850.RcbRef(logical_device='ld',
+                              logical_node='ln',
+                              type=rcb_type,
+                              name='rcb')
+
+    conf = create_conf(
+        datasets=[{'ref': 'ds',
+                   'values': [],
+                   'dynamic': True}],
+        rcbs=[{'ref': {'logical_device': 'ld',
+                       'logical_node': 'ln',
+                       'type': rcb_type.name,
+                       'name': 'rcb'},
+               'report_id': 'report id',
+               'dataset': 'ds',
+               **({'optional_fields': [i.name for i in optional_fields]}
+                  if optional_fields is not None else {})}])
+    client = EventerClient()
+
+    server = await create_server(
+        addr=addr,
+        rcbs={
+            rcb_ref: {
+                iec61850.RcbAttrType.REPORT_ID: 'report id',
+                iec61850.RcbAttrType.DATASET: iec61850.NonPersistedDatasetRef(
+                    'ds')}},
+        rcb_cb=create_queue_cb(rcb_queue))
+    device = await aio.call(info.create, conf, client, event_type_prefix)
+
+    async def wait_gi():
+        while True:
+            _, attr_type, __ = await rcb_queue.get()
+            if attr_type == iec61850.RcbAttrType.GI:
+                return
+
+    await aio.wait_for(wait_gi(), 0.1)
+
+    if optional_fields is None:
+        assert iec61850.RcbAttrType.OPTIONAL_FIELDS not in server.rcbs[rcb_ref]
+
+    else:
+        assert server.rcbs[rcb_ref][iec61850.RcbAttrType.OPTIONAL_FIELDS] == \
+            optional_fields
 
     await device.async_close()
     await server.async_close()
@@ -599,14 +850,17 @@ async def test_rcb_buffer_time(addr, create_conf, rcb_type, buffer_time):
                                       'name': 'rcb'},
                               'report_id': 'report id',
                               'dataset': 'ds',
-                              'trigger_options': [],
                               **({'buffer_time': buffer_time}
                                  if buffer_time is not None else {})}])
     client = EventerClient()
 
     server = await create_server(
         addr=addr,
-        rcbs={rcb_ref: {}},
+        rcbs={
+            rcb_ref: {
+                iec61850.RcbAttrType.REPORT_ID: 'report id',
+                iec61850.RcbAttrType.DATASET: iec61850.NonPersistedDatasetRef(
+                    'ds')}},
         rcb_cb=create_queue_cb(rcb_queue))
     device = await aio.call(info.create, conf, client, event_type_prefix)
 
@@ -650,14 +904,17 @@ async def test_rcb_integrity_period(addr, create_conf, rcb_type,
                                       'name': 'rcb'},
                               'report_id': 'report id',
                               'dataset': 'ds',
-                              'trigger_options': [],
                               **({'integrity_period': integrity_period}
                                  if integrity_period is not None else {})}])
     client = EventerClient()
 
     server = await create_server(
         addr=addr,
-        rcbs={rcb_ref: {}},
+        rcbs={
+            rcb_ref: {
+                iec61850.RcbAttrType.REPORT_ID: 'report id',
+                iec61850.RcbAttrType.DATASET: iec61850.NonPersistedDatasetRef(
+                    'ds')}},
         rcb_cb=create_queue_cb(rcb_queue))
     device = await aio.call(info.create, conf, client, event_type_prefix)
 
@@ -701,13 +958,17 @@ async def test_rcb_reservation_time(addr, create_conf, rcb_type,
                                       'name': 'rcb'},
                               'report_id': 'report id',
                               'dataset': 'ds',
-                              'trigger_options': [],
-                              'reservation_time': reservation_time}])
+                              **({'reservation_time': reservation_time}
+                                 if reservation_time is not None else {})}])
     client = EventerClient()
 
     server = await create_server(
         addr=addr,
-        rcbs={rcb_ref: {}},
+        rcbs={
+            rcb_ref: {
+                iec61850.RcbAttrType.REPORT_ID: 'report id',
+                iec61850.RcbAttrType.DATASET: iec61850.NonPersistedDatasetRef(
+                    'ds')}},
         rcb_cb=create_queue_cb(rcb_queue))
     device = await aio.call(info.create, conf, client, event_type_prefix)
 
@@ -748,13 +1009,16 @@ async def test_rcb_reserve(addr, create_conf, rcb_type):
                                       'type': rcb_type.name,
                                       'name': 'rcb'},
                               'report_id': 'report id',
-                              'dataset': 'ds',
-                              'trigger_options': []}])
+                              'dataset': 'ds'}])
     client = EventerClient()
 
     server = await create_server(
         addr=addr,
-        rcbs={rcb_ref: {}},
+        rcbs={
+            rcb_ref: {
+                iec61850.RcbAttrType.REPORT_ID: 'report id',
+                iec61850.RcbAttrType.DATASET: iec61850.NonPersistedDatasetRef(
+                    'ds')}},
         rcb_cb=create_queue_cb(rcb_queue))
     device = await aio.call(info.create, conf, client, event_type_prefix)
 
@@ -771,6 +1035,310 @@ async def test_rcb_reserve(addr, create_conf, rcb_type):
 
     else:
         assert server.rcbs[rcb_ref][iec61850.RcbAttrType.RESERVE] is True
+
+    await device.async_close()
+    await server.async_close()
+    await client.async_close()
+
+
+@pytest.mark.parametrize('rcb_type', iec61850.RcbType)
+@pytest.mark.parametrize('purge_buffer', [True, False])
+async def test_rcb_purge_buffer_without_entry_id(addr, create_conf, rcb_type,
+                                                 purge_buffer):
+    rcb_queue = aio.Queue()
+
+    rcb_ref = iec61850.RcbRef(logical_device='ld',
+                              logical_node='ln',
+                              type=rcb_type,
+                              name='rcb')
+
+    conf = create_conf(datasets=[{'ref': 'ds',
+                                  'values': [],
+                                  'dynamic': True}],
+                       rcbs=[{'ref': {'logical_device': 'ld',
+                                      'logical_node': 'ln',
+                                      'type': rcb_type.name,
+                                      'name': 'rcb'},
+                              'report_id': 'report id',
+                              'dataset': 'ds',
+                              'purge_buffer': purge_buffer}])
+    client = EventerClient()
+
+    server = await create_server(
+        addr=addr,
+        rcbs={
+            rcb_ref: {
+                iec61850.RcbAttrType.REPORT_ID: 'report id',
+                iec61850.RcbAttrType.DATASET: iec61850.NonPersistedDatasetRef(
+                    'ds')}},
+        rcb_cb=create_queue_cb(rcb_queue))
+    device = await aio.call(info.create, conf, client, event_type_prefix)
+
+    async def wait_gi():
+        while True:
+            _, attr_type, __ = await rcb_queue.get()
+            if attr_type == iec61850.RcbAttrType.GI:
+                return
+
+    await aio.wait_for(wait_gi(), 0.1)
+
+    if rcb_type == iec61850.RcbType.BUFFERED:
+        assert server.rcbs[rcb_ref][iec61850.RcbAttrType.PURGE_BUFFER] is True
+
+    else:
+        assert iec61850.RcbAttrType.PURGE_BUFFER not in server.rcbs[rcb_ref]
+
+    await device.async_close()
+    await server.async_close()
+    await client.async_close()
+
+
+@pytest.mark.parametrize('rcb_type', iec61850.RcbType)
+@pytest.mark.parametrize('purge_buffer', [True, False])
+async def test_rcb_purge_buffer_with_entry_id(addr, create_conf, rcb_type,
+                                              purge_buffer):
+    rcb_queue = aio.Queue()
+
+    entry_id = b'123'
+    rcb_ref = iec61850.RcbRef(logical_device='ld',
+                              logical_node='ln',
+                              type=rcb_type,
+                              name='rcb')
+
+    conf = create_conf(datasets=[{'ref': 'ds',
+                                  'values': [],
+                                  'dynamic': True}],
+                       rcbs=[{'ref': {'logical_device': 'ld',
+                                      'logical_node': 'ln',
+                                      'type': rcb_type.name,
+                                      'name': 'rcb'},
+                              'report_id': 'report id',
+                              'dataset': 'ds',
+                              'purge_buffer': purge_buffer}])
+
+    def on_query(params):
+        assert isinstance(params, hat.event.common.QueryLatestParams)
+        assert set(params.event_types) == {(*event_type_prefix, 'gateway',
+                                            'entry_id', 'report id')}
+
+        return hat.event.common.QueryResult(
+            events=[create_entry_id_event(report_id='report id',
+                                          entry_id=entry_id)],
+            more_follows=False)
+
+    client = EventerClient(query_cb=on_query)
+
+    server = await create_server(
+        addr=addr,
+        rcbs={
+            rcb_ref: {
+                iec61850.RcbAttrType.REPORT_ID: 'report id',
+                iec61850.RcbAttrType.DATASET: iec61850.NonPersistedDatasetRef(
+                    'ds')}},
+        rcb_cb=create_queue_cb(rcb_queue))
+    device = await aio.call(info.create, conf, client, event_type_prefix)
+
+    async def wait_gi():
+        while True:
+            _, attr_type, __ = await rcb_queue.get()
+            if attr_type == iec61850.RcbAttrType.GI:
+                return
+
+    await aio.wait_for(wait_gi(), 0.1)
+
+    if rcb_type == iec61850.RcbType.BUFFERED:
+        if purge_buffer:
+            assert server.rcbs[rcb_ref][iec61850.RcbAttrType.PURGE_BUFFER] is True  # NOQA
+            assert iec61850.RcbAttrType.ENTRY_ID not in server.rcbs[rcb_ref]
+
+        else:
+            assert iec61850.RcbAttrType.PURGE_BUFFER not in server.rcbs[rcb_ref]  # NOQA
+            assert server.rcbs[rcb_ref][iec61850.RcbAttrType.ENTRY_ID] == entry_id  # NOQA
+
+    else:
+        assert iec61850.RcbAttrType.PURGE_BUFFER not in server.rcbs[rcb_ref]
+        assert iec61850.RcbAttrType.ENTRY_ID not in server.rcbs[rcb_ref]
+
+    await device.async_close()
+    await server.async_close()
+    await client.async_close()
+
+
+@pytest.mark.parametrize('model', ['DIRECT_WITH_NORMAL_SECURITY',
+                                   'SBO_WITH_NORMAL_SECURITY',
+                                   'DIRECT_WITH_ENHANCED_SECURITY',
+                                   'SBO_WITH_ENHANCED_SECURITY'])
+@pytest.mark.parametrize('with_operate_time', [True, False])
+@pytest.mark.parametrize('value_type, iec61850_value, json_value', [
+    (iec61850.BasicValueType.BOOLEAN,
+     True,
+     True),
+
+    (iec61850.BasicValueType.INTEGER,
+     123,
+     123),
+
+    (iec61850.BasicValueType.BINARY_CONTROL,
+     iec61850.BinaryControl.HIGHER,
+     'HIGHER'),
+
+    (iec61850.BasicValueType.ANALOGUE,
+     iec61850.Analogue(i=123),
+     {'i': 123})
+])
+async def test_command_success(addr, create_conf, model, with_operate_time,
+                               value_type, iec61850_value, json_value):
+    event_queue = aio.Queue()
+    select_queue = aio.Queue()
+    cancel_queue = aio.Queue()
+    operate_queue = aio.Queue()
+
+    name = 'cmd name'
+    session_id = 'session id'
+    origin = iec61850.Origin(category=iec61850.OriginCategory.REMOTE_CONTROL,
+                             identification=b'xyz')
+    test = False
+    checks = set(iec61850.Check)
+    cmd_ref = iec61850.CommandRef(logical_device='ld',
+                                  logical_node='ln',
+                                  name='cmd')
+
+    conf = create_conf(value_types=[{'logical_device': cmd_ref.logical_device,
+                                     'logical_node': cmd_ref.logical_node,
+                                     'fc': 'CO',
+                                     'name': cmd_ref.name,
+                                     'type': value_type_to_json(value_type)}],
+                       commands=[{'name': name,
+                                  'model': model,
+                                  'ref': cmd_ref._asdict(),
+                                  'with_operate_time': with_operate_time}])
+
+    client = EventerClient(event_cb=event_queue.put_nowait)
+
+    server = await create_server(
+        addr=addr,
+        cmd_value_types={cmd_ref: value_type},
+        select_cb=create_queue_cb(select_queue),
+        cancel_cb=create_queue_cb(cancel_queue),
+        operate_cb=create_queue_cb(operate_queue))
+    device = await aio.call(info.create, conf, client, event_type_prefix)
+
+    event = await event_queue.get()
+    assert_status_event(event, 'CONNECTING')
+
+    event = await event_queue.get()
+    assert_status_event(event, 'CONNECTED')
+
+    if model in ['SBO_WITH_NORMAL_SECURITY', 'SBO_WITH_ENHANCED_SECURITY']:
+        event = create_command_event(name=name,
+                                     session_id=session_id,
+                                     action='SELECT',
+                                     value=json_value,
+                                     origin=origin,
+                                     test=test,
+                                     checks=checks)
+        await aio.call(device.process_events, [event])
+
+        result_cmd_ref, cmd = await select_queue.get()
+        assert result_cmd_ref == cmd_ref
+
+        if model == 'SBO_WITH_NORMAL_SECURITY':
+            assert cmd is None
+
+        else:
+            assert cmd.value == iec61850_value
+            assert cmd.operate_time == (operate_time if with_operate_time
+                                        else None)
+            assert cmd.origin == origin
+            assert_equal_timestamp(
+                hat.event.common.timestamp_to_float(event.timestamp),
+                cmd.t.value.timestamp())
+            assert cmd.t.clock_failure is False
+            assert cmd.t.not_synchronized is False
+            assert cmd.test == test
+            assert cmd.checks == checks
+
+        event = await event_queue.get()
+        assert_command_event(event=event,
+                             name=name,
+                             session_id=session_id,
+                             action='SELECT',
+                             success=True)
+
+        event = create_command_event(name=name,
+                                     session_id=session_id,
+                                     action='CANCEL',
+                                     value=json_value,
+                                     origin=origin,
+                                     test=test,
+                                     checks=checks)
+        await aio.call(device.process_events, [event])
+
+        result_cmd_ref, cmd = await cancel_queue.get()
+        assert result_cmd_ref == cmd_ref
+        assert cmd.value == iec61850_value
+        assert cmd.operate_time == (operate_time if with_operate_time
+                                    else None)
+        assert cmd.origin == origin
+        assert_equal_timestamp(
+            hat.event.common.timestamp_to_float(event.timestamp),
+            cmd.t.value.timestamp())
+        assert cmd.t.clock_failure is False
+        assert cmd.t.not_synchronized is False
+        assert cmd.test == test
+        assert cmd.checks == checks
+
+        event = await event_queue.get()
+        assert_command_event(event=event,
+                             name=name,
+                             session_id=session_id,
+                             action='CANCEL',
+                             success=True)
+
+        event = create_command_event(name=name,
+                                     session_id=session_id,
+                                     action='SELECT',
+                                     value=json_value,
+                                     origin=origin,
+                                     test=test,
+                                     checks=checks)
+        await aio.call(device.process_events, [event])
+
+        await select_queue.get()
+
+    event = create_command_event(name=name,
+                                 session_id=session_id,
+                                 action='OPERATE',
+                                 value=json_value,
+                                 origin=origin,
+                                 test=test,
+                                 checks=checks)
+    await aio.call(device.process_events, [event])
+
+    result_cmd_ref, cmd = await operate_queue.get()
+    assert result_cmd_ref == cmd_ref
+    assert cmd.value == iec61850_value
+    assert cmd.operate_time == (operate_time if with_operate_time
+                                else None)
+    assert cmd.origin == origin
+    assert_equal_timestamp(
+        hat.event.common.timestamp_to_float(event.timestamp),
+        cmd.t.value.timestamp())
+    assert cmd.t.clock_failure is False
+    assert cmd.t.not_synchronized is False
+    assert cmd.test == test
+    assert cmd.checks == checks
+
+    event = await event_queue.get()
+    assert_command_event(event=event,
+                         name=name,
+                         session_id=session_id,
+                         action='OPERATE',
+                         success=True)
+
+    if model == 'SBO_WITH_ENHANCED_SECURITY':
+        # TODO termination
+        pass
 
     await device.async_close()
     await server.async_close()

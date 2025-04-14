@@ -221,7 +221,7 @@ class Server(aio.Resource):
 
             data_ref = _data_ref_from_object_name(i.name)
 
-            if data_ref.names[-1] == 'ConfRev':
+            if data_ref.names[-1] in {i.value for i in iec61850.RcbAttrType}:
                 result = await self._process_read_rcb(data_ref)
 
             elif data_ref.names[-1] == 'SBO':
