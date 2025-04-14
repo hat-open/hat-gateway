@@ -4,6 +4,133 @@ IEC61850 devices
 IEC61850 client
 ---------------
 
+IEC61850 client device configuration is specified by
+``hat-gateway://iec61850.yaml#/$defs/client``
+
+
+According to :ref:`gateway specification <gateway>`, all IEC104 master device
+event types have prefix::
+
+    gateway/iec61850_client/<device_name>/<source>/...
+
+where ``<source>`` can be ``gateway`` or ``system``.
+Together with IEC61850 specific events, generic `enable` and `running` events
+are also supported. Specific events are defined in the following section.
+
+When IEC61850 client device is enabled, it queries all `entry_id` events in
+order to cache `entry_id` for each report control block (`rcb`), identified
+with `report_id`. Than, connection loop is started, in order to connect to the
+remote IEC61850 server at the `host` and `port`, given in configuration.
+
+
+Dynamic datasets creation
+'''''''''''''''''''''''''
+
+After connection is successfully established, `datasets` defined in
+configuration as `dynamic` are created. There are two types of dynamic datasets
+in regard to its reference:
+
+- persisted - with reference defined using an object with 3 properties:
+  `logical_device`, `logical_node` and `name`
+- non-persisted - with reference defined using a string
+
+Non-persisted datasets are created simply by calling connection's method
+`create_dataset`.
+
+In case of persisted datasets, creation follows the next procedure:
+
+#) In order to get persisted datasets that already exist, connection's method
+   `get_persisted_dataset_refs` is called.
+#) If a dynamic dataset to be created, does not exist already, it is created by
+   `create_dataset`.
+
+   For each dataset found as existing in the step 1), method
+   `get_dataset_data_refs` is called in order to get all data references that
+   are assigned to it. If all the data references are equal to the `values`
+   references from the configuration, dataset is considered created.
+
+   Otherwise, if existing dataset does not have all the data references equal
+   to the ones from the configuration, dataset is first deleted by
+   `delete_dataset` and then created using `create_dataset`.
+
+In case any of the steps fails, connection is closed.
+
+
+Rcb initialization
+''''''''''''''''''
+
+Furthermore, after creation of dynamic datasets, device performs initialization
+of each configured `rcb` using connection's methods `get_rcb_attrs` and
+`set_rcb_attrs` in order to `get` and `set` specific `rcb` attributes,
+respectively. Each `get` or `set` is considered failed, in case exception is
+raised, or in case `ServiceError` is returned for the specific attribute. Some
+initialization steps are considered critical, meaning failure results with
+closing the connection. When a non-critical step fails, only warning message is
+logged and initialization continues. Initialization steps are the following, in
+the respective order:
+
+#) `get_rcb_attrs` method is called in order to get values of the following
+   `rcb` attributes:
+    - ``REPORT_ID`` - each `rcb` has `report_id` defined in configuration. In
+      case retrieved value does not correspond to the configured value,
+      connection is closed.
+    - ``DATASET`` - each `rcb` has `dataset` defined in configuration. In case
+      retrieved value does not correspond to the configured value, connection
+      is closed.
+    - ``CONF_REVISION`` - this attribute is optionally retrieved, in case
+      `conf_revision` property is defined in configuration. In case retrieved
+      value does not correspond to the configured value, connection is closed.
+
+   This step is critical, that is, if `get_rcb_attrs` fails for any reason, or
+   `ServiceError` is received for any of the attributes, connection is closed.
+
+#) Attribute ``REPORT_ENABLE`` is set to ``False``. This is non-critical step,
+   that is in case of failure, a warning message is logged and initialization
+   continues.
+
+#) This step differs in regard whether `rcb` type is ``BUFFERED`` or
+   ``UNBUFFERED``.
+   For ``UNBUFFERED``:
+
+     * ``RESERVE`` attribute is set to ``True``. In case of failure, a
+       warning message is logged and initialization continues.
+
+   For ``BUFFERED``:
+
+     * if configuration contains `reservation_time`, attribute
+       ``RESERVATION_TIME`` is set to its value,
+     * if configuration parameter `purge_buffer` is set to `True`, or if there
+       is no cached `entry_id` value for the `rcb`, ``PURGE_BUFFER`` attribute
+       is set to ``True``.
+
+       Otherwise, if `purge_buffer` is ``False`` and `entry_id` value is cached,
+       device sets ``ENTRY_ID`` attribute to the cached value. If that fails,
+       for any reason, ``ENTRY_ID`` is set to bytes ``\x00`` in order to try to
+       resynchronize.
+
+       If setting ``ENTRY_ID`` attribute finally fails, initialization continues
+       with an appropriate warning log message.
+
+#) In a single call of `set_rcb_attrs`, the following attributes are set to the
+   corresponding value defined in configuration:
+
+   * `trigger_options` corresponds to attribute ``TRIGGER_OPTIONS``
+   * `optional_fields` corresponds to attribute ``OPTIONAL_FIELDS``
+   * `buffer_time` corresponds to attribute ``BUFFER_TIME``
+   * `integrity_period` corresponds to attribute ``INTEGRITY_PERIOD``
+
+   Since all properties are optional, they are included
+   only if defined in configuration. If neither one properties is defined,
+   this step is omitted.
+
+#) attribute ``REPORT_ENABLE`` is set to ``False``. This step is critical,
+   that is, in case of failure, connection is closed.
+
+#) attribute ``GI`` is set to ``True`` in order to request general
+   interrogation. This step is critical, that is, in case of failure, connection
+   is closed.
+
+
 Gateway events
 ''''''''''''''
 
