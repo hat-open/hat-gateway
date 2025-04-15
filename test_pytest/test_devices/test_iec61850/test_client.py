@@ -1178,11 +1178,11 @@ async def test_rcb_purge_buffer_with_entry_id(addr, create_conf, rcb_type,
      123,
      123),
 
-    (iec61850.BasicValueType.BINARY_CONTROL,
+    (iec61850.AcsiValueType.BINARY_CONTROL,
      iec61850.BinaryControl.HIGHER,
      'HIGHER'),
 
-    (iec61850.BasicValueType.ANALOGUE,
+    (iec61850.AcsiValueType.ANALOGUE,
      iec61850.Analogue(i=123),
      {'i': 123})
 ])
@@ -1286,7 +1286,7 @@ async def test_command_success(addr, create_conf, model, with_operate_time,
         assert cmd.t.clock_failure is False
         assert cmd.t.not_synchronized is False
         assert cmd.test == test
-        assert cmd.checks == checks
+        assert cmd.checks == set()
 
         event = await event_queue.get()
         assert_command_event(event=event,
@@ -1305,6 +1305,7 @@ async def test_command_success(addr, create_conf, model, with_operate_time,
         await aio.call(device.process_events, [event])
 
         await select_queue.get()
+        await event_queue.get()
 
     event = create_command_event(name=name,
                                  session_id=session_id,

@@ -276,7 +276,9 @@ class Server(aio.Resource):
         if self._select_cb:
             await aio.call(self._select_cb, cmd_ref, None)
 
-        return mms.VisibleStringData('')
+        return mms.VisibleStringData(
+            f'{cmd_ref.logical_device}/{cmd_ref.logical_node}$CO$'
+            f'{cmd_ref.name}$SBO')
 
     async def _process_write(self, req):
         if isinstance(req.specification, mms.ObjectName):
@@ -376,8 +378,8 @@ class Server(aio.Resource):
 
         cmd = _command_from_mms_data(mms_data, value_type, False)
 
-        if self._cancel:
-            await aio.call(self._cancel, cmd_ref, cmd)
+        if self._cancel_cb:
+            await aio.call(self._cancel_cb, cmd_ref, cmd)
 
     async def _process_write_operate(self, data_ref, mms_data):
         if len(data_ref.names) != 2:
