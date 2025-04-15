@@ -16,7 +16,7 @@ import hat.event.common
 
 from hat.gateway.devices.iec61850.client import info
 
-from .server import create_server
+from .server import DataDef, create_server
 
 
 device_name = 'device_name'
@@ -1556,6 +1556,94 @@ async def test_change_error(addr, create_conf, value_type, json_value):
                         name=name,
                         session_id=session_id,
                         success=False)
+
+    await device.async_close()
+    await server.async_close()
+    await client.async_close()
+
+
+@pytest.mark.parametrize('rcb_type', iec61850.RcbType)
+@pytest.mark.parametrize('entry_id', [b'xyz'])
+async def test_data_empty_report(addr, create_conf, rcb_type, entry_id):
+    event_queue = aio.Queue()
+
+    name = 'data name'
+    value_type = iec61850.BasicValueType.BOOLEAN
+    report_id = 'report id'
+    dataset = 'ds'
+    data_ref = iec61850.DataRef(logical_device='ld',
+                                logical_node='ln',
+                                fc='fc',
+                                names=('a', 123, 'b'))
+    rcb_ref = iec61850.RcbRef(logical_device='ld',
+                              logical_node='ln',
+                              type=rcb_type,
+                              name='rcb')
+    data_defs = [DataDef(ref=data_ref,
+                         value_type=value_type)]
+
+    conf = create_conf(
+        value_types=[{
+            'logical_device': data_ref.logical_device,
+            'logical_node': data_ref.logical_node,
+            'fc': data_ref.fc,
+            'name': 'a',
+            'type': value_type_to_json(
+                iec61850.ArrayValueType(
+                    iec61850.StructValueType([('b', value_type)])))}],
+        datasets=[{'ref': dataset,
+                   'values': [{'logical_device': data_ref.logical_device,
+                               'logical_node': data_ref.logical_node,
+                               'fc': data_ref.fc,
+                               'names': list(data_ref.names)}],
+                   'dynamic': True}],
+        rcbs=[{'ref': {'logical_device': rcb_ref.logical_device,
+                       'logical_node': rcb_ref.logical_node,
+                       'type': rcb_type.name,
+                       'name': rcb_ref.name},
+               'report_id': report_id,
+               'dataset': dataset}],
+        data=[{'name': name,
+               'ref': {'logical_device': data_ref.logical_device,
+                       'logical_node': data_ref.logical_node,
+                       'names': list(data_ref.names)}}])
+
+    client = EventerClient(event_cb=event_queue.put_nowait)
+
+    server = await create_server(
+        addr=addr,
+        rcbs={
+            rcb_ref: {
+                iec61850.RcbAttrType.REPORT_ID: report_id,
+                iec61850.RcbAttrType.DATASET: iec61850.NonPersistedDatasetRef(
+                    dataset)}})
+    device = await aio.call(info.create, conf, client, event_type_prefix)
+
+    event = await event_queue.get()
+    assert_status_event(event, 'CONNECTING')
+
+    event = await event_queue.get()
+    assert_status_event(event, 'CONNECTED')
+
+    report = iec61850.Report(report_id=report_id,
+                             sequence_number=None,
+                             subsequence_number=None,
+                             more_segments_follow=None,
+                             dataset=None,
+                             buffer_overflow=None,
+                             conf_revision=None,
+                             entry_time=None,
+                             entry_id=entry_id,
+                             data=[])
+    await server.send_report(report, data_defs)
+
+    event = await event_queue.get()
+    assert_entry_id_event(event=event,
+                          report_id=report_id,
+                          entry_id=entry_id)
+
+    with pytest.raises(asyncio.TimeoutError):
+        await aio.wait_for(event_queue.get(), 0.01)
 
     await device.async_close()
     await server.async_close()
