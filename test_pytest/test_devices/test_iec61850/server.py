@@ -22,19 +22,19 @@ RcbCb: typing.TypeAlias = aio.AsyncCallable[
 
 WriteCb: typing.TypeAlias = aio.AsyncCallable[
     [iec61850.DataRef, mms.Data],
-    None]
+    mms.DataAccessError | None]
 
 SelectCb: typing.TypeAlias = aio.AsyncCallable[
     [iec61850.CommandRef, iec61850.Command | None],
-    None]
+    mms.DataAccessError | None]
 
 CancelCb: typing.TypeAlias = aio.AsyncCallable[
     [iec61850.CommandRef, iec61850.Command],
-    None]
+    mms.DataAccessError | None]
 
 OperateCb: typing.TypeAlias = aio.AsyncCallable[
     [iec61850.CommandRef, iec61850.Command],
-    None]
+    mms.DataAccessError | None]
 
 
 async def create_server(addr: tcp.Address,
@@ -274,7 +274,10 @@ class Server(aio.Resource):
                                       name=data_ref.names[0])
 
         if self._select_cb:
-            await aio.call(self._select_cb, cmd_ref, None)
+            error = await aio.call(self._select_cb, cmd_ref, None)
+
+            if error:
+                return error
 
         return mms.VisibleStringData(
             f'{cmd_ref.logical_device}/{cmd_ref.logical_node}$CO$'
@@ -359,7 +362,7 @@ class Server(aio.Resource):
         cmd = _command_from_mms_data(mms_data, value_type, True)
 
         if self._select_cb:
-            await aio.call(self._select_cb, cmd_ref, cmd)
+            return await aio.call(self._select_cb, cmd_ref, cmd)
 
     async def _process_write_cancel(self, data_ref, mms_data):
         if len(data_ref.names) != 2:
@@ -379,7 +382,7 @@ class Server(aio.Resource):
         cmd = _command_from_mms_data(mms_data, value_type, False)
 
         if self._cancel_cb:
-            await aio.call(self._cancel_cb, cmd_ref, cmd)
+            return await aio.call(self._cancel_cb, cmd_ref, cmd)
 
     async def _process_write_operate(self, data_ref, mms_data):
         if len(data_ref.names) != 2:
@@ -399,11 +402,11 @@ class Server(aio.Resource):
         cmd = _command_from_mms_data(mms_data, value_type, True)
 
         if self._operate_cb:
-            await aio.call(self._operate_cb, cmd_ref, cmd)
+            return await aio.call(self._operate_cb, cmd_ref, cmd)
 
     async def _process_write_data(self, data_ref, mms_data):
         if self._write_cb:
-            await aio.call(self._write_cb, data_ref, mms_data)
+            return await aio.call(self._write_cb, data_ref, mms_data)
 
 
 def _dataset_ref_from_object_name(object_name):

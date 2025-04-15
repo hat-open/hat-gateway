@@ -10,6 +10,7 @@ from hat import aio
 from hat import json
 from hat import util
 from hat.drivers import iec61850
+from hat.drivers import mms
 from hat.drivers import tcp
 import hat.event.common
 
@@ -1203,6 +1204,35 @@ async def test_command_success(addr, create_conf, model, with_operate_time,
                                   logical_node='ln',
                                   name='cmd')
 
+    def _create_command_event(action):
+        return create_command_event(name=name,
+                                    session_id=session_id,
+                                    action=action,
+                                    value=json_value,
+                                    origin=origin,
+                                    test=test,
+                                    checks=checks)
+
+    def _assert_command_event(event, action):
+        assert_command_event(event=event,
+                             name=name,
+                             session_id=session_id,
+                             action=action,
+                             success=True)
+
+    def assert_command(cmd, is_cancel=False):
+        assert cmd.value == iec61850_value
+        assert cmd.operate_time == (operate_time if with_operate_time
+                                    else None)
+        assert cmd.origin == origin
+        assert_equal_timestamp(
+            hat.event.common.timestamp_to_float(event.timestamp),
+            cmd.t.value.timestamp())
+        assert cmd.t.clock_failure is False
+        assert cmd.t.not_synchronized is False
+        assert cmd.test == test
+        assert cmd.checks == (checks if not is_cancel else set())
+
     conf = create_conf(value_types=[{'logical_device': cmd_ref.logical_device,
                                      'logical_node': cmd_ref.logical_node,
                                      'fc': 'CO',
@@ -1230,13 +1260,7 @@ async def test_command_success(addr, create_conf, model, with_operate_time,
     assert_status_event(event, 'CONNECTED')
 
     if model in ['SBO_WITH_NORMAL_SECURITY', 'SBO_WITH_ENHANCED_SECURITY']:
-        event = create_command_event(name=name,
-                                     session_id=session_id,
-                                     action='SELECT',
-                                     value=json_value,
-                                     origin=origin,
-                                     test=test,
-                                     checks=checks)
+        event = _create_command_event('SELECT')
         await aio.call(device.process_events, [event])
 
         result_cmd_ref, cmd = await select_queue.get()
@@ -1246,100 +1270,292 @@ async def test_command_success(addr, create_conf, model, with_operate_time,
             assert cmd is None
 
         else:
-            assert cmd.value == iec61850_value
-            assert cmd.operate_time == (operate_time if with_operate_time
-                                        else None)
-            assert cmd.origin == origin
-            assert_equal_timestamp(
-                hat.event.common.timestamp_to_float(event.timestamp),
-                cmd.t.value.timestamp())
-            assert cmd.t.clock_failure is False
-            assert cmd.t.not_synchronized is False
-            assert cmd.test == test
-            assert cmd.checks == checks
+            assert_command(cmd)
 
         event = await event_queue.get()
-        assert_command_event(event=event,
-                             name=name,
-                             session_id=session_id,
-                             action='SELECT',
-                             success=True)
+        _assert_command_event(event, 'SELECT')
 
-        event = create_command_event(name=name,
-                                     session_id=session_id,
-                                     action='CANCEL',
-                                     value=json_value,
-                                     origin=origin,
-                                     test=test,
-                                     checks=checks)
+        event = _create_command_event('CANCEL')
         await aio.call(device.process_events, [event])
 
         result_cmd_ref, cmd = await cancel_queue.get()
         assert result_cmd_ref == cmd_ref
-        assert cmd.value == iec61850_value
-        assert cmd.operate_time == (operate_time if with_operate_time
-                                    else None)
-        assert cmd.origin == origin
-        assert_equal_timestamp(
-            hat.event.common.timestamp_to_float(event.timestamp),
-            cmd.t.value.timestamp())
-        assert cmd.t.clock_failure is False
-        assert cmd.t.not_synchronized is False
-        assert cmd.test == test
-        assert cmd.checks == set()
+        assert_command(cmd, is_cancel=True)
 
         event = await event_queue.get()
-        assert_command_event(event=event,
-                             name=name,
-                             session_id=session_id,
-                             action='CANCEL',
-                             success=True)
+        _assert_command_event(event, 'CANCEL')
 
-        event = create_command_event(name=name,
-                                     session_id=session_id,
-                                     action='SELECT',
-                                     value=json_value,
-                                     origin=origin,
-                                     test=test,
-                                     checks=checks)
+        event = _create_command_event('SELECT')
         await aio.call(device.process_events, [event])
 
         await select_queue.get()
         await event_queue.get()
 
-    event = create_command_event(name=name,
-                                 session_id=session_id,
-                                 action='OPERATE',
-                                 value=json_value,
-                                 origin=origin,
-                                 test=test,
-                                 checks=checks)
+    event = _create_command_event('OPERATE')
     await aio.call(device.process_events, [event])
 
     result_cmd_ref, cmd = await operate_queue.get()
     assert result_cmd_ref == cmd_ref
-    assert cmd.value == iec61850_value
-    assert cmd.operate_time == (operate_time if with_operate_time
-                                else None)
-    assert cmd.origin == origin
-    assert_equal_timestamp(
-        hat.event.common.timestamp_to_float(event.timestamp),
-        cmd.t.value.timestamp())
-    assert cmd.t.clock_failure is False
-    assert cmd.t.not_synchronized is False
-    assert cmd.test == test
-    assert cmd.checks == checks
+    assert_command(cmd)
 
     event = await event_queue.get()
-    assert_command_event(event=event,
-                         name=name,
-                         session_id=session_id,
-                         action='OPERATE',
-                         success=True)
+    _assert_command_event(event, 'OPERATE')
 
     if model == 'SBO_WITH_ENHANCED_SECURITY':
-        # TODO termination
-        pass
+        await server.send_termination(cmd_ref, cmd)
+
+        event = await event_queue.get()
+        _assert_command_event(event, 'TERMINATION')
+
+    await device.async_close()
+    await server.async_close()
+    await client.async_close()
+
+
+@pytest.mark.parametrize('model', ['DIRECT_WITH_NORMAL_SECURITY',
+                                   'SBO_WITH_NORMAL_SECURITY',
+                                   'DIRECT_WITH_ENHANCED_SECURITY',
+                                   'SBO_WITH_ENHANCED_SECURITY'])
+@pytest.mark.parametrize('with_operate_time', [True, False])
+@pytest.mark.parametrize('value_type, json_value', [
+    (iec61850.BasicValueType.BOOLEAN,
+     True),
+
+    (iec61850.BasicValueType.INTEGER,
+     123),
+
+    (iec61850.AcsiValueType.BINARY_CONTROL,
+     'HIGHER'),
+
+    (iec61850.AcsiValueType.ANALOGUE,
+     {'i': 123})
+])
+async def test_command_error(addr, create_conf, model, with_operate_time,
+                             value_type, json_value):
+    event_queue = aio.Queue()
+
+    name = 'cmd name'
+    session_id = 'session id'
+    origin = iec61850.Origin(category=iec61850.OriginCategory.REMOTE_CONTROL,
+                             identification=b'xyz')
+    test = False
+    checks = set(iec61850.Check)
+    cmd_ref = iec61850.CommandRef(logical_device='ld',
+                                  logical_node='ln',
+                                  name='cmd')
+
+    def _create_command_event(action):
+        return create_command_event(name=name,
+                                    session_id=session_id,
+                                    action=action,
+                                    value=json_value,
+                                    origin=origin,
+                                    test=test,
+                                    checks=checks)
+
+    def _assert_command_event(event, action):
+        assert_command_event(event=event,
+                             name=name,
+                             session_id=session_id,
+                             action=action,
+                             success=False)
+
+    def on_command(cmd_ref, cmd):
+        return mms.DataAccessError.OBJECT_UNDEFINED
+
+    conf = create_conf(value_types=[{'logical_device': cmd_ref.logical_device,
+                                     'logical_node': cmd_ref.logical_node,
+                                     'fc': 'CO',
+                                     'name': cmd_ref.name,
+                                     'type': value_type_to_json(value_type)}],
+                       commands=[{'name': name,
+                                  'model': model,
+                                  'ref': cmd_ref._asdict(),
+                                  'with_operate_time': with_operate_time}])
+
+    client = EventerClient(event_cb=event_queue.put_nowait)
+
+    server = await create_server(
+        addr=addr,
+        cmd_value_types={cmd_ref: value_type},
+        select_cb=on_command,
+        cancel_cb=on_command,
+        operate_cb=on_command)
+    device = await aio.call(info.create, conf, client, event_type_prefix)
+
+    event = await event_queue.get()
+    assert_status_event(event, 'CONNECTING')
+
+    event = await event_queue.get()
+    assert_status_event(event, 'CONNECTED')
+
+    if model in ['SBO_WITH_NORMAL_SECURITY', 'SBO_WITH_ENHANCED_SECURITY']:
+        event = _create_command_event('SELECT')
+        await aio.call(device.process_events, [event])
+
+        event = await event_queue.get()
+        _assert_command_event(event, 'SELECT')
+
+        event = _create_command_event('CANCEL')
+        await aio.call(device.process_events, [event])
+
+        event = await event_queue.get()
+        _assert_command_event(event, 'CANCEL')
+
+    event = _create_command_event('OPERATE')
+    await aio.call(device.process_events, [event])
+
+    event = await event_queue.get()
+    _assert_command_event(event, 'OPERATE')
+
+    await device.async_close()
+    await server.async_close()
+    await client.async_close()
+
+
+@pytest.mark.parametrize('value_type, mms_data, json_value', [
+    (iec61850.BasicValueType.BOOLEAN,
+     mms.BooleanData(True),
+     True),
+
+    (iec61850.BasicValueType.INTEGER,
+     mms.IntegerData(123),
+     123),
+
+    (iec61850.BasicValueType.UNSIGNED,
+     mms.UnsignedData(123),
+     123),
+
+    (iec61850.BasicValueType.FLOAT,
+     mms.FloatingPointData(123.5),
+     123.5),
+
+    # TODO
+])
+async def test_change_success(addr, create_conf, value_type, mms_data,
+                              json_value):
+    write_queue = aio.Queue()
+    event_queue = aio.Queue()
+
+    name = 'data name'
+    session_id = 'session id'
+    data_ref = iec61850.DataRef(logical_device='ld',
+                                logical_node='ln',
+                                fc='fc',
+                                names=('a', 123, 'b'))
+
+    conf = create_conf(
+        value_types=[{
+            'logical_device': data_ref.logical_device,
+            'logical_node': data_ref.logical_node,
+            'fc': data_ref.fc,
+            'name': 'a',
+            'type': value_type_to_json(
+                iec61850.ArrayValueType(
+                    iec61850.StructValueType([('b', value_type)])))}],
+        changes=[{'name': name,
+                  'ref': {'logical_device': data_ref.logical_device,
+                          'logical_node': data_ref.logical_node,
+                          'fc': data_ref.fc,
+                          'names': list(data_ref.names)}}])
+
+    client = EventerClient(event_cb=event_queue.put_nowait)
+
+    server = await create_server(addr=addr,
+                                 write_cb=create_queue_cb(write_queue))
+    device = await aio.call(info.create, conf, client, event_type_prefix)
+
+    event = await event_queue.get()
+    assert_status_event(event, 'CONNECTING')
+
+    event = await event_queue.get()
+    assert_status_event(event, 'CONNECTED')
+
+    event = create_change_event(name=name,
+                                session_id=session_id,
+                                value=json_value)
+    await aio.call(device.process_events, [event])
+
+    result_data_ref, result_mms_data = await write_queue.get()
+    assert result_data_ref == data_ref
+    assert result_mms_data == mms_data
+
+    event = await event_queue.get()
+    assert_change_event(event=event,
+                        name=name,
+                        session_id=session_id,
+                        success=True)
+
+    await device.async_close()
+    await server.async_close()
+    await client.async_close()
+
+
+@pytest.mark.parametrize('value_type, json_value', [
+    (iec61850.BasicValueType.BOOLEAN,
+     True),
+
+    (iec61850.BasicValueType.INTEGER,
+     123),
+
+    (iec61850.BasicValueType.UNSIGNED,
+     123),
+
+    (iec61850.BasicValueType.FLOAT,
+     123.5),
+
+    # TODO
+])
+async def test_change_error(addr, create_conf, value_type, json_value):
+    event_queue = aio.Queue()
+
+    name = 'data name'
+    session_id = 'session id'
+    data_ref = iec61850.DataRef(logical_device='ld',
+                                logical_node='ln',
+                                fc='fc',
+                                names=('a', 123, 'b'))
+
+    def on_write(data_ref, mms_data):
+        return mms.DataAccessError.OBJECT_UNDEFINED
+
+    conf = create_conf(
+        value_types=[{
+            'logical_device': data_ref.logical_device,
+            'logical_node': data_ref.logical_node,
+            'fc': data_ref.fc,
+            'name': 'a',
+            'type': value_type_to_json(
+                iec61850.ArrayValueType(
+                    iec61850.StructValueType([('b', value_type)])))}],
+        changes=[{'name': name,
+                  'ref': {'logical_device': data_ref.logical_device,
+                          'logical_node': data_ref.logical_node,
+                          'fc': data_ref.fc,
+                          'names': list(data_ref.names)}}])
+
+    client = EventerClient(event_cb=event_queue.put_nowait)
+
+    server = await create_server(addr=addr,
+                                 write_cb=on_write)
+    device = await aio.call(info.create, conf, client, event_type_prefix)
+
+    event = await event_queue.get()
+    assert_status_event(event, 'CONNECTING')
+
+    event = await event_queue.get()
+    assert_status_event(event, 'CONNECTED')
+
+    event = create_change_event(name=name,
+                                session_id=session_id,
+                                value=json_value)
+    await aio.call(device.process_events, [event])
+
+    event = await event_queue.get()
+    assert_change_event(event=event,
+                        name=name,
+                        session_id=session_id,
+                        success=False)
 
     await device.async_close()
     await server.async_close()
