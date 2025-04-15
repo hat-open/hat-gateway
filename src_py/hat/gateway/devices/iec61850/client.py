@@ -764,20 +764,20 @@ def _get_node_type(node):
 
 
 def _node_from_ref(value_types_nodes, ref):
+    left_names = []
     if isinstance(ref, iec61850.DataRef):
+        left_names = ref.names[1:]
         ref = (ref.logical_device, ref.logical_node, ref.names[0])
+
     if ref not in value_types_nodes:
         return
 
     node = value_types_nodes[ref]
-    left_names = ref.names[1:]
-    i = 1
     while left_names:
         name = left_names[0]
         node = [node.children[name]
                 if isinstance(name, str) else node.children[0]]
-        i += 1
-        left_names = name[i:]
+        left_names = left_names[1:]
 
     return node
 
