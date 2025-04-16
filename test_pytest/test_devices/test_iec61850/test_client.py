@@ -152,11 +152,9 @@ def assert_entry_id_event(event: hat.event.common.Event,
                           report_id: str,
                           entry_id: util.Bytes):
     assert event.type == (*event_type_prefix, 'gateway', 'entry_id', report_id)
-
-    # TODO
-    # assert event.source_timestamp
-
-    assert event.payload.data == entry_id.hex()
+    assert event.source_timestamp is None
+    assert event.payload.data == (entry_id.hex() if entry_id is not None
+                                  else None)
 
 
 def assert_equal_timestamp(t1: float, t2: float):
@@ -1413,6 +1411,9 @@ async def test_command_error(addr, create_conf, model, with_operate_time,
     await client.async_close()
 
 
+# TODO test termination error
+
+
 @pytest.mark.parametrize('value_type, mms_data, json_value', [
     (iec61850.BasicValueType.BOOLEAN,
      mms.BooleanData(True),
@@ -1430,7 +1431,83 @@ async def test_command_error(addr, create_conf, model, with_operate_time,
      mms.FloatingPointData(123.5),
      123.5),
 
-    # TODO
+    (iec61850.BasicValueType.BIT_STRING,
+     mms.BitStringData([True, False, True]),
+     [True, False, True]),
+
+    (iec61850.BasicValueType.OCTET_STRING,
+     mms.OctetStringData(b'abc'),
+     b'abc'.hex()),
+
+    (iec61850.BasicValueType.VISIBLE_STRING,
+     mms.VisibleStringData('abc'),
+     'abc'),
+
+    (iec61850.BasicValueType.MMS_STRING,
+     mms.MmsStringData('abc'),
+     'abc'),
+
+    (iec61850.AcsiValueType.QUALITY,
+     mms.BitStringData([False] * 13),
+     {'validity': 'GOOD',
+      'details': [],
+      'source': 'PROCESS',
+      'test': False,
+      'operator_blocked': False}),
+
+    (iec61850.AcsiValueType.TIMESTAMP,
+     mms.UtcTimeData(
+        value=datetime.datetime.fromtimestamp(0, datetime.timezone.utc),
+        leap_second=False,
+        clock_failure=False,
+        not_synchronized=False,
+        accuracy=None),
+     {'value': 0,
+      'leap_second': False,
+      'clock_failure': False,
+      'not_synchronized': False}),
+
+    (iec61850.AcsiValueType.DOUBLE_POINT,
+     mms.BitStringData([False] * 2),
+     'INTERMEDIATE'),
+
+    (iec61850.AcsiValueType.DIRECTION,
+     mms.IntegerData(1),
+     'FORWARD'),
+
+    (iec61850.AcsiValueType.SEVERITY,
+     mms.IntegerData(2),
+     'MAJOR'),
+
+    (iec61850.AcsiValueType.ANALOGUE,
+     mms.StructureData([mms.FloatingPointData(123.5)]),
+     {'f': 123.5}),
+
+    (iec61850.AcsiValueType.VECTOR,
+     mms.StructureData([mms.StructureData([mms.IntegerData(123)])]),
+     {'magnitude': {'i': 123}}),
+
+    (iec61850.AcsiValueType.STEP_POSITION,
+     mms.StructureData([mms.IntegerData(123)]),
+     {'value': 123}),
+
+    (iec61850.AcsiValueType.BINARY_CONTROL,
+     mms.BitStringData([False] * 2),
+     'STOP'),
+
+    (iec61850.ArrayValueType(iec61850.BasicValueType.INTEGER),
+     mms.ArrayData([mms.IntegerData(1),
+                    mms.IntegerData(2),
+                    mms.IntegerData(3)]),
+     [1, 2, 3]),
+
+    (iec61850.StructValueType([('a', iec61850.BasicValueType.INTEGER),
+                               ('b', iec61850.BasicValueType.INTEGER),
+                               ('c', iec61850.BasicValueType.INTEGER)]),
+     mms.StructureData([mms.IntegerData(1),
+                        mms.IntegerData(2),
+                        mms.IntegerData(3)]),
+     {'a': 1, 'b': 2, 'c': 3}),
 ])
 async def test_change_success(addr, create_conf, value_type, mms_data,
                               json_value):
@@ -1504,7 +1581,59 @@ async def test_change_success(addr, create_conf, value_type, mms_data,
     (iec61850.BasicValueType.FLOAT,
      123.5),
 
-    # TODO
+    (iec61850.BasicValueType.BIT_STRING,
+     [True, False, True]),
+
+    (iec61850.BasicValueType.OCTET_STRING,
+     b'abc'.hex()),
+
+    (iec61850.BasicValueType.VISIBLE_STRING,
+     'abc'),
+
+    (iec61850.BasicValueType.MMS_STRING,
+     'abc'),
+
+    (iec61850.AcsiValueType.QUALITY,
+     {'validity': 'GOOD',
+      'details': [],
+      'source': 'PROCESS',
+      'test': False,
+      'operator_blocked': False}),
+
+    (iec61850.AcsiValueType.TIMESTAMP,
+     {'value': 0,
+      'leap_second': False,
+      'clock_failure': False,
+      'not_synchronized': False}),
+
+    (iec61850.AcsiValueType.DOUBLE_POINT,
+     'INTERMEDIATE'),
+
+    (iec61850.AcsiValueType.DIRECTION,
+     'FORWARD'),
+
+    (iec61850.AcsiValueType.SEVERITY,
+     'MAJOR'),
+
+    (iec61850.AcsiValueType.ANALOGUE,
+     {'f': 123.5}),
+
+    (iec61850.AcsiValueType.VECTOR,
+     {'magnitude': {'i': 123}}),
+
+    (iec61850.AcsiValueType.STEP_POSITION,
+     {'value': 123}),
+
+    (iec61850.AcsiValueType.BINARY_CONTROL,
+     'STOP'),
+
+    (iec61850.ArrayValueType(iec61850.BasicValueType.INTEGER),
+     [1, 2, 3]),
+
+    (iec61850.StructValueType([('a', iec61850.BasicValueType.INTEGER),
+                               ('b', iec61850.BasicValueType.INTEGER),
+                               ('c', iec61850.BasicValueType.INTEGER)]),
+     {'a': 1, 'b': 2, 'c': 3}),
 ])
 async def test_change_error(addr, create_conf, value_type, json_value):
     event_queue = aio.Queue()
@@ -1563,7 +1692,7 @@ async def test_change_error(addr, create_conf, value_type, json_value):
 
 
 @pytest.mark.parametrize('rcb_type', iec61850.RcbType)
-@pytest.mark.parametrize('entry_id', [b'xyz'])
+@pytest.mark.parametrize('entry_id', [None, b'xyz'])
 async def test_data_empty_report(addr, create_conf, rcb_type, entry_id):
     event_queue = aio.Queue()
 
@@ -1648,3 +1777,472 @@ async def test_data_empty_report(addr, create_conf, rcb_type, entry_id):
     await device.async_close()
     await server.async_close()
     await client.async_close()
+
+
+@pytest.mark.parametrize('rcb_type', iec61850.RcbType)
+@pytest.mark.parametrize('value_type, iec61850_value, json_value', [
+    (iec61850.BasicValueType.BOOLEAN,
+     True,
+     True),
+
+    (iec61850.BasicValueType.INTEGER,
+     123,
+     123),
+
+    (iec61850.BasicValueType.UNSIGNED,
+     123,
+     123),
+
+    (iec61850.BasicValueType.FLOAT,
+     123.5,
+     123.5),
+
+    (iec61850.BasicValueType.BIT_STRING,
+     [True, False, True],
+     [True, False, True]),
+
+    (iec61850.BasicValueType.OCTET_STRING,
+     b'abc',
+     b'abc'.hex()),
+
+    (iec61850.BasicValueType.VISIBLE_STRING,
+     'abc',
+     'abc'),
+
+    (iec61850.BasicValueType.MMS_STRING,
+     'abc',
+     'abc'),
+
+    (iec61850.AcsiValueType.QUALITY,
+     iec61850.Quality(validity=iec61850.QualityValidity.GOOD,
+                      details=set(),
+                      source=iec61850.QualitySource.PROCESS,
+                      test=False,
+                      operator_blocked=False),
+     {'validity': 'GOOD',
+      'details': [],
+      'source': 'PROCESS',
+      'test': False,
+      'operator_blocked': False}),
+
+    (iec61850.AcsiValueType.TIMESTAMP,
+     iec61850.Timestamp(
+        value=datetime.datetime.fromtimestamp(0, datetime.timezone.utc),
+        leap_second=False,
+        clock_failure=False,
+        not_synchronized=False,
+        accuracy=None),
+     {'value': 0,
+      'leap_second': False,
+      'clock_failure': False,
+      'not_synchronized': False}),
+
+    (iec61850.AcsiValueType.DOUBLE_POINT,
+     iec61850.DoublePoint.INTERMEDIATE,
+     'INTERMEDIATE'),
+
+    (iec61850.AcsiValueType.DIRECTION,
+     iec61850.Direction.FORWARD,
+     'FORWARD'),
+
+    (iec61850.AcsiValueType.SEVERITY,
+     iec61850.Severity.MAJOR,
+     'MAJOR'),
+
+    (iec61850.AcsiValueType.ANALOGUE,
+     iec61850.Analogue(f=123.5),
+     {'f': 123.5}),
+
+    (iec61850.AcsiValueType.VECTOR,
+     iec61850.Vector(magnitude=iec61850.Analogue(i=123),
+                     angle=None),
+     {'magnitude': {'i': 123}}),
+
+    (iec61850.AcsiValueType.STEP_POSITION,
+     iec61850.StepPosition(value=123,
+                           transient=None),
+     {'value': 123}),
+
+    (iec61850.AcsiValueType.BINARY_CONTROL,
+     iec61850.BinaryControl.STOP,
+     'STOP'),
+
+    (iec61850.ArrayValueType(iec61850.BasicValueType.INTEGER),
+     [1, 2, 3],
+     [1, 2, 3]),
+
+    (iec61850.StructValueType([('a', iec61850.BasicValueType.INTEGER),
+                               ('b', iec61850.BasicValueType.INTEGER),
+                               ('c', iec61850.BasicValueType.INTEGER)]),
+     {'a': 1, 'b': 2, 'c': 3},
+     {'a': 1, 'b': 2, 'c': 3}),
+])
+async def test_data_report(addr, create_conf, rcb_type, value_type,
+                           iec61850_value, json_value):
+    event_queue = aio.Queue()
+
+    name = 'data name'
+    report_id = 'report id'
+    dataset = 'ds'
+    data_ref = iec61850.DataRef(logical_device='ld',
+                                logical_node='ln',
+                                fc='fc',
+                                names=('a', ))
+    rcb_ref = iec61850.RcbRef(logical_device='ld',
+                              logical_node='ln',
+                              type=rcb_type,
+                              name='rcb')
+    data_defs = [DataDef(ref=data_ref,
+                         value_type=value_type)]
+
+    conf = create_conf(
+        value_types=[{'logical_device': data_ref.logical_device,
+                      'logical_node': data_ref.logical_node,
+                      'fc': data_ref.fc,
+                      'name': 'a',
+                      'type': value_type_to_json(value_type)}],
+        datasets=[{'ref': dataset,
+                   'values': [{'logical_device': data_ref.logical_device,
+                               'logical_node': data_ref.logical_node,
+                               'fc': data_ref.fc,
+                               'names': list(data_ref.names)}],
+                   'dynamic': True}],
+        rcbs=[{'ref': {'logical_device': rcb_ref.logical_device,
+                       'logical_node': rcb_ref.logical_node,
+                       'type': rcb_type.name,
+                       'name': rcb_ref.name},
+               'report_id': report_id,
+               'dataset': dataset}],
+        data=[{'name': name,
+               'ref': {'logical_device': data_ref.logical_device,
+                       'logical_node': data_ref.logical_node,
+                       'names': list(data_ref.names)}}])
+
+    client = EventerClient(event_cb=event_queue.put_nowait)
+
+    server = await create_server(
+        addr=addr,
+        rcbs={
+            rcb_ref: {
+                iec61850.RcbAttrType.REPORT_ID: report_id,
+                iec61850.RcbAttrType.DATASET: iec61850.NonPersistedDatasetRef(
+                    dataset)}})
+    device = await aio.call(info.create, conf, client, event_type_prefix)
+
+    event = await event_queue.get()
+    assert_status_event(event, 'CONNECTING')
+
+    event = await event_queue.get()
+    assert_status_event(event, 'CONNECTED')
+
+    report = iec61850.Report(report_id=report_id,
+                             sequence_number=None,
+                             subsequence_number=None,
+                             more_segments_follow=None,
+                             dataset=None,
+                             buffer_overflow=None,
+                             conf_revision=None,
+                             entry_time=None,
+                             entry_id=None,
+                             data=[iec61850.ReportData(ref=data_ref,
+                                                       value=iec61850_value,
+                                                       reasons=None)])
+    await server.send_report(report, data_defs)
+
+    entry_id_event = None
+    data_event = None
+    while entry_id_event is None or data_event is None:
+        event = await event_queue.get()
+
+        if event.type[-2] == 'entry_id':
+            assert entry_id_event is None
+            entry_id_event = event
+
+        elif event.type[-2] == 'data':
+            assert data_event is None
+            data_event = event
+
+        else:
+            raise Exception('invalid event')
+
+    assert_entry_id_event(event=entry_id_event,
+                          report_id=report_id,
+                          entry_id=None)
+
+    assert_data_event(event=data_event,
+                      name=name,
+                      data=json_value,
+                      reasons=[])
+
+    with pytest.raises(asyncio.TimeoutError):
+        await aio.wait_for(event_queue.get(), 0.01)
+
+    await device.async_close()
+    await server.async_close()
+    await client.async_close()
+
+
+async def test_data_subset_report(addr, create_conf):
+    event_queue = aio.Queue()
+
+    name = 'data name'
+    report_id = 'report id'
+    dataset = 'ds'
+    logical_device = 'ld'
+    logical_node = 'ln'
+    rcb_type = iec61850.RcbType.BUFFERED
+    value_type = iec61850.BasicValueType.INTEGER
+    x_data_ref = iec61850.DataRef(logical_device=logical_device,
+                                  logical_node=logical_node,
+                                  fc='fc1',
+                                  names=('a', 'x'))
+    y_data_ref = iec61850.DataRef(logical_device=logical_device,
+                                  logical_node=logical_node,
+                                  fc='fc2',
+                                  names=('a', 'y'))
+    z_data_ref = iec61850.DataRef(logical_device=logical_device,
+                                  logical_node=logical_node,
+                                  fc='fc3',
+                                  names=('a', 'z'))
+    rcb_ref = iec61850.RcbRef(logical_device=logical_device,
+                              logical_node=logical_node,
+                              type=rcb_type,
+                              name='rcb')
+    data_defs = [DataDef(ref=x_data_ref,
+                         value_type=value_type),
+                 DataDef(ref=y_data_ref,
+                         value_type=value_type),
+                 DataDef(ref=z_data_ref,
+                         value_type=value_type)]
+
+    conf = create_conf(
+        value_types=[
+            {'logical_device': logical_device,
+             'logical_node': logical_node,
+             'fc': x_data_ref.fc,
+             'name': 'a',
+             'type': value_type_to_json(
+                iec61850.StructValueType([('x', value_type)]))},
+            {'logical_device': logical_device,
+             'logical_node': logical_node,
+             'fc': y_data_ref.fc,
+             'name': 'a',
+             'type': value_type_to_json(
+                iec61850.StructValueType([('y', value_type)]))},
+            {'logical_device': logical_device,
+             'logical_node': logical_node,
+             'fc': z_data_ref.fc,
+             'name': 'a',
+             'type': value_type_to_json(
+                iec61850.StructValueType([('z', value_type)]))}],
+        datasets=[{'ref': dataset,
+                   'values': [{'logical_device': logical_device,
+                               'logical_node': logical_node,
+                               'fc': x_data_ref.fc,
+                               'names': list(x_data_ref.names)},
+                              {'logical_device': logical_device,
+                               'logical_node': logical_node,
+                               'fc': y_data_ref.fc,
+                               'names': list(y_data_ref.names)},
+                              {'logical_device': logical_device,
+                               'logical_node': logical_node,
+                               'fc': z_data_ref.fc,
+                               'names': list(z_data_ref.names)}],
+                   'dynamic': True}],
+        rcbs=[{'ref': {'logical_device': logical_device,
+                       'logical_node': logical_node,
+                       'type': rcb_type.name,
+                       'name': rcb_ref.name},
+               'report_id': report_id,
+               'dataset': dataset}],
+        data=[{'name': name,
+               'ref': {'logical_device': logical_device,
+                       'logical_node': logical_node,
+                       'names': ['a']}}])
+
+    client = EventerClient(event_cb=event_queue.put_nowait)
+
+    server = await create_server(
+        addr=addr,
+        rcbs={
+            rcb_ref: {
+                iec61850.RcbAttrType.REPORT_ID: report_id,
+                iec61850.RcbAttrType.DATASET: iec61850.NonPersistedDatasetRef(
+                    dataset)}})
+    device = await aio.call(info.create, conf, client, event_type_prefix)
+
+    event = await event_queue.get()
+    assert_status_event(event, 'CONNECTING')
+
+    event = await event_queue.get()
+    assert_status_event(event, 'CONNECTED')
+
+    report = iec61850.Report(
+        report_id=report_id,
+        sequence_number=None,
+        subsequence_number=None,
+        more_segments_follow=None,
+        dataset=None,
+        buffer_overflow=None,
+        conf_revision=None,
+        entry_time=None,
+        entry_id=None,
+        data=[iec61850.ReportData(ref=x_data_ref,
+                                  value=1,
+                                  reasons={iec61850.Reason.DATA_CHANGE}),
+              iec61850.ReportData(ref=y_data_ref,
+                                  value=2,
+                                  reasons={iec61850.Reason.QUALITY_CHANGE})])
+    await server.send_report(report, data_defs)
+
+    entry_id_event = None
+    data_event = None
+    while entry_id_event is None or data_event is None:
+        event = await event_queue.get()
+
+        if event.type[-2] == 'entry_id':
+            assert entry_id_event is None
+            entry_id_event = event
+
+        elif event.type[-2] == 'data':
+            assert data_event is None
+            data_event = event
+
+        else:
+            raise Exception('invalid event')
+
+    assert_entry_id_event(event=entry_id_event,
+                          report_id=report_id,
+                          entry_id=None)
+
+    assert_data_event(event=data_event,
+                      name=name,
+                      data={'x': 1,
+                            'y': 2},
+                      reasons={iec61850.Reason.DATA_CHANGE,
+                               iec61850.Reason.QUALITY_CHANGE})
+
+    with pytest.raises(asyncio.TimeoutError):
+        await aio.wait_for(event_queue.get(), 0.01)
+
+    await device.async_close()
+    await server.async_close()
+    await client.async_close()
+
+
+async def test_data_superset_report(addr, create_conf):
+    event_queue = aio.Queue()
+
+    name = 'data name'
+    report_id = 'report id'
+    dataset = 'ds'
+    logical_device = 'ld'
+    logical_node = 'ln'
+    rcb_type = iec61850.RcbType.BUFFERED
+    value_type = iec61850.StructValueType([
+        ('x', iec61850.BasicValueType.INTEGER),
+        ('y', iec61850.BasicValueType.INTEGER),
+        ('z', iec61850.BasicValueType.INTEGER)])
+    data_ref = iec61850.DataRef(logical_device=logical_device,
+                                logical_node=logical_node,
+                                fc='fc',
+                                names=('a', ))
+    rcb_ref = iec61850.RcbRef(logical_device=logical_device,
+                              logical_node=logical_node,
+                              type=rcb_type,
+                              name='rcb')
+    data_defs = [DataDef(ref=data_ref,
+                         value_type=value_type)]
+
+    conf = create_conf(
+        value_types=[
+            {'logical_device': logical_device,
+             'logical_node': logical_node,
+             'fc': data_ref.fc,
+             'name': 'a',
+             'type': value_type_to_json(value_type)}],
+        datasets=[{'ref': dataset,
+                   'values': [{'logical_device': logical_device,
+                               'logical_node': logical_node,
+                               'fc': data_ref.fc,
+                               'names': list(data_ref.names)}],
+                   'dynamic': True}],
+        rcbs=[{'ref': {'logical_device': logical_device,
+                       'logical_node': logical_node,
+                       'type': rcb_type.name,
+                       'name': rcb_ref.name},
+               'report_id': report_id,
+               'dataset': dataset}],
+        data=[{'name': name,
+               'ref': {'logical_device': logical_device,
+                       'logical_node': logical_node,
+                       'names': ['a', 'x']}}])
+
+    client = EventerClient(event_cb=event_queue.put_nowait)
+
+    server = await create_server(
+        addr=addr,
+        rcbs={
+            rcb_ref: {
+                iec61850.RcbAttrType.REPORT_ID: report_id,
+                iec61850.RcbAttrType.DATASET: iec61850.NonPersistedDatasetRef(
+                    dataset)}})
+    device = await aio.call(info.create, conf, client, event_type_prefix)
+
+    event = await event_queue.get()
+    assert_status_event(event, 'CONNECTING')
+
+    event = await event_queue.get()
+    assert_status_event(event, 'CONNECTED')
+
+    report = iec61850.Report(
+        report_id=report_id,
+        sequence_number=None,
+        subsequence_number=None,
+        more_segments_follow=None,
+        dataset=None,
+        buffer_overflow=None,
+        conf_revision=None,
+        entry_time=None,
+        entry_id=None,
+        data=[iec61850.ReportData(ref=data_ref,
+                                  value={'x': 1,
+                                         'y': 2,
+                                         'z': 3},
+                                  reasons={iec61850.Reason.DATA_CHANGE})])
+    await server.send_report(report, data_defs)
+
+    entry_id_event = None
+    data_event = None
+    while entry_id_event is None or data_event is None:
+        event = await event_queue.get()
+
+        if event.type[-2] == 'entry_id':
+            assert entry_id_event is None
+            entry_id_event = event
+
+        elif event.type[-2] == 'data':
+            assert data_event is None
+            data_event = event
+
+        else:
+            raise Exception('invalid event')
+
+    assert_entry_id_event(event=entry_id_event,
+                          report_id=report_id,
+                          entry_id=None)
+
+    assert_data_event(event=data_event,
+                      name=name,
+                      data=1,
+                      reasons={iec61850.Reason.DATA_CHANGE})
+
+    with pytest.raises(asyncio.TimeoutError):
+        await aio.wait_for(event_queue.get(), 0.01)
+
+    await device.async_close()
+    await server.async_close()
+    await client.async_close()
+
+
+# TODO test report segmentation
