@@ -277,7 +277,9 @@ $defs:
                                 error:
                                     $ref: "hat-gateway://iec61850.yaml#/$defs/errors/service_error"
                 entry_id:
-                    type: string
+                    type:
+                        - string
+                        - "null"
                     description: hex encoded bytes
             system:
                 command:

@@ -329,7 +329,7 @@ class Iec61850ClientDevice(common.Device):
         value = _value_from_json(event.payload.data['value'], node)
         try:
             resp = await aio.wait_for(
-                iec61850.write_data(ref, value),
+                self._conn.write_data(ref, value),
                 self._conf['connection']['response_timeout'])
 
         except asyncio.TimeoutError:
@@ -352,14 +352,14 @@ class Iec61850ClientDevice(common.Device):
 
         events = collections.deque()
 
-        if report.entry_id is not None:
-            event = hat.event.common.RegisterEvent(
-                type=(*self._event_type_prefix, 'gateway',
-                      'entry_id', report.report_id),
-                source_timestamp=None,
-                payload=hat.event.common.EventPayloadJson(
-                    report.entry_id.hex()))
-            events.append(event)
+        event = hat.event.common.RegisterEvent(
+            type=(*self._event_type_prefix, 'gateway',
+                  'entry_id', report.report_id),
+            source_timestamp=None,
+            payload=hat.event.common.EventPayloadJson(
+                report.entry_id.hex()
+                if report.entry_id is not None else None))
+        events.append(event)
 
         report_data_values = collections.defaultdict(collections.deque)
         for rv in report.data:
@@ -696,21 +696,20 @@ def _node_from_value_type(value_type, name=None):
     if isinstance(value_type, str):
         return _ValueTypeNode(name=name,
                               type=_value_type_from_str(value_type),
-                              children=[])
+                              children={})
 
     if value_type['type'] == 'ARRAY':
-        child_name = 0
         children = {
-            child_name: _node_from_value_type(value_type['element_type'],
-                                              name=child_name)}
+            0: _node_from_value_type(value_type['element_type'],
+                                     name=0)}
         return _ValueTypeNode(name=name,
                               type=iec61850.ArrayValueType,
                               children=children)
 
     if value_type['type'] == 'STRUCT':
-        for i, elm in enumerate(value_type['elements']):
-            child_name = elm['name']
-            children[child_name] = _node_from_value_type(elm, name=child_name)
+        children = {
+            elm['name']: _node_from_value_type(elm['type'], name=elm['name'])
+            for elm in value_type['elements']}
         return _ValueTypeNode(name=name,
                               type=iec61850.StructValueType,
                               children=children)
@@ -775,8 +774,8 @@ def _node_from_ref(value_types_nodes, ref):
     node = value_types_nodes[ref]
     while left_names:
         name = left_names[0]
-        node = [node.children[name]
-                if isinstance(name, str) else node.children[0]]
+        node = (node.children[name]
+                if isinstance(name, str) else node.children[0])
         left_names = left_names[1:]
 
     return node
