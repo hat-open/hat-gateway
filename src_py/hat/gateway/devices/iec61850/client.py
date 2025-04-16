@@ -792,7 +792,8 @@ def _value_from_json(event_value, node, value_type=None):
     if value_type == iec61850.AcsiValueType.QUALITY:
         return iec61850.Quality(
             validity=iec61850.QualityValidity[event_value['validity']],
-            details=iec61850.QualityDetail[event_value['details']],
+            details={iec61850.QualityDetail[i]
+                     for i in event_value['details']},
             source=iec61850.QualitySource[event_value['source']],
             test=event_value['test'],
             operator_blocked=event_value['operator_blocked'])
@@ -804,7 +805,7 @@ def _value_from_json(event_value, node, value_type=None):
             leap_second=event_value['leap_second'],
             clock_failure=event_value['clock_failure'],
             not_synchronized=event_value['not_synchronized'],
-            accuracy=event_value['accuracy'])
+            accuracy=event_value.get('accuracy'))
 
     if value_type == iec61850.AcsiValueType.DOUBLE_POINT:
         return iec61850.DoublePoint[event_value]
