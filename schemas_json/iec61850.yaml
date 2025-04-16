@@ -610,19 +610,23 @@ $defs:
                     type: string
         dataset:
             oneOf:
-              - type: string
-              - type: object
-                required:
-                    - logical_device
-                    - logical_node
-                    - name
-                properties:
-                    logical_device:
-                        type: string
-                    logical_node:
-                        type: string
-                    name:
-                        type: string
+              - $ref: "hat-gateway://iec61850.yaml#/$defs/refs/dataset_nonpersisted"
+              - $ref: "hat-gateway://iec61850.yaml#/$defs/refs/dataset_persisted"
+        dataset_nonpersisted:
+            type: string
+        dataset_persisted:
+            type: object
+            required:
+                - logical_device
+                - logical_node
+                - name
+            properties:
+                logical_device:
+                    type: string
+                logical_node:
+                    type: string
+                name:
+                    type: string
     errors:
         service_error:
             enum:

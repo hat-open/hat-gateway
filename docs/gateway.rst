@@ -155,6 +155,7 @@ Devices available as part of `hat-gateway` package:
        devices/iec101
        devices/iec103
        devices/iec104
+       devices/iec61850
        devices/snmp
        devices/ping
 
