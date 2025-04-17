@@ -368,7 +368,7 @@ class Iec61850ClientDevice(common.Device):
                 report_data_values[data_ref].append(rv)
 
         for data_ref, report_values in report_data_values.items():
-            if len(report_values) != self._data_values[data_ref]:
+            if len(report_values) != len(self._data_values[data_ref]):
                 mlog.warning(
                     'report values dropped: report does not include all '
                     'values of data %s, only %s', data_ref, report_values)
@@ -674,9 +674,9 @@ def _event_data_from_report(report_values, value_types_nodes, data_ref):
     for rv in report_values:
         node = _node_from_ref(value_types_nodes, rv.ref)
         val_json = _value_to_json(rv.value, node)
-        val_path = (rv.ref.logical_device, rv.ref.logical_node, *rv.ref.names)
+        val_path = [rv.ref.logical_device, rv.ref.logical_node, *rv.ref.names]
         values_json = json.set_(values_json, val_path, val_json)
-    return json.get(values_json, data_ref)
+    return json.get(values_json, list(data_ref))
 
 
 _ValueTypeNodeName = str | int
@@ -860,16 +860,16 @@ def _value_to_json(data_value, node, value_type=None):
 
     if value_type == iec61850.AcsiValueType.QUALITY:
         return {'validity': data_value.validity.name,
-                'details': data_value.details.name,
+                'details': [i.name for i in data_value.details],
                 'source': data_value.source.name,
                 'test': data_value.test,
                 'operator_blocked': data_value.operator_blocked}
 
     if value_type == iec61850.AcsiValueType.TIMESTAMP:
         val = {'value': data_value.value.timestamp(),
-               'leap_second': data_value.value.leap_second,
-               'clock_failure': data_value.value.clock_failure,
-               'not_synchronized': data_value.value.not_synchronized}
+               'leap_second': data_value.leap_second,
+               'clock_failure': data_value.clock_failure,
+               'not_synchronized': data_value.not_synchronized}
         if data_value.accuracy is not None:
             val['accuracy'] = data_value.accuracy
         return val
@@ -910,12 +910,9 @@ def _value_to_json(data_value, node, value_type=None):
         return [_value_to_json(i, node.children[0]) for i in data_value]
 
     if value_type == iec61850.StructValueType:
-        for child_name, child_value in data_value.items():
-            if child_name not in node.children:
-                raise Exception(f'attr {child_name} not found in value type')
-
-            child = node.children[child_name]
-            return {child_name: _value_to_json(child_value, child)}
+        return {
+            child_name: _value_to_json(child_value, node.children[child_name])
+            for child_name, child_value in data_value.items()}
 
     raise Exception('unsupported value type')
 
