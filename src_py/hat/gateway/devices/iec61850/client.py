@@ -21,6 +21,8 @@ mlog: logging.Logger = logging.getLogger(__name__)
 
 termination_timeout: int = 100
 
+report_segments_timeout: int = 100
+
 
 async def create(conf: common.DeviceConf,
                  eventer_client: hat.event.eventer.Client,
@@ -46,6 +48,7 @@ async def create(conf: common.DeviceConf,
     device._conn = None
     device._terminations = {}
     device._conn_status = None
+    device._reports_segments = {}
 
     device._data_ref_names = {(i['ref']['logical_device'],
                                i['ref']['logical_node'],
@@ -119,6 +122,7 @@ async def create(conf: common.DeviceConf,
 
     device._async_group = aio.Group()
     device._async_group.spawn(device._connection_loop)
+    device._loop = asyncio.get_running_loop()
 
     return device
 
@@ -256,7 +260,7 @@ class Iec61850ClientDevice(common.Device):
         if (action == 'OPERATE' and
                 cmd_conf['model'] in ['DIRECT_WITH_ENHANCED_SECURITY',
                                       'SBO_WITH_ENHANCED_SECURITY']):
-            term_future = asyncio.Future()
+            term_future = self._loop.create_future()
             self._conn.async_group.spawn(
                 self._wait_cmd_term, cmd_name, cmd_ref, cmd, evt_session_id,
                 term_future)
@@ -317,7 +321,7 @@ class Iec61850ClientDevice(common.Device):
             mlog.warning('command termination timeout')
 
         finally:
-            self._terminations.pop(cmd_session_id)
+            del self._terminations[cmd_session_id]
 
     async def _process_change_req(self, event, value_name):
         if not self._conn:
@@ -356,19 +360,47 @@ class Iec61850ClientDevice(common.Device):
             mlog.warning('unexpected report dropped')
             return
 
+        seq_num = report.sequence_number
+        if report.more_segments_follow:
+            if seq_num in self._reports_segments:
+                segment_data, timeout_timer = self._reports_segments[seq_num]
+                timeout_timer.cancel()
+            else:
+                segment_data = collections.deque()
+
+            segment_data.extend(report.data)
+            timeout_timer = self._loop.call_later(
+                report_segments_timeout, self._reports_segments.pop, seq_num)
+            self._reports_segments[seq_num] = (segment_data, timeout_timer)
+            self._rcbs_entry_ids[report.report_id] = report.entry_id
+            return
+
+        if seq_num in self._reports_segments:
+            report_data, timeout_timer = self._reports_segments[seq_num]
+            timeout_timer.cancel()
+            report_data.extend(report.data)
+
+        else:
+            report_data = report.data
+
         events = collections.deque()
 
-        event = hat.event.common.RegisterEvent(
+        events.extend(self._report_data_to_events(report_data))
+
+        events.append(hat.event.common.RegisterEvent(
             type=(*self._event_type_prefix, 'gateway',
                   'entry_id', report.report_id),
             source_timestamp=None,
             payload=hat.event.common.EventPayloadJson(
                 report.entry_id.hex()
-                if report.entry_id is not None else None))
-        events.append(event)
+                if report.entry_id is not None else None)))
 
+        await self._register_events(events)
+        self._rcbs_entry_ids[report.report_id] = report.entry_id
+
+    def _report_data_to_events(self, report_data):
         report_data_values = collections.defaultdict(collections.deque)
-        for rv in report.data:
+        for rv in report_data:
             data_refs = self._values_data.get(rv.ref)
             for data_ref in data_refs:
                 report_data_values[data_ref].append(rv)
@@ -376,18 +408,13 @@ class Iec61850ClientDevice(common.Device):
         for data_ref, report_values in report_data_values.items():
             data_name = self._data_ref_names[data_ref]
             try:
-                event = _report_values_to_event(
+                yield _report_values_to_event(
                     self._event_type_prefix, report_values, data_name,
                     data_ref, self._value_types_nodes)
-                events.append(event)
 
             except Exception as e:
                 mlog.warning('report values dropped: %s', e, exc_info=e)
                 continue
-
-        await self._register_events(events)
-        if report.entry_id is not None:
-            self._rcbs_entry_ids[report.report_id] = report.entry_id
 
     def _on_termination(self, termination):
         cmd_session_id = _get_command_session_id(

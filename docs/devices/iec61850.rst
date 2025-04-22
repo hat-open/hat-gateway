@@ -176,10 +176,14 @@ Available gateway events are:
 
     * .../data/<data_name>
 
-        Represents data received as part of IEC61850 report.
+        Represents data received within IEC61850 report. In case report is
+        received with attribute `more_segments_follow` ``True``, report is
+        cached and no event is generated. Only after report is received with
+        `more_segments_follow` ``False``, `data` of this, and all cached
+        reports with the same `sequence_number`, are considered in order to
+        create one or more corresponding events.
 
-        Source timestamp is dependent on existence of IEC61850 time.
-        If IEC61850 time is not available, source timestamp is ``None``.
+        Source timestamp is ``None``.
 
         Payload is specified by
         ``hat-gateway://iec61850.yaml#/$defs/events/client/gateway/data``.
