@@ -272,12 +272,12 @@ class Iec61850ClientDevice(common.Device):
 
         except (asyncio.TimeoutError, ConnectionError) as e:
             mlog.warning('send command failed: %s', e, exc_info=e)
-            if term_future:
+            if term_future and not term_future.done():
                 term_future.cancel()
             return
 
         if resp is not None:
-            if term_future:
+            if term_future and not term_future.done():
                 term_future.cancel()
 
         event = _cmd_resp_to_event(
@@ -711,7 +711,9 @@ _ValueTypeNodeName = str | int
 
 class _ValueTypeNode(typing.NamedTuple):
     name: _ValueTypeNodeName
-    type: iec61850.ValueType
+    type: (iec61850.BasicValueType |
+           iec61850.AcsiValueType |
+           type[iec61850.ArrayValueType | iec61850.StructValueType])
     children: typing.Dict[_ValueTypeNodeName, '_ValueTypeNode']
 
 
