@@ -88,11 +88,17 @@ async def create(conf: common.DeviceConf,
                     device._data_values[data_ref].append(value_ref)
                     device._values_data[value_ref].append(data_ref)
 
-    device._value_types_nodes = {
-        (vt['logical_device'],
-         vt['logical_node'],
-         vt['name']): _node_from_value_type(vt)
-        for vt in conf['value_types']}
+    device._value_types_nodes = {}
+    for vt in conf['value_types']:
+        ref = (vt['logical_device'],
+               vt['logical_node'],
+               vt['name'])
+        node = _node_from_value_type(vt)
+        if ref in device._value_types_nodes:
+            device._value_types_nodes[ref] = _merge_nodes(
+                node, device._value_types_nodes[ref])
+        else:
+            device._value_types_nodes[ref] = node
 
     device._cmd_value_types = {}
     for cmd_conf in conf['commands']:
@@ -368,12 +374,6 @@ class Iec61850ClientDevice(common.Device):
                 report_data_values[data_ref].append(rv)
 
         for data_ref, report_values in report_data_values.items():
-            if len(report_values) != len(self._data_values[data_ref]):
-                mlog.warning(
-                    'report values dropped: report does not include all '
-                    'values of data %s, only %s', data_ref, report_values)
-                continue
-
             data_name = self._data_ref_names[data_ref]
             try:
                 event = _report_values_to_event(
@@ -524,7 +524,7 @@ class Iec61850ClientDevice(common.Device):
                     v != rcb_conf['conf_revision']):
                 raise Exception(
                     f"Conf revision {v} different from "
-                    f"the configuration defined {rcb_conf['conf_rev']}")
+                    f"the configuration defined {rcb_conf['conf_revision']}")
 
     async def _create_dynamic_datasets(self):
         logical_devices = set(i.logical_device
@@ -715,6 +715,32 @@ def _node_from_value_type(value_type, name=None):
                               children=children)
 
     raise Exception('unsupported value type')
+
+
+def _merge_nodes(node1, node2):
+    if node1.name != node2.name:
+        raise Exception('cannot merge nodes with different names')
+
+    if node1.type != node2.type:
+        raise Exception('cannot merge nodes with different types')
+
+    merged_children = {}
+    for k, v in node1.children.items():
+        if k in node2.children:
+            merged_children[k] = _merge_nodes(node1.children[k],
+                                              node2.children[k])
+        else:
+            merged_children[k] = v
+
+    for k, v in node2.children.items():
+        if k in merged_children:
+            continue
+
+        merged_children[k] = v
+
+    return _ValueTypeNode(name=node1.name,
+                          type=node1.type,
+                          children=merged_children)
 
 
 def _value_type_from_str(vt_conf):
