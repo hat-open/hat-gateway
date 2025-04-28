@@ -193,10 +193,10 @@ def create_change_event(name: str,
 
 
 def create_entry_id_event(report_id: str,
-                          entry_id: util.Bytes
+                          entry_id: util.Bytes | None
                           ) -> hat.event.common.Event:
     return create_event((*event_type_prefix, 'gateway', 'entry_id', report_id),
-                        entry_id.hex())
+                        (entry_id.hex() if entry_id is not None else None))
 
 
 def create_queue_cb(queue: aio.Queue) -> Callable:
@@ -1185,6 +1185,65 @@ async def test_rcb_purge_buffer_with_entry_id(addr, create_conf, rcb_type,
     else:
         assert iec61850.RcbAttrType.PURGE_BUFFER not in server.rcbs[rcb_ref]
         assert iec61850.RcbAttrType.ENTRY_ID not in server.rcbs[rcb_ref]
+
+    await device.async_close()
+    await server.async_close()
+    await client.async_close()
+
+
+@pytest.mark.parametrize('rcb_type', iec61850.RcbType)
+async def test_rcb_null_entry_id(addr, create_conf, rcb_type):
+    rcb_queue = aio.Queue()
+
+    entry_id = None
+    report_id = 'report id'
+    rcb_ref = iec61850.RcbRef(logical_device='ld',
+                              logical_node='ln',
+                              type=rcb_type,
+                              name='rcb')
+
+    conf = create_conf(datasets=[{'ref': 'ds',
+                                  'values': [],
+                                  'dynamic': True}],
+                       rcbs=[{'ref': {'logical_device': 'ld',
+                                      'logical_node': 'ln',
+                                      'type': rcb_type.name,
+                                      'name': 'rcb'},
+                              'report_id': report_id,
+                              'dataset': 'ds'}])
+
+    def on_query(params):
+        assert isinstance(params, hat.event.common.QueryLatestParams)
+        assert set(params.event_types) == {(*event_type_prefix, 'gateway',
+                                            'entry_id', report_id)}
+
+        return hat.event.common.QueryResult(
+            events=[create_entry_id_event(report_id='report id',
+                                          entry_id=entry_id)],
+            more_follows=False)
+
+    client = EventerClient(query_cb=on_query)
+
+    server = await create_server(
+        addr=addr,
+        rcbs={
+            rcb_ref: {
+                iec61850.RcbAttrType.REPORT_ID: 'report id',
+                iec61850.RcbAttrType.DATASET: iec61850.NonPersistedDatasetRef(
+                    'ds')}},
+        rcb_cb=create_queue_cb(rcb_queue))
+    device = await aio.call(info.create, conf, client, event_type_prefix)
+
+    async def wait_gi():
+        while True:
+            _, attr_type, __ = await rcb_queue.get()
+            if attr_type == iec61850.RcbAttrType.GI:
+                return
+
+    await aio.wait_for(wait_gi(), 0.1)
+
+    assert iec61850.RcbAttrType.PURGE_BUFFER not in server.rcbs[rcb_ref]
+    assert iec61850.RcbAttrType.ENTRY_ID not in server.rcbs[rcb_ref]
 
     await device.async_close()
     await server.async_close()
