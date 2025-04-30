@@ -1242,8 +1242,9 @@ async def test_rcb_null_entry_id(addr, create_conf, rcb_type):
 
     await aio.wait_for(wait_gi(), 0.1)
 
-    assert iec61850.RcbAttrType.PURGE_BUFFER not in server.rcbs[rcb_ref]
-    assert iec61850.RcbAttrType.ENTRY_ID not in server.rcbs[rcb_ref]
+    if rcb_type == iec61850.RcbType.BUFFERED:
+        assert iec61850.RcbAttrType.PURGE_BUFFER in server.rcbs[rcb_ref]
+        assert iec61850.RcbAttrType.ENTRY_ID not in server.rcbs[rcb_ref]
 
     await device.async_close()
     await server.async_close()
