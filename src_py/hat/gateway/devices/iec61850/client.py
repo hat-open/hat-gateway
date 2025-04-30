@@ -36,14 +36,16 @@ async def create(conf: common.DeviceConf,
 
     device = Iec61850ClientDevice()
 
-    device._rcbs_entry_ids = {event.type[5]: bytes.fromhex(event.payload.data)
-                              for event in result.events}
+    device._rcbs_entry_ids = {
+        event.type[5]: (bytes.fromhex(event.payload.data)
+                        if event.payload.data is not None else None)
+        for event in result.events}
     device._conf = conf
     device._eventer_client = eventer_client
     device._event_type_prefix = event_type_prefix
     device._conn = None
-    device._terminations = {}
     device._conn_status = None
+    device._terminations = {}
     device._reports_segments = {}
 
     device._data_ref_names = {(i['ref']['logical_device'],
@@ -63,8 +65,7 @@ async def create(conf: common.DeviceConf,
     dataset_confs = {_dataset_ref_from_conf(ds_conf['ref']): ds_conf
                      for ds_conf in device._conf['datasets']}
     device._report_value_refs = collections.defaultdict(collections.deque)
-    device._data_values = collections.defaultdict(collections.deque)
-    device._values_data = collections.defaultdict(collections.deque)
+    device._values_data = collections.defaultdict(set)
     for rcb_conf in device._conf['rcbs']:
         ds_ref = _dataset_ref_from_conf(rcb_conf['dataset'])
         dataset_conf = dataset_confs[ds_ref]
@@ -73,8 +74,7 @@ async def create(conf: common.DeviceConf,
             device._report_value_refs[rcb_conf['report_id']].append(value_ref)
             for data_ref in device._data_ref_names.keys():
                 if _data_matches_value(data_ref, value_ref):
-                    device._data_values[data_ref].append(value_ref)
-                    device._values_data[value_ref].append(data_ref)
+                    device._values_data[value_ref].add(data_ref)
 
     value_types = _value_types_from_conf(conf)
     device._value_types = value_types
@@ -106,19 +106,23 @@ class Iec61850ClientDevice(common.Device):
         return self._async_group
 
     async def process_events(self, events: Collection[hat.event.common.Event]):
-        for event in events:
-            suffix = event.type[len(self._event_type_prefix):]
+        try:
+            for event in events:
+                suffix = event.type[len(self._event_type_prefix):]
 
-            if suffix[:2] == ('system', 'command'):
-                cmd_name, = suffix[2:]
-                await self._process_cmd_req(event, cmd_name)
+                if suffix[:2] == ('system', 'command'):
+                    cmd_name, = suffix[2:]
+                    await self._process_cmd_req(event, cmd_name)
 
-            elif suffix[:2] == ('system', 'change'):
-                val_name, = suffix[2:]
-                await self._process_change_req(event, val_name)
+                elif suffix[:2] == ('system', 'change'):
+                    val_name, = suffix[2:]
+                    await self._process_change_req(event, val_name)
 
-            else:
-                raise Exception('unsupported event type')
+                else:
+                    raise Exception('unsupported event type')
+
+        except Exception as e:
+            mlog.warning('error processing event: %s', e, exc_info=e)
 
     async def _connection_loop(self):
 
@@ -171,26 +175,27 @@ class Iec61850ClientDevice(common.Device):
                 mlog.debug('connected')
                 await self._register_status('CONNECTED')
 
+                initialized = False
                 try:
                     await self._create_dynamic_datasets()
                     for rcb_conf in self._conf['rcbs']:
                         await self._init_rcb(rcb_conf)
+                    initialized = True
 
                 except Exception as e:
                     mlog.warning(
                         'initialization failed: %s, closing connection',
                         e, exc_info=e)
                     self._conn.close()
-                    await self._register_status('DISCONNECTED')
-                    await self._conn.wait_closed()
-                    self._conn = None
-                    await asyncio.sleep(conn_conf['reconnect_delay'])
-                    continue
 
                 await self._conn.wait_closing()
                 await self._register_status('DISCONNECTED')
                 await self._conn.wait_closed()
                 self._conn = None
+                self._terminations = {}
+                self._reports_segments = {}
+                if not initialized:
+                    await asyncio.sleep(conn_conf['reconnect_delay'])
 
         except Exception as e:
             mlog.error('connection loop error: %s', e, exc_info=e)
@@ -201,7 +206,7 @@ class Iec61850ClientDevice(common.Device):
             await aio.uncancellable(cleanup())
 
     async def _process_cmd_req(self, event, cmd_name):
-        if not self._conn:
+        if not self._conn or not self._conn.is_open:
             mlog.warning('command %s ignored: no connection', cmd_name)
             return
 
@@ -279,7 +284,7 @@ class Iec61850ClientDevice(common.Device):
             del self._terminations[cmd_session_id]
 
     async def _process_change_req(self, event, value_name):
-        if not self._conn:
+        if not self._conn or not self._conn.is_open:
             mlog.warning('change event %s ignored: no connection', value_name)
             return
 
@@ -399,35 +404,33 @@ class Iec61850ClientDevice(common.Device):
         get_rcb_resp = await self._conn.get_rcb_attrs(ref, get_attrs)
         _validate_get_rcb_response(get_rcb_resp, rcb_conf)
 
-        await self._set_rcb(
-            ref, ((iec61850.RcbAttrType.REPORT_ENABLE, False),))
+        await self._set_rcb(ref, [(iec61850.RcbAttrType.REPORT_ENABLE, False)])
 
         if ref.type == iec61850.RcbType.BUFFERED:
             if 'reservation_time' in rcb_conf:
                 await self._set_rcb(
-                    ref, ((iec61850.RcbAttrType.RESERVATION_TIME,
-                           rcb_conf['reservation_time']),))
+                    ref, [(iec61850.RcbAttrType.RESERVATION_TIME,
+                           rcb_conf['reservation_time'])])
 
             entry_id = self._rcbs_entry_ids.get(rcb_conf['report_id'])
             if rcb_conf.get('purge_buffer') or entry_id is None:
                 await self._set_rcb(
-                    ref, ((iec61850.RcbAttrType.PURGE_BUFFER, True),))
+                    ref, [(iec61850.RcbAttrType.PURGE_BUFFER, True)])
 
             else:
                 try:
                     await self._set_rcb(
-                        ref, ((iec61850.RcbAttrType.ENTRY_ID, entry_id),),
+                        ref, [(iec61850.RcbAttrType.ENTRY_ID, entry_id)],
                         critical=True)
 
                 except Exception as e:
                     mlog.warning('%s', e, exc_info=e)
                     # try setting entry id to 0 in order to resynchronize
                     await self._set_rcb(
-                        ref, ((iec61850.RcbAttrType.ENTRY_ID, b'\x00'),))
+                        ref, [(iec61850.RcbAttrType.ENTRY_ID, b'\x00')])
 
         elif ref.type == iec61850.RcbType.UNBUFFERED:
-            await self._set_rcb(
-                ref, ((iec61850.RcbAttrType.RESERVE, True),))
+            await self._set_rcb(ref, [(iec61850.RcbAttrType.RESERVE, True)])
 
         attrs = collections.deque()
         if 'trigger_options' in rcb_conf:
@@ -448,9 +451,9 @@ class Iec61850ClientDevice(common.Device):
             await self._set_rcb(ref, attrs)
 
         await self._set_rcb(
-            ref, ((iec61850.RcbAttrType.REPORT_ENABLE, True),), critical=True)
+            ref, [(iec61850.RcbAttrType.REPORT_ENABLE, True)], critical=True)
         await self._set_rcb(
-            ref, ((iec61850.RcbAttrType.GI, True),), critical=True)
+            ref, [(iec61850.RcbAttrType.GI, True)], critical=True)
         mlog.debug('rcb %s initiated', ref)
 
     async def _set_rcb(self, ref, attrs, critical=False):
@@ -607,7 +610,7 @@ def _value_types_from_conf(conf):
         value_type = _value_type_from_vt_conf(vt['type'])
         if ref in value_types:
             value_types[ref] = _merge_types(
-                value_type, value_types[ref])
+                value_type, value_types[ref], set(ref))
         else:
             value_types[ref] = value_type
 
@@ -650,11 +653,15 @@ def _value_type_from_vt_conf(vt_conf):
     raise Exception('unsupported value type')
 
 
-def _merge_types(type1, type2):
+def _merge_types(type1, type2, ref):
     if isinstance(type1, dict) and isinstance(type2, dict):
-        return {**type1, **{k: _merge_types(type1.get(k), subtype)
-                            for k, subtype in type2.items()}}
+        return {**type1,
+                **{k: (subtype if k not in type1
+                       else _merge_types(type1[k], subtype, ref.union(k)))
+                   for k, subtype in type2.items()}}
 
+    mlog.warning('value types conflict on reference %s: %s and %s',
+                 ref, type1, type2)
     return type2
 
 
@@ -693,10 +700,13 @@ def _value_type_to_iec61850(val_type):
             [(k, _value_type_to_iec61850(v)) for k, v in val_type.items()])
 
 
+_epoch_start = datetime.datetime.fromtimestamp(0, datetime.timezone.utc)
+
+
 def _command_from_event(event, cmd_conf, control_number, value_type):
     if cmd_conf['with_operate_time']:
         operate_time = iec61850.Timestamp(
-            value=datetime.datetime.fromtimestamp(0, datetime.timezone.utc),
+            value=_epoch_start,
             leap_second=False,
             clock_failure=False,
             not_synchronized=False,
