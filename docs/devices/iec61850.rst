@@ -16,11 +16,10 @@ where ``<source>`` can be ``gateway`` or ``system``.
 Together with IEC61850 specific events, generic `enable` and `running` events
 are also supported. Specific events are defined in the following sections.
 
-When IEC61850 client device is enabled, it starts connection loop, in order to
-connect to the remote IEC61850 server, at the `host` and `port` given in
-configuration. After connection is successfully established, connection status
-is changed to ``CONNECTED``, and device performs the following initialization
-procedures in the respective order:
+When IEC61850 client device is enabled, it starts the connection loop, in order
+to connect to the remote IEC61850 server, at the `host` and `port` given in
+configuration. After connection is successfully established, device performs
+the following initialization procedures, in the respective order:
 
 #) creation of dynamic datasets
 #) initialization of report control blocks (`rcb`'s')
@@ -32,9 +31,9 @@ If any of the procedures fails, connection is closed and than retried after
 Creation of dynamic datasets
 ''''''''''''''''''''''''''''
 
-After successful connection, `datasets` defined in configuration as `dynamic`
-are created. There are two types of dynamic datasets, distinguished in
-configuration by their reference:
+After successful connection, `datasets`, defined in configuration with `dynamic`
+``True``, are created. There are two types of dynamic datasets, distinguished
+in configuration by their reference:
 
 - non-persisted - with reference defined by
   ``hat-gateway://iec61850.yaml#/$defs/refs/dataset_nonpersisted``
@@ -113,9 +112,9 @@ the respective order:
         warning message is logged and initialization continues.
 
      #) ``PURGE_BUFFER`` attribute is set to ``True``, but only if configuration
-        parameter `purge_buffer` is `True`, or if cached `entry_id` is ``null``,
-        or does not exist. Otherwise, this step is omitted. In case of failure,
-        a warning message is logged and initialization continues.
+        parameter `purge_buffer` is ``True``, or if cached `entry_id` is
+        ``null``, or does not exist. Otherwise, this step is omitted. In case
+        of failure, a warning message is logged and initialization continues.
 
         or
 
@@ -125,8 +124,7 @@ the respective order:
         omitted.
 
         If setting ``ENTRY_ID`` to cached value fails, for any reason, setting
-        is tried again but to value ``\x00``, in order to try to
-        resynchronize.
+        is tried again but to value ``\x00``, in order to resynchronize.
 
         If this setting trial fails again, initialization continues with an
         appropriate warning log message.
@@ -162,12 +160,14 @@ Available gateway events are:
 
     * .../status
 
-        Represents change in connection status. Upon enabling device,
-        new ``CONNECTING`` status should be registered. Once device is
-        disabled, ``DISCONNECTED`` status should be assumed regardless
-        of last registered `status` event (registration of
-        ``DISCONNECTED`` status event during device disabling is mandatory
-        but should not be relied upon).
+        Represents change in connection status. Upon enabling device, new
+        ``CONNECTING`` status is registered. Once device is disabled,
+        ``DISCONNECTED`` status should be assumed regardless of last registered
+        `status` event. Rregistration of ``DISCONNECTED`` status event during
+        device disabling is mandatory but should not be relied upon, due to
+        connection with event server cannot be guaranteed. Once, IEC61850
+        connection is established ``CONNECTED`` status is registered, before
+        the initialization procedures described beforehand.
 
         Source timestamp is ``None``.
 
@@ -190,10 +190,14 @@ Available gateway events are:
 
     * .../command/<command_name>
 
+        Source timestamp is ``None``.
+
         Payload is specified by
         ``hat-gateway://iec61850.yaml#/$defs/events/client/gateway/command``.
 
     * .../change/<value_name>
+
+        Source timestamp is ``None``.
 
         Payload is specified by
         ``hat-gateway://iec61850.yaml#/$defs/events/client/gateway/change``.
@@ -229,10 +233,14 @@ Available system events are:
 
     * .../command/<command_name>
 
+        Source timestamp is ``None``.
+
         Payload is specified by
         ``hat-gateway://iec61850.yaml#/$defs/events/client/system/command``.
 
     * .../change/<value_name>
+
+        Source timestamp is ``None``.
 
         Payload is specified by
         ``hat-gateway://iec61850.yaml#/$defs/events/client/system/change``.
