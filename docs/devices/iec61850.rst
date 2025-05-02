@@ -113,18 +113,18 @@ the respective order:
 
      #) ``PURGE_BUFFER`` attribute is set to ``True``, but only if configuration
         parameter `purge_buffer` is ``True``, or if cached `entry_id` is
-        ``null``, or does not exist. Otherwise, this step is omitted. In case
-        of failure, a warning message is logged and initialization continues.
+        ``null``, or does not exist. In case of failure, a warning message is
+        logged and initialization continues.
 
         or
 
         ``ENTRY_ID`` attribute is set to cached value (queried on device
-        initialization) Otherwise, but only if `purge_buffer` is ``False`` and
-        `entry_id` value is cached and not ``null``. Otherwise, this step is
-        omitted.
+        creation and updated on each received report), but only if
+        `purge_buffer` is ``False`` and `entry_id` value is cached and not
+        ``null``.
 
         If setting ``ENTRY_ID`` to cached value fails, for any reason, setting
-        is tried again but to value ``\x00``, in order to resynchronize.
+        is tried again but to value ``\x00``, in order to re-synchronize.
 
         If this setting trial fails again, initialization continues with an
         appropriate warning log message.
@@ -205,15 +205,19 @@ Available gateway events are:
     * .../entry_id/<report_id>
 
         This event is queried within device's create function, in order to cache
-        `entry_id` for each configured `rcb`, identified by `<report_id>`.
-        `entry_id` value is used in the initialization procedure for each
-        `rcb`, as described beforehand. This event is in order to persist
-        `entry_id` information after device is disabled. It is envisaged to be
-        consumed exclusively by the device.
+        `entry_id` for each `rcb` configured as ``BUFFERED`` and identified by
+        `<report_id>`. `entry_id` value is used in the initialization procedure
+        for eachb ``BUFFERED`` `rcb`, as described beforehand. This event is in
+        order to persist `entry_id` information after device is disabled. It is
+        envisaged to be consumed exclusively by the device.
 
-        On each received IEC61850 report, device registers this event, where
-        payload is equal to hexadecimal encoding of bytes, or to ``null`` if
-        report doesn't contain it (its `entry_id` is ``None``).
+        On each received IEC61850 report, that corresponds to ``BUFFERED``
+        `rcb`, device registers this event, where payload is equal to
+        hexadecimal encoding of bytes, or to ``null``, if report doesn't
+        contain it (its `entry_id` is ``None``).
+
+        For reports configured as ``UNBUFFERED``, this is event is not
+        registered, nor queried.
 
         Source timestamp is ``None``.
 

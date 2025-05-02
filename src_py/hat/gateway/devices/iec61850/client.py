@@ -28,18 +28,22 @@ async def create(conf: common.DeviceConf,
                  event_type_prefix: common.EventTypePrefix
                  ) -> 'Iec61850ClientDevice':
 
-    result = await eventer_client.query(
-        hat.event.common.QueryLatestParams(
-            event_types=[
-                (*event_type_prefix, 'gateway', 'entry_id', i['report_id'])
-                for i in conf['rcbs']]))
+    entry_id_event_types = [
+        (*event_type_prefix, 'gateway', 'entry_id', i['report_id'])
+        for i in conf['rcbs'] if i['ref']['type'] == 'BUFFERED']
+    if entry_id_event_types:
+        result = await eventer_client.query(
+            hat.event.common.QueryLatestParams(entry_id_event_types))
+        rcbs_entry_ids = {
+            event.type[5]: (bytes.fromhex(event.payload.data)
+                            if event.payload.data is not None else None)
+            for event in result.events}
+    else:
+        rcbs_entry_ids = {}
 
     device = Iec61850ClientDevice()
 
-    device._rcbs_entry_ids = {
-        event.type[5]: (bytes.fromhex(event.payload.data)
-                        if event.payload.data is not None else None)
-        for event in result.events}
+    device._rcbs_entry_ids = rcbs_entry_ids
     device._conf = conf
     device._eventer_client = eventer_client
     device._event_type_prefix = event_type_prefix
@@ -56,6 +60,8 @@ async def create(conf: common.DeviceConf,
     device._command_name_ctl_nums = {i['name']: 0 for i in conf['commands']}
     device._change_name_value_refs = {
         i['name']: _value_ref_from_conf(i['ref']) for i in conf['changes']}
+    device._rcb_type = {rcb_conf['report_id']: rcb_conf['ref']['type']
+                        for rcb_conf in conf['rcbs']}
 
     device._persist_dyn_datasets = set(_get_persist_dyn_datasets(conf))
     device._dyn_datasets_values = {
@@ -332,7 +338,6 @@ class Iec61850ClientDevice(common.Device):
             timeout_timer = self._loop.call_later(
                 report_segments_timeout, self._reports_segments.pop, seq_num)
             self._reports_segments[seq_num] = (segment_data, timeout_timer)
-            self._rcbs_entry_ids[report.report_id] = report.entry_id
             return
 
         if seq_num in self._reports_segments:
@@ -347,16 +352,18 @@ class Iec61850ClientDevice(common.Device):
 
         events.extend(self._report_data_to_events(report_data))
 
-        events.append(hat.event.common.RegisterEvent(
-            type=(*self._event_type_prefix, 'gateway',
-                  'entry_id', report.report_id),
-            source_timestamp=None,
-            payload=hat.event.common.EventPayloadJson(
-                report.entry_id.hex()
-                if report.entry_id is not None else None)))
+        if self._rcb_type[report.report_id] == 'BUFFERED':
+            events.append(hat.event.common.RegisterEvent(
+                type=(*self._event_type_prefix, 'gateway',
+                      'entry_id', report.report_id),
+                source_timestamp=None,
+                payload=hat.event.common.EventPayloadJson(
+                    report.entry_id.hex()
+                    if report.entry_id is not None else None)))
 
         await self._register_events(events)
-        self._rcbs_entry_ids[report.report_id] = report.entry_id
+        if self._rcb_type[report.report_id] == 'BUFFERED':
+            self._rcbs_entry_ids[report.report_id] = report.entry_id
 
     def _report_data_to_events(self, report_data):
         report_data_values_types = collections.defaultdict(collections.deque)
