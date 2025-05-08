@@ -1144,6 +1144,9 @@ async def test_rcb_purge_buffer_with_entry_id(addr, create_conf, rcb_type,
                               'purge_buffer': purge_buffer}])
 
     def on_query(params):
+        if rcb_type == iec61850.RcbType.UNBUFFERED:
+            raise Exception('invalid query for unbuffered')
+
         assert isinstance(params, hat.event.common.QueryLatestParams)
         assert set(params.event_types) == {(*event_type_prefix, 'gateway',
                                             'entry_id', 'report id')}
@@ -1213,6 +1216,9 @@ async def test_rcb_null_entry_id(addr, create_conf, rcb_type):
                               'dataset': 'ds'}])
 
     def on_query(params):
+        if rcb_type == iec61850.RcbType.UNBUFFERED:
+            raise Exception('invalid query for unbuffered')
+
         assert isinstance(params, hat.event.common.QueryLatestParams)
         assert set(params.event_types) == {(*event_type_prefix, 'gateway',
                                             'entry_id', report_id)}
@@ -1854,10 +1860,11 @@ async def test_data_empty_report(addr, create_conf, rcb_type, entry_id):
                              data=[])
     await server.send_report(report, data_defs)
 
-    event = await event_queue.get()
-    assert_entry_id_event(event=event,
-                          report_id=report_id,
-                          entry_id=entry_id)
+    if rcb_type == iec61850.RcbType.BUFFERED:
+        event = await event_queue.get()
+        assert_entry_id_event(event=event,
+                              report_id=report_id,
+                              entry_id=entry_id)
 
     with pytest.raises(asyncio.TimeoutError):
         await aio.wait_for(event_queue.get(), 0.01)
@@ -2039,7 +2046,8 @@ async def test_data_report(addr, create_conf, rcb_type, value_type,
 
     entry_id_event = None
     data_event = None
-    while entry_id_event is None or data_event is None:
+    while (data_event is None or
+            (rcb_type == iec61850.RcbType.BUFFERED and entry_id_event is None)):  # NOQA
         event = await event_queue.get()
 
         if event.type[-2] == 'entry_id':
@@ -2053,9 +2061,13 @@ async def test_data_report(addr, create_conf, rcb_type, value_type,
         else:
             raise Exception('invalid event')
 
-    assert_entry_id_event(event=entry_id_event,
-                          report_id=report_id,
-                          entry_id=None)
+    if rcb_type == iec61850.RcbType.BUFFERED:
+        assert_entry_id_event(event=entry_id_event,
+                              report_id=report_id,
+                              entry_id=None)
+
+    else:
+        assert entry_id_event is None
 
     assert_data_event(event=data_event,
                       name=name,
@@ -2185,7 +2197,8 @@ async def test_data_subset_report(addr, create_conf):
 
     entry_id_event = None
     data_event = None
-    while entry_id_event is None or data_event is None:
+    while (data_event is None or
+            (rcb_type == iec61850.RcbType.BUFFERED and entry_id_event is None)):  # NOQA
         event = await event_queue.get()
 
         if event.type[-2] == 'entry_id':
@@ -2199,9 +2212,13 @@ async def test_data_subset_report(addr, create_conf):
         else:
             raise Exception('invalid event')
 
-    assert_entry_id_event(event=entry_id_event,
-                          report_id=report_id,
-                          entry_id=None)
+    if rcb_type == iec61850.RcbType.BUFFERED:
+        assert_entry_id_event(event=entry_id_event,
+                              report_id=report_id,
+                              entry_id=None)
+
+    else:
+        assert entry_id_event is None
 
     assert_data_event(event=data_event,
                       name=name,
@@ -2302,7 +2319,8 @@ async def test_data_superset_report(addr, create_conf):
 
     entry_id_event = None
     data_event = None
-    while entry_id_event is None or data_event is None:
+    while (data_event is None or
+            (rcb_type == iec61850.RcbType.BUFFERED and entry_id_event is None)):  # NOQA
         event = await event_queue.get()
 
         if event.type[-2] == 'entry_id':
@@ -2316,9 +2334,13 @@ async def test_data_superset_report(addr, create_conf):
         else:
             raise Exception('invalid event')
 
-    assert_entry_id_event(event=entry_id_event,
-                          report_id=report_id,
-                          entry_id=None)
+    if rcb_type == iec61850.RcbType.BUFFERED:
+        assert_entry_id_event(event=entry_id_event,
+                              report_id=report_id,
+                              entry_id=None)
+
+    else:
+        assert entry_id_event is None
 
     assert_data_event(event=data_event,
                       name=name,
@@ -2465,7 +2487,8 @@ async def test_data_report_segmentation(addr, create_conf):
 
     entry_id_event = None
     data_event = None
-    while entry_id_event is None or data_event is None:
+    while (data_event is None or
+            (rcb_type == iec61850.RcbType.BUFFERED and entry_id_event is None)):  # NOQA
         event = await event_queue.get()
 
         if event.type[-2] == 'entry_id':
@@ -2479,9 +2502,13 @@ async def test_data_report_segmentation(addr, create_conf):
         else:
             raise Exception('invalid event')
 
-    assert_entry_id_event(event=entry_id_event,
-                          report_id=report_id,
-                          entry_id=None)
+    if rcb_type == iec61850.RcbType.BUFFERED:
+        assert_entry_id_event(event=entry_id_event,
+                              report_id=report_id,
+                              entry_id=None)
+
+    else:
+        assert entry_id_event is None
 
     assert_data_event(event=data_event,
                       name=name,
