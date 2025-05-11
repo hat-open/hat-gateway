@@ -1,0 +1,89 @@
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "hat-gateway://smpp.yaml"
+$defs:
+    client:
+        type: object
+        required:
+            - remote_address
+            - system_id
+            - password
+            - enquire_link_delay
+            - enquire_link_timeout
+            - connect_timeout
+            - reconnect_delay
+            - short_message
+            - priority
+            - data_coding
+            - message_encoding
+            - message_timeout
+        properties:
+            remote_address:
+                type: object
+                required:
+                    - host
+                    - port
+                properties:
+                    host:
+                        type: string
+                    port:
+                        type: integer
+            system_id:
+                type: string
+            password:
+                type: string
+            enquire_link_delay:
+                type:
+                    - "null"
+                    - number
+            enquire_link_timeout:
+                type: number
+            connect_timeout:
+                type: number
+            reconnect_delay:
+                type: number
+            short_message:
+                type: boolean
+            priority:
+                enum:
+                    - BULK
+                    - NORMAL
+                    - URGENT
+                    - VERY_URGENT
+            data_coding:
+                enum:
+                    - DEFAULT
+                    - ASCII
+                    - UNSPECIFIED_1
+                    - LATIN_1
+                    - UNSPECIFIED_2
+                    - JIS
+                    - CYRLLIC
+                    - LATIN_HEBREW
+                    - UCS2
+                    - PICTOGRAM
+                    - MUSIC
+                    - EXTENDED_KANJI
+                    - KS
+            message_encoding:
+                type: string
+            message_timeout:
+                type: number
+    events:
+        client:
+            gateway:
+                status:
+                    enum:
+                        - CONNECTING
+                        - CONNECTED
+                        - DISCONNECTED
+            system:
+                message:
+                    type: object
+                    required:
+                        - address
+                        - message
+                    properties:
+                        address:
+                            type: string
+                        message:
+                            type: string
