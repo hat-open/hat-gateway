@@ -92,13 +92,15 @@ class SmppClientDevice(common.Device):
                     self._msg_queue = aio.Queue(1024)
 
                     if conn.is_open:
-                        await conn.async_group.spawn(self._send_loop, conn,
-                                                     self._msg_queue)
+                        conn.async_group.spawn(self._send_loop, conn,
+                                               self._msg_queue)
+                        await conn.wait_closing()
 
                 finally:
                     self._msg_queue = None
 
                 await self._register_status('DISCONNECTED')
+                await conn.async_close()
                 self._conn = None
 
         except ConnectionError:
@@ -115,8 +117,8 @@ class SmppClientDevice(common.Device):
     async def _send_loop(self, conn, msg_queue):
         try:
             short_message = self._conf['short_message']
-            priority = smpp.Priority(self._conf['priority'])
-            data_coding = smpp.Priority(self._conf['data_coding'])
+            priority = smpp.Priority[self._conf['priority']]
+            data_coding = smpp.DataCoding[self._conf['data_coding']]
 
             while True:
                 msg = await msg_queue.get()
