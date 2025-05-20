@@ -7,6 +7,7 @@ import typing
 from hat import aio
 from hat import util
 from hat.drivers import smpp
+from hat.drivers import ssl
 from hat.drivers import tcp
 import hat.event.common
 import hat.event.eventer
@@ -67,6 +68,8 @@ class SmppClientDevice(common.Device):
             while True:
                 await self._register_status('CONNECTING')
                 try:
+                    ssl_ctx = (ssl.create_ssl_ctx(ssl.SslProtocol.TLS_CLIENT)
+                               if self._conf['ssl'] else None)
                     conn = await aio.wait_for(
                         smpp.connect(
                             addr=tcp.Address(
@@ -75,7 +78,8 @@ class SmppClientDevice(common.Device):
                             system_id=self._conf['system_id'],
                             password=self._conf['password'],
                             enquire_link_delay=self._conf['enquire_link_delay'],  # NOQA
-                            enquire_link_timeout=self._conf['enquire_link_timeout']),  # NOQA
+                            enquire_link_timeout=self._conf['enquire_link_timeout'],  # NOQA
+                            ssl=ssl_ctx),
                         self._conf['connect_timeout'])
 
                 except Exception as e:

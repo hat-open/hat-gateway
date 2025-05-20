@@ -5,6 +5,7 @@ $defs:
         type: object
         required:
             - remote_address
+            - ssl
             - system_id
             - password
             - enquire_link_delay
@@ -27,6 +28,8 @@ $defs:
                         type: string
                     port:
                         type: integer
+            ssl:
+                type: boolean
             system_id:
                 type: string
             password:

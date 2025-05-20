@@ -100,6 +100,7 @@ def create_conf(port):
                     message_timeout=1):
         return {'remote_address': {'host': '127.0.0.1',
                                    'port': port},
+                'ssl': False,
                 'system_id': system_id,
                 'password': password,
                 'enquire_link_delay': enquire_link_delay,
