@@ -85,6 +85,7 @@ class SmppClientDevice(common.Device):
                 except Exception as e:
                     mlog.warning('connection failed: %s', e, exc_info=e)
                     await asyncio.sleep(self._conf['reconnect_delay'])
+                    continue
 
                 except aio.CancelledWithResultError as e:
                     conn = e.result
