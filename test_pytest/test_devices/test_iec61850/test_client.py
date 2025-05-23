@@ -621,7 +621,7 @@ async def test_rcb_dataset_invalid(addr, create_conf, rcb_type):
 
     conf = create_conf(datasets=[{'ref': 'ds 1',
                                   'values': [],
-                                  'dynamic': True}],
+                                  'dynamic': False}],
                        rcbs=[{'ref': {'logical_device': 'ld',
                                       'logical_node': 'ln',
                                       'type': rcb_type.name,
@@ -648,6 +648,71 @@ async def test_rcb_dataset_invalid(addr, create_conf, rcb_type):
 
     with pytest.raises(asyncio.TimeoutError):
         await aio.wait_for(wait_gi(), 0.1)
+
+    await device.async_close()
+    await server.async_close()
+    await client.async_close()
+
+
+@pytest.mark.parametrize('dyn_dataset_ref', [
+    iec61850.NonPersistedDatasetRef('ds 1'),
+    iec61850.PersistedDatasetRef(logical_device='ld1',
+                                 logical_node='ln1',
+                                 name='ds xyz')])
+@pytest.mark.parametrize('rcb_type', iec61850.RcbType)
+async def test_rcb_set_dynamic_dataset(addr, create_conf, rcb_type,
+                                       dyn_dataset_ref):
+    rcb_queue = aio.Queue()
+
+    rcb_ref = iec61850.RcbRef(logical_device='ld',
+                              logical_node='ln',
+                              type=rcb_type,
+                              name='rcb')
+
+    if isinstance(dyn_dataset_ref, iec61850.NonPersistedDatasetRef):
+        ds_ref_conf = dyn_dataset_ref.name
+    else:
+        ds_ref_conf = dyn_dataset_ref._asdict()
+    conf = create_conf(datasets=[{'ref': ds_ref_conf,
+                                  'values': [],
+                                  'dynamic': True}],
+                       rcbs=[{'ref': {'logical_device': 'ld',
+                                      'logical_node': 'ln',
+                                      'type': rcb_type.name,
+                                      'name': 'rcb'},
+                              'report_id': 'report id',
+                              'dataset': ds_ref_conf}])
+    client = EventerClient()
+
+    server = await create_server(
+        addr=addr,
+        rcbs={
+            rcb_ref: {
+                iec61850.RcbAttrType.REPORT_ID: 'report id',
+                iec61850.RcbAttrType.DATASET: iec61850.NonPersistedDatasetRef(
+                    'ds 2')}},
+        rcb_cb=create_queue_cb(rcb_queue))
+    device = await aio.call(info.create, conf, client, event_type_prefix)
+
+    async def wait_set_dataset():
+        while True:
+            result_rcb_ref, attr_type, attr_value = await rcb_queue.get()
+            if attr_type != iec61850.RcbAttrType.DATASET:
+                continue
+
+            assert result_rcb_ref == rcb_ref
+            assert attr_value == dyn_dataset_ref
+            return
+
+    await aio.wait_for(wait_set_dataset(), 0.1)
+
+    async def wait_gi():
+        while True:
+            _, attr_type, __ = await rcb_queue.get()
+            if attr_type == iec61850.RcbAttrType.GI:
+                return
+
+    await aio.wait_for(wait_gi(), 0.1)
 
     await device.async_close()
     await server.async_close()

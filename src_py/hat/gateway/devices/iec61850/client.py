@@ -403,8 +403,10 @@ class Iec61850ClientDevice(common.Device):
             name=rcb_conf['ref']['name'])
         mlog.debug('initiating rcb %s', ref)
 
-        get_attrs = collections.deque((iec61850.RcbAttrType.REPORT_ID,
-                                       iec61850.RcbAttrType.DATASET))
+        get_attrs = collections.deque([iec61850.RcbAttrType.REPORT_ID])
+        dataset_ref = _dataset_ref_from_conf(rcb_conf['dataset'])
+        if dataset_ref not in self._dyn_datasets_values:
+            get_attrs.append(iec61850.RcbAttrType.DATASET)
         if 'conf_revision' in rcb_conf:
             get_attrs.append(iec61850.RcbAttrType.CONF_REVISION)
 
@@ -412,6 +414,11 @@ class Iec61850ClientDevice(common.Device):
         _validate_get_rcb_response(get_rcb_resp, rcb_conf)
 
         await self._set_rcb(ref, [(iec61850.RcbAttrType.REPORT_ENABLE, False)])
+
+        if dataset_ref in self._dyn_datasets_values:
+            await self._set_rcb(
+                ref, [(iec61850.RcbAttrType.DATASET, dataset_ref)],
+                critical=True)
 
         if ref.type == iec61850.RcbType.BUFFERED:
             if 'reservation_time' in rcb_conf:
@@ -480,10 +487,9 @@ class Iec61850ClientDevice(common.Device):
                 mlog.warning('set rcb %s failed: %s', ref, e, exc_info=e)
 
     async def _create_dynamic_datasets(self):
-        logical_devices = set(i.logical_device
-                              for i in self._persist_dyn_datasets)
         existing_ds_refs = set()
-        for ld in logical_devices:
+        for ds_ref in self._persist_dyn_datasets:
+            ld = ds_ref.logical_device
             res = await self._conn.get_persisted_dataset_refs(ld)
             if isinstance(res, iec61850.ServiceError):
                 raise Exception(f'get datasets for ld {ld} failed: {res}')
