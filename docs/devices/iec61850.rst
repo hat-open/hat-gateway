@@ -66,25 +66,28 @@ in configuration by their reference:
 Initialization of `rcb`'s
 '''''''''''''''''''''''''
 
-After creation of dynamic datasets, device performs initialization
-of each configured `rcb` using connection's methods `get_rcb_attrs` and
-`set_rcb_attrs` in order to `get` and `set` specific `rcb` attributes,
-respectively. Each `get` or `set` is considered failed, if called method raises
-exception, or if it returns `ServiceError` for the specific attribute. Some
-initialization steps are considered critical, meaning failure results with
-closing the connection. When a non-critical step fails, only warning message is
-logged and initialization continues. Initialization steps are the following, in
-the respective order:
+After creation of dynamic datasets, device performs initialization of each
+configured `rcb` using connection's methods `get_rcb_attrs` and `set_rcb_attrs`
+in order to `get` and `set` specific `rcb` attributes, respectively. Each `get`
+or `set` is considered failed, if called method raises exception, or if it
+returns `ServiceError` for the specific attribute. Thereby, some initialization
+steps are considered critical, meaning failure results with closing the
+connection. When a non-critical step fails, only warning message is logged and
+initialization continues. Initialization steps are the following, in the
+respective order:
 
 #) `get_rcb_attrs` method is called in order to get values of the following
-   `rcb` attributes:
+ `rcb` attributes and verify their values against the configured ones:
 
     - ``REPORT_ID`` - each `rcb` has `report_id` defined in configuration. In
       case retrieved value does not correspond to the configured value,
       connection is closed.
-    - ``DATASET`` - each `rcb` has `dataset` defined in configuration. In case
-      retrieved value does not correspond to the configured value, connection
-      is closed.
+    - ``DATASET`` - this attribute is included only for `rcb`'s that have
+      assigned `dataset` which is not dynamic. In case retrieved value does not
+      correspond to the configured value, connection is closed. This attribute
+      is not included for dynamic datasets, since they are only created in the
+      previous step, and will be set to a `rcb` later in the initialization
+      procedure.
     - ``CONF_REVISION`` - this attribute is optionally retrieved, in case
       `conf_revision` property is defined in configuration. In case retrieved
       value does not correspond to the configured value, connection is closed.
@@ -95,6 +98,9 @@ the respective order:
 #) Attribute ``REPORT_ENABLE`` is set to ``False``. This is non-critical step,
    that is in case of failure, a warning message is logged and initialization
    continues.
+
+#) Attribute ``DATASET`` is set to reference of the configured `dataset`, but
+   only if `dataset` is dynamic, otherwise this step is omitted.
 
 #) This step differs in regard whether `rcb` type is ``BUFFERED`` or
    ``UNBUFFERED``.
