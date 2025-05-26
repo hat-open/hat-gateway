@@ -212,7 +212,8 @@ def value_type_to_json(value_type: iec61850.ValueType) -> json.Data:
 
     if isinstance(value_type, iec61850.ArrayValueType):
         return {'type': 'ARRAY',
-                'element_type': value_type_to_json(value_type.type)}
+                'element_type': value_type_to_json(value_type.type),
+                'length': value_type.length}
 
     if isinstance(value_type, iec61850.StructValueType):
         return {
@@ -1589,7 +1590,8 @@ async def test_command_error(addr, create_conf, model, with_operate_time,
      mms.BitStringData([False] * 2),
      'STOP'),
 
-    (iec61850.ArrayValueType(iec61850.BasicValueType.INTEGER),
+    (iec61850.ArrayValueType(type=iec61850.BasicValueType.INTEGER,
+                             length=3),
      mms.ArrayData([mms.IntegerData(1),
                     mms.IntegerData(2),
                     mms.IntegerData(3)]),
@@ -1623,7 +1625,8 @@ async def test_change_success(addr, create_conf, value_type, mms_data,
             'name': 'a',
             'type': value_type_to_json(
                 iec61850.ArrayValueType(
-                    iec61850.StructValueType([('b', value_type)])))}],
+                    type=iec61850.StructValueType([('b', value_type)]),
+                    length=124))}],
         changes=[{'name': name,
                   'ref': {'logical_device': data_ref.logical_device,
                           'logical_node': data_ref.logical_node,
@@ -1721,7 +1724,8 @@ async def test_change_success(addr, create_conf, value_type, mms_data,
     (iec61850.AcsiValueType.BINARY_CONTROL,
      'STOP'),
 
-    (iec61850.ArrayValueType(iec61850.BasicValueType.INTEGER),
+    (iec61850.ArrayValueType(type=iec61850.BasicValueType.INTEGER,
+                             length=3),
      [1, 2, 3]),
 
     (iec61850.StructValueType([('a', iec61850.BasicValueType.INTEGER),
@@ -1750,7 +1754,8 @@ async def test_change_error(addr, create_conf, value_type, json_value):
             'name': 'a',
             'type': value_type_to_json(
                 iec61850.ArrayValueType(
-                    iec61850.StructValueType([('b', value_type)])))}],
+                    type=iec61850.StructValueType([('b', value_type)]),
+                    length=124))}],
         changes=[{'name': name,
                   'ref': {'logical_device': data_ref.logical_device,
                           'logical_node': data_ref.logical_node,
@@ -1813,7 +1818,8 @@ async def test_data_empty_report(addr, create_conf, rcb_type, entry_id):
             'name': 'a',
             'type': value_type_to_json(
                 iec61850.ArrayValueType(
-                    iec61850.StructValueType([('b', value_type)])))}],
+                    type=iec61850.StructValueType([('b', value_type)]),
+                    length=124))}],
         datasets=[{'ref': dataset,
                    'values': [{'logical_device': data_ref.logical_device,
                                'logical_node': data_ref.logical_node,
@@ -1962,7 +1968,8 @@ async def test_data_empty_report(addr, create_conf, rcb_type, entry_id):
      iec61850.BinaryControl.STOP,
      'STOP'),
 
-    (iec61850.ArrayValueType(iec61850.BasicValueType.INTEGER),
+    (iec61850.ArrayValueType(type=iec61850.BasicValueType.INTEGER,
+                             length=3),
      [1, 2, 3],
      [1, 2, 3]),
 

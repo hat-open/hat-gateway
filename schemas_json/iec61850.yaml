@@ -159,6 +159,10 @@ $defs:
                             type: string
                         ref:
                             $ref: "hat-gateway://iec61850.yaml#/$defs/refs/data"
+                        report_ids:
+                            type: array
+                            items:
+                                type: string
             commands:
                 type: array
                 items:
@@ -515,11 +519,14 @@ $defs:
             required:
                 - type
                 - element_type
+                - length
             properties:
                 type:
                     const: ARRAY
                 element_type:
                     $ref: "hat-gateway://iec61850.yaml#/$defs/value_type"
+                length:
+                    type: integer
           - type: object
             required:
                 - type

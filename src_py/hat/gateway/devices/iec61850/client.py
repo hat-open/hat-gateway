@@ -651,7 +651,8 @@ def _value_type_from_vt_conf(vt_conf):
 
     if vt_conf['type'] == 'ARRAY':
         element_type = _value_type_from_vt_conf(vt_conf['element_type'])
-        return iec61850.ArrayValueType(element_type)
+        return iec61850.ArrayValueType(type=element_type,
+                                       length=vt_conf['length'])
 
     if vt_conf['type'] == 'STRUCT':
         return {el_conf['name']: _value_type_from_vt_conf(el_conf['type'])
@@ -700,7 +701,9 @@ def _value_type_to_iec61850(val_type):
         return val_type
 
     if isinstance(val_type, iec61850.ArrayValueType):
-        return iec61850.ArrayValueType(_value_type_to_iec61850(val_type.type))
+        return iec61850.ArrayValueType(
+            type=_value_type_to_iec61850(val_type.type),
+            length=val_type.length)
 
     if isinstance(val_type, dict):
         return iec61850.StructValueType(
