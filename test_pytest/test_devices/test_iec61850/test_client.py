@@ -2154,6 +2154,104 @@ async def test_data_report(addr, create_conf, rcb_type, value_type,
     await client.async_close()
 
 
+@pytest.mark.parametrize('report_ids, exp_data_event', [
+    (None, True),
+    (['report id'], True),
+    (['report id', 'xyz', 'abc'], True),
+    ([], False),
+    (['xyz', 'abc'], False)])
+async def test_data_filter_with_report_ids(addr, create_conf, report_ids,
+                                           exp_data_event):
+    event_queue = aio.Queue()
+
+    value_type = iec61850.BasicValueType.BOOLEAN
+    value = True
+    rcb_type = iec61850.RcbType.UNBUFFERED
+    name = 'data name'
+    report_id = 'report id'
+    dataset = 'ds'
+    data_ref = iec61850.DataRef(logical_device='ld',
+                                logical_node='ln',
+                                fc='fc',
+                                names=('a', ))
+    rcb_ref = iec61850.RcbRef(logical_device='ld',
+                              logical_node='ln',
+                              type=rcb_type,
+                              name='rcb')
+    data_defs = [DataDef(ref=data_ref,
+                         value_type=value_type)]
+    data_conf = {'name': name,
+                 'ref': {'logical_device': data_ref.logical_device,
+                         'logical_node': data_ref.logical_node,
+                         'names': list(data_ref.names)}}
+    if report_ids is not None:
+        data_conf['report_ids'] = report_ids
+    conf = create_conf(
+        value_types=[{'logical_device': data_ref.logical_device,
+                      'logical_node': data_ref.logical_node,
+                      'fc': data_ref.fc,
+                      'name': 'a',
+                      'type': value_type_to_json(value_type)}],
+        datasets=[{'ref': dataset,
+                   'values': [{'logical_device': data_ref.logical_device,
+                               'logical_node': data_ref.logical_node,
+                               'fc': data_ref.fc,
+                               'names': list(data_ref.names)}],
+                   'dynamic': True}],
+        rcbs=[{'ref': {'logical_device': rcb_ref.logical_device,
+                       'logical_node': rcb_ref.logical_node,
+                       'type': rcb_type.name,
+                       'name': rcb_ref.name},
+               'report_id': report_id,
+               'dataset': dataset}],
+        data=[data_conf])
+
+    client = EventerClient(event_cb=event_queue.put_nowait)
+
+    server = await create_server(
+        addr=addr,
+        rcbs={
+            rcb_ref: {
+                iec61850.RcbAttrType.REPORT_ID: report_id,
+                iec61850.RcbAttrType.DATASET: iec61850.NonPersistedDatasetRef(
+                    dataset)}})
+    device = await aio.call(info.create, conf, client, event_type_prefix)
+
+    event = await event_queue.get()
+    assert_status_event(event, 'CONNECTING')
+
+    event = await event_queue.get()
+    assert_status_event(event, 'CONNECTED')
+
+    report = iec61850.Report(report_id=report_id,
+                             sequence_number=None,
+                             subsequence_number=None,
+                             more_segments_follow=None,
+                             dataset=None,
+                             buffer_overflow=None,
+                             conf_revision=None,
+                             entry_time=None,
+                             entry_id=None,
+                             data=[iec61850.ReportData(ref=data_ref,
+                                                       value=value,
+                                                       reasons=None)])
+    await server.send_report(report, data_defs)
+
+    if exp_data_event:
+        data_event = await event_queue.get()
+        assert_data_event(event=data_event,
+                          name=name,
+                          data=value,
+                          reasons=[])
+    else:
+        with pytest.raises(asyncio.TimeoutError):
+            await aio.wait_for(event_queue.get(), 0.01)
+
+    await device.async_close()
+    await server.async_close()
+    await client.async_close()
+
+
 async def test_data_subset_report(addr, create_conf):
     event_queue = aio.Queue()
 

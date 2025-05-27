@@ -187,7 +187,12 @@ Available gateway events are:
         cached and no event is generated. Only after report is received with
         `more_segments_follow` ``False``, `data` of this, and all cached
         reports with the same `sequence_number`, are considered in order to
-        create one or more corresponding events.
+        create one or more corresponding events. If configuration of a data
+        defines `report_ids`, corresponding data event is registered only when
+        one of the specified `report_ids` is received. If `report_ids` is not
+        given in configuration, data event is registered for all the received
+        reports, data is assigned to.
+
 
         Source timestamp is ``None``.
 

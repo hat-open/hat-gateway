@@ -52,10 +52,9 @@ async def create(conf: common.DeviceConf,
     device._terminations = {}
     device._reports_segments = {}
 
-    device._data_ref_names = {(i['ref']['logical_device'],
+    device._data_ref_confs = {(i['ref']['logical_device'],
                                i['ref']['logical_node'],
-                               *i['ref']['names']): i['name']
-                              for i in conf['data']}
+                               *i['ref']['names']): i for i in conf['data']}
     device._command_name_confs = {i['name']: i for i in conf['commands']}
     device._command_name_ctl_nums = {i['name']: 0 for i in conf['commands']}
     device._change_name_value_refs = {
@@ -73,14 +72,20 @@ async def create(conf: common.DeviceConf,
     device._report_value_refs = collections.defaultdict(collections.deque)
     device._values_data = collections.defaultdict(set)
     for rcb_conf in device._conf['rcbs']:
+        report_id = rcb_conf['report_id']
         ds_ref = _dataset_ref_from_conf(rcb_conf['dataset'])
-        dataset_conf = dataset_confs[ds_ref]
-        for value_conf in dataset_conf['values']:
+        for value_conf in dataset_confs[ds_ref]['values']:
             value_ref = _value_ref_from_conf(value_conf)
-            device._report_value_refs[rcb_conf['report_id']].append(value_ref)
-            for data_ref in device._data_ref_names.keys():
-                if _data_matches_value(data_ref, value_ref):
-                    device._values_data[value_ref].add(data_ref)
+            for data_ref, data_conf in device._data_ref_confs.items():
+                if ('report_ids' in data_conf and
+                        report_id not in data_conf['report_ids']):
+                    continue
+
+                if not _data_matches_value(data_ref, value_ref):
+                    continue
+
+                device._values_data[value_ref].add(data_ref)
+                device._report_value_refs[report_id].append(value_ref)
 
     value_types = _value_types_from_conf(conf)
     device._value_types = value_types
@@ -134,7 +139,6 @@ class Iec61850ClientDevice(common.Device):
 
         async def cleanup():
             await self._register_status('DISCONNECTED')
-
             if self._conn:
                 await self._conn.async_close()
 
@@ -322,26 +326,27 @@ class Iec61850ClientDevice(common.Device):
         await self._register_events([event])
 
     async def _on_report(self, report):
-        if report.report_id not in self._report_value_refs:
+        report_id = report.report_id
+        if report_id not in self._report_value_refs:
             mlog.warning('unexpected report dropped')
             return
 
-        seq_num = report.sequence_number
+        segm_id = (report_id, report.sequence_number)
         if report.more_segments_follow:
-            if seq_num in self._reports_segments:
-                segment_data, timeout_timer = self._reports_segments[seq_num]
+            if segm_id in self._reports_segments:
+                segment_data, timeout_timer = self._reports_segments[segm_id]
                 timeout_timer.cancel()
             else:
                 segment_data = collections.deque()
 
             segment_data.extend(report.data)
             timeout_timer = self._loop.call_later(
-                report_segments_timeout, self._reports_segments.pop, seq_num)
-            self._reports_segments[seq_num] = (segment_data, timeout_timer)
+                report_segments_timeout, self._reports_segments.pop, segm_id)
+            self._reports_segments[segm_id] = (segment_data, timeout_timer)
             return
 
-        if seq_num in self._reports_segments:
-            report_data, timeout_timer = self._reports_segments[seq_num]
+        if segm_id in self._reports_segments:
+            report_data, timeout_timer = self._reports_segments.pop(segm_id)
             timeout_timer.cancel()
             report_data.extend(report.data)
 
@@ -349,23 +354,22 @@ class Iec61850ClientDevice(common.Device):
             report_data = report.data
 
         events = collections.deque()
+        events.extend(self._report_data_to_events(report_data, report_id))
 
-        events.extend(self._report_data_to_events(report_data))
-
-        if self._rcb_type[report.report_id] == 'BUFFERED':
+        if self._rcb_type[report_id] == 'BUFFERED':
             events.append(hat.event.common.RegisterEvent(
                 type=(*self._event_type_prefix, 'gateway',
-                      'entry_id', report.report_id),
+                      'entry_id', report_id),
                 source_timestamp=None,
                 payload=hat.event.common.EventPayloadJson(
                     report.entry_id.hex()
                     if report.entry_id is not None else None)))
 
         await self._register_events(events)
-        if self._rcb_type[report.report_id] == 'BUFFERED':
-            self._rcbs_entry_ids[report.report_id] = report.entry_id
+        if self._rcb_type[report_id] == 'BUFFERED':
+            self._rcbs_entry_ids[report_id] = report.entry_id
 
-    def _report_data_to_events(self, report_data):
+    def _report_data_to_events(self, report_data, report_id):
         report_data_values_types = collections.defaultdict(collections.deque)
         for rv in report_data:
             data_refs = self._values_data.get(rv.ref)
@@ -374,11 +378,15 @@ class Iec61850ClientDevice(common.Device):
                 report_data_values_types[data_ref].append((rv, value_type))
 
         for data_ref, report_values_types in report_data_values_types.items():
-            data_name = self._data_ref_names[data_ref]
+            data_conf = self._data_ref_confs[data_ref]
+            if ('report_ids' in data_conf and
+                    report_id not in data_conf['report_ids']):
+                continue
+
             try:
                 yield _report_values_to_event(
-                    self._event_type_prefix, report_values_types, data_name,
-                    data_ref)
+                    self._event_type_prefix, report_values_types,
+                    data_conf['name'], data_ref)
 
             except Exception as e:
                 mlog.warning('report values dropped: %s', e, exc_info=e)
