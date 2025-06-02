@@ -692,7 +692,12 @@ definitions:
             description: |
                 value in range [-2^15, 2^15-1]
         floating:
-            type: number
+            oneOf:
+              - type: number
+              - enum:
+                    - nan
+                    - inf
+                    - -inf
         binary_counter:
             type: integer
             description: |

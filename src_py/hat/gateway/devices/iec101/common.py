@@ -1,6 +1,7 @@
 from hat.gateway.common import *  # NOQA
 
 import enum
+import math
 import typing
 
 from hat import json
@@ -321,9 +322,11 @@ def _value_to_json(value):
 
     if isinstance(value, (iec101.NormalizedValue,
                           iec101.ScaledValue,
-                          iec101.FloatingValue,
                           iec101.BinaryCounterValue)):
         return value.value
+
+    if isinstance(value, iec101.FloatingValue):
+        return value.value if math.isfinite(value.value) else str(value.value)
 
     if isinstance(value, iec101.ProtectionStartValue):
         return {'general': value.general,
@@ -370,7 +373,7 @@ def _value_from_json(data_cmd_type, value):
         return iec101.ScaledValue(value=value)
 
     if data_cmd_type in (DataType.FLOATING, CommandType.FLOATING):
-        return iec101.FloatingValue(value=value)
+        return iec101.FloatingValue(value=float(value))
 
     if data_cmd_type == DataType.BINARY_COUNTER:
         return iec101.BinaryCounterValue(value=value)
