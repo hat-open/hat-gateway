@@ -370,7 +370,12 @@ $defs:
             unsigned:
                 type: integer
             float:
-                type: number
+                oneOf:
+                  - type: number
+                  - enum:
+                        - nan
+                        - inf
+                        - -inf
             bit_string:
                 type: array
                 items:
@@ -470,7 +475,12 @@ $defs:
                     i:
                         type: integer
                     f:
-                        type: number
+                        oneOf:
+                          - type: number
+                          - enum:
+                                - nan
+                                - inf
+                                - -inf
             vector:
                 type: object
                 required:

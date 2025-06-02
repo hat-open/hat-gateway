@@ -5,6 +5,7 @@ import asyncio
 import collections
 import datetime
 import logging
+import math
 
 from hat import aio
 from hat import json
@@ -822,6 +823,10 @@ def _value_from_json(event_value, value_type):
     if isinstance(value_type, iec61850.BasicValueType):
         if value_type == iec61850.BasicValueType.OCTET_STRING:
             return bytes.fromhex(event_value)
+
+        elif value_type == iec61850.BasicValueType.FLOAT:
+            return float(event_value)
+
         else:
             return event_value
 
@@ -853,8 +858,9 @@ def _value_from_json(event_value, value_type):
         return iec61850.Severity[event_value]
 
     if value_type == iec61850.AcsiValueType.ANALOGUE:
-        return iec61850.Analogue(i=event_value.get('i'),
-                                 f=event_value.get('f'))
+        return iec61850.Analogue(
+            i=event_value.get('i'),
+            f=(float(event_value['f']) if 'f' in event_value else None))
 
     if value_type == iec61850.AcsiValueType.VECTOR:
         return iec61850.Vector(
@@ -889,6 +895,9 @@ def _value_to_json(data_value, value_type):
         elif value_type == iec61850.BasicValueType.BIT_STRING:
             return list(data_value)
 
+        elif value_type == iec61850.BasicValueType.FLOAT:
+            return data_value if math.isfinite(data_value) else str(data_value)
+
         else:
             return data_value
 
@@ -920,7 +929,8 @@ def _value_to_json(data_value, value_type):
             if data_value.i is not None:
                 val['i'] = data_value.i
             if data_value.f is not None:
-                val['f'] = data_value.f
+                val['f'] = (data_value.f if math.isfinite(data_value.f)
+                            else str(data_value.f))
             return val
 
         if value_type == iec61850.AcsiValueType.VECTOR:
