@@ -153,16 +153,21 @@ $defs:
                     type: object
                     required:
                         - name
-                        - ref
+                        - report_id
+                        - value
                     properties:
                         name:
                             type: string
-                        ref:
-                            $ref: "hat-gateway://iec61850.yaml#/$defs/refs/data"
-                        report_ids:
-                            type: array
-                            items:
-                                type: string
+                        report_id:
+                            type: string
+                        value:
+                            $ref: "hat-gateway://iec61850.yaml#/$defs/refs/value"
+                        quality:
+                            $ref: "hat-gateway://iec61850.yaml#/$defs/refs/value"
+                        timestamp:
+                            $ref: "hat-gateway://iec61850.yaml#/$defs/refs/value"
+                        selected:
+                            $ref: "hat-gateway://iec61850.yaml#/$defs/refs/value"
             commands:
                 type: array
                 items:
@@ -208,11 +213,8 @@ $defs:
                 data:
                     type: object
                     required:
-                        - data
                         - reasons
                     properties:
-                        data:
-                            $ref: "hat-gateway://iec61850.yaml#/$defs/value"
                         reasons:
                             type: array
                             items:
@@ -223,6 +225,14 @@ $defs:
                                     - INTEGRITY
                                     - GENERAL_INTERROGATION
                                     - APPLICATION_TRIGGER
+                        value:
+                            $ref: "hat-gateway://iec61850.yaml#/$defs/value"
+                        quality:
+                            $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/quality"
+                        timestamp:
+                            $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/timestamp"
+                        selected:
+                            $ref: "hat-gateway://iec61850.yaml#/$defs/value/$defs/boolean"
                 command:
                     allOf:
                       - type: object
@@ -557,23 +567,6 @@ $defs:
                             type:
                                 $ref: "hat-gateway://iec61850.yaml#/$defs/value_type"
     refs:
-        data:
-            type: object
-            required:
-                - logical_device
-                - logical_node
-                - names
-            properties:
-                logical_device:
-                    type: string
-                logical_node:
-                    type: string
-                names:
-                    type: array
-                    items:
-                        type:
-                            - string
-                            - integer
         value:
             type: object
             required:
@@ -627,23 +620,24 @@ $defs:
                     type: string
         dataset:
             oneOf:
-              - $ref: "hat-gateway://iec61850.yaml#/$defs/refs/dataset_nonpersisted"
-              - $ref: "hat-gateway://iec61850.yaml#/$defs/refs/dataset_persisted"
-        dataset_nonpersisted:
-            type: string
-        dataset_persisted:
-            type: object
-            required:
-                - logical_device
-                - logical_node
-                - name
-            properties:
-                logical_device:
+              - $ref: "hat-gateway://iec61850.yaml#/$defs/refs/dataset/$defs/nonpersisted"
+              - $ref: "hat-gateway://iec61850.yaml#/$defs/refs/dataset/$defs/persisted"
+            $defs:
+                nonpersisted:
                     type: string
-                logical_node:
-                    type: string
-                name:
-                    type: string
+                persisted:
+                    type: object
+                    required:
+                        - logical_device
+                        - logical_node
+                        - name
+                    properties:
+                        logical_device:
+                            type: string
+                        logical_node:
+                            type: string
+                        name:
+                            type: string
     errors:
         service_error:
             enum:
