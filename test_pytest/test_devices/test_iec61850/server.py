@@ -531,8 +531,8 @@ def _report_to_mms_data(report, data_defs):
         optional_fields.add(iec61850.OptionalField.REASON_FOR_INCLUSION)
         elements.extend(
             _value_to_mms_data([False,
-                                *((data.reasons and
-                                   iec61850.Reason(i) in data.reasons)
+                                *(bool(data.reasons and
+                                       iec61850.Reason(i) in data.reasons)
                                   for i in range(1, 7))],
                                iec61850.BasicValueType.BIT_STRING)
             for data in report_data
