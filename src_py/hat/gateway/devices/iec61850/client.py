@@ -29,6 +29,42 @@ async def create(conf: common.DeviceConf,
                  event_type_prefix: common.EventTypePrefix
                  ) -> 'Iec61850ClientDevice':
 
+    value_types = _value_types_from_conf(conf)
+    rcb_confs = {i['report_id']: i for i in conf['rcbs']}
+    dataset_confs = {_dataset_ref_from_conf(ds_conf['ref']): ds_conf
+                     for ds_conf in conf['datasets']}
+    value_ref_data_name = {}
+    for data_conf in conf['data']:
+        data_v_ref = _value_ref_from_conf(data_conf['value'])
+        data_q_ref = (_value_ref_from_conf(data_conf['quality'])
+                      if data_conf.get('quality') else None)
+        q_type = _value_type_from_ref(value_types, data_q_ref)
+        if not isinstance(q_type, iec61850.AcsiValueType.QUALITY):
+            raise Exception(f"invalid quality type {data_q_ref}")
+
+        data_t_ref = (_value_ref_from_conf(data_conf['timestamp'])
+                      if data_conf.get('timestamp') else None)
+        t_type = _value_type_from_ref(value_types, data_t_ref)
+        if not isinstance(t_type, iec61850.AcsiValueType.TIMESTAMP):
+            raise Exception(f"invalid timestamp type {data_t_ref}")
+
+        data_seld_ref = (_value_ref_from_conf(data_conf['selected'])
+                         if data_conf.get('selected') else None)
+        seld_type = _value_type_from_ref(value_types, data_seld_ref)
+        if not isinstance(seld_type, iec61850.BasicValueType.BOOLEAN):
+            raise Exception(f"invalid selected type {data_seld_ref}")
+
+        rcb_conf = rcb_confs[data_conf['report_id']]
+        ds_ref = _dataset_ref_from_conf(rcb_conf['dataset'])
+        ds_conf = dataset_confs[ds_ref]
+        for value_conf in ds_conf['values']:
+            value_ref = _value_ref_from_conf(value_conf)
+            if (_refs_match(data_v_ref, value_ref) or
+                _refs_match(data_q_ref, value_ref) or
+                _refs_match(data_t_ref, value_ref) or
+                    _refs_match(data_seld_ref, value_ref)):
+                value_ref_data_name[value_ref] = data_conf['name']
+
     entry_id_event_types = [
         (*event_type_prefix, 'gateway', 'entry_id', i['report_id'])
         for i in conf['rcbs'] if i['ref']['type'] == 'BUFFERED']
@@ -53,9 +89,9 @@ async def create(conf: common.DeviceConf,
     device._terminations = {}
     device._reports_segments = {}
 
-    device._data_ref_confs = {(i['ref']['logical_device'],
-                               i['ref']['logical_node'],
-                               *i['ref']['names']): i for i in conf['data']}
+    device._value_types = value_types
+    device._value_ref_data_name = value_ref_data_name
+    device._data_name_confs = {i['name']: i for i in conf['data']}
     device._command_name_confs = {i['name']: i for i in conf['commands']}
     device._command_name_ctl_nums = {i['name']: 0 for i in conf['commands']}
     device._change_name_value_refs = {
@@ -68,28 +104,14 @@ async def create(conf: common.DeviceConf,
         ds_ref: values
         for ds_ref, values in _get_dyn_datasets_values(conf)}
 
-    dataset_confs = {_dataset_ref_from_conf(ds_conf['ref']): ds_conf
-                     for ds_conf in device._conf['datasets']}
-    device._report_value_refs = collections.defaultdict(collections.deque)
-    device._values_data = collections.defaultdict(set)
+    device._report_data_refs = collections.defaultdict(collections.deque)
     for rcb_conf in device._conf['rcbs']:
         report_id = rcb_conf['report_id']
         ds_ref = _dataset_ref_from_conf(rcb_conf['dataset'])
         for value_conf in dataset_confs[ds_ref]['values']:
             value_ref = _value_ref_from_conf(value_conf)
-            for data_ref, data_conf in device._data_ref_confs.items():
-                if ('report_ids' in data_conf and
-                        report_id not in data_conf['report_ids']):
-                    continue
+            device._report_data_refs[report_id].append(value_ref)
 
-                if not _data_matches_value(data_ref, value_ref):
-                    continue
-
-                device._values_data[value_ref].add(data_ref)
-                device._report_value_refs[report_id].append(value_ref)
-
-    value_types = _value_types_from_conf(conf)
-    device._value_types = value_types
     device._cmd_value_types = {
         cmd_ref: value_type
         for cmd_ref, value_type in _get_command_value_types(conf, value_types)}
@@ -134,7 +156,8 @@ class Iec61850ClientDevice(common.Device):
                     raise Exception('unsupported event type')
 
         except Exception as e:
-            mlog.warning('error processing event: %s', e, exc_info=e)
+            mlog.warning('error processing event %s: %s',
+                         event.type, e, exc_info=e)
 
     async def _connection_loop(self):
 
@@ -156,7 +179,7 @@ class Iec61850ClientDevice(common.Device):
                                              conn_conf['port']),
                             data_value_types=self._data_value_types,
                             cmd_value_types=self._cmd_value_types,
-                            report_data_refs=self._report_value_refs,
+                            report_data_refs=self._report_data_refs,
                             report_cb=self._on_report,
                             termination_cb=self._on_termination,
                             status_delay=conn_conf['status_delay'],
@@ -218,8 +241,7 @@ class Iec61850ClientDevice(common.Device):
 
     async def _process_cmd_req(self, event, cmd_name):
         if not self._conn or not self._conn.is_open:
-            mlog.warning('command %s ignored: no connection', cmd_name)
-            return
+            raise Exception('no connection')
 
         if cmd_name not in self._command_name_confs:
             raise Exception('unexpected command name')
@@ -296,11 +318,10 @@ class Iec61850ClientDevice(common.Device):
 
     async def _process_change_req(self, event, value_name):
         if not self._conn or not self._conn.is_open:
-            mlog.warning('change event %s ignored: no connection', value_name)
-            return
+            raise Exception('no connection')
 
         if value_name not in self._change_name_value_refs:
-            raise Exception('unexpected command name')
+            raise Exception('unexpected change name')
 
         ref = self._change_name_value_refs[value_name]
         value_type = _value_type_from_ref(self._value_types, ref)
@@ -327,10 +348,23 @@ class Iec61850ClientDevice(common.Device):
         await self._register_events([event])
 
     async def _on_report(self, report):
+        try:
+            events = list(self._events_from_report(report))
+            if not events:
+                return
+
+            await self._register_events(events)
+            if self._rcb_type[report.report_id] == 'BUFFERED':
+                self._rcbs_entry_ids[report.report_id] = report.entry_id
+
+        except Exception as e:
+            mlog.warning('report %s ignored: %s',
+                         report.report_id, e, exc_info=e)
+
+    async def _events_from_report(self, report):
         report_id = report.report_id
-        if report_id not in self._report_value_refs:
-            mlog.warning('unexpected report dropped')
-            return
+        if report_id not in self._report_data_refs:
+            raise Exception(f'unexpected report {report_id}')
 
         segm_id = (report_id, report.sequence_number)
         if report.more_segments_follow:
@@ -354,44 +388,65 @@ class Iec61850ClientDevice(common.Device):
         else:
             report_data = report.data
 
-        events = collections.deque()
-        events.extend(self._report_data_to_events(report_data, report_id))
+        yield from self._events_from_report_data(report_data, report_id)
 
         if self._rcb_type[report_id] == 'BUFFERED':
-            events.append(hat.event.common.RegisterEvent(
+            yield hat.event.common.RegisterEvent(
                 type=(*self._event_type_prefix, 'gateway',
                       'entry_id', report_id),
                 source_timestamp=None,
                 payload=hat.event.common.EventPayloadJson(
                     report.entry_id.hex()
-                    if report.entry_id is not None else None)))
+                    if report.entry_id is not None else None))
 
-        await self._register_events(events)
-        if self._rcb_type[report_id] == 'BUFFERED':
-            self._rcbs_entry_ids[report_id] = report.entry_id
-
-    def _report_data_to_events(self, report_data, report_id):
-        report_data_values_types = collections.defaultdict(collections.deque)
+    def _events_from_report_data(self, report_data, report_id):
+        data_values_json = collections.defaultdict(dict)
+        data_reasons = collections.defaultdict(set)
         for rv in report_data:
-            data_refs = self._values_data.get(rv.ref)
+            if rv.ref not in self._value_ref_data_name:
+                continue
+
+            data_name = self._value_ref_data_name[rv.ref]
             value_type = _value_type_from_ref(self._value_types, rv.ref)
-            for data_ref in data_refs:
-                report_data_values_types[data_ref].append((rv, value_type))
+            value_json = _value_to_json(rv.value, value_type)
+            value_path = [
+                rv.ref.logical_device, rv.ref.logical_node, *rv.ref.names]
+            data_values_json[data_name] = json.set_(
+                data_values_json[data_name], value_path, value_json)
+            data_reasons[data_name].update(
+                reason.name for reason in rv.reasons)
 
-        for data_ref, report_values_types in report_data_values_types.items():
-            data_conf = self._data_ref_confs[data_ref]
-            if ('report_ids' in data_conf and
-                    report_id not in data_conf['report_ids']):
-                continue
+        for data_name, values_json in data_values_json.items():
+            payload = {'reasons': list(data_reasons[data_name])}
+            data_conf = self._data_name_confs[data_name]
+            value_path = _conf_ref_to_path(data_conf['value'])
+            value_json = json.get(values_json, value_path)
+            if value_json is not None:
+                payload['value'] = value_json
 
-            try:
-                yield _report_values_to_event(
-                    self._event_type_prefix, report_values_types,
-                    data_conf['name'], data_ref)
+            if 'quality' in data_conf:
+                quality_path = _conf_ref_to_path(data_conf['quality'])
+                quality_json = json.get(values_json, quality_path)
+                if quality_json is not None:
+                    payload['quality'] = quality_json
 
-            except Exception as e:
-                mlog.warning('report values dropped: %s', e, exc_info=e)
-                continue
+            if 'timestamp' in data_conf:
+                timestamp_path = _conf_ref_to_path(data_conf['timestamp'])
+                timestamp_json = json.get(values_json, timestamp_path)
+                if timestamp_json is not None:
+                    payload['timestamp'] = timestamp_json
+
+            if 'selected' in data_conf:
+                selected_path = _conf_ref_to_path(data_conf['selected'])
+                selected_json = json.get(values_json, selected_path)
+                if selected_json is not None:
+                    payload['selected'] = selected_json
+
+            yield hat.event.common.RegisterEvent(
+                type=(*self._event_type_prefix, 'gateway',
+                      'data', data_name),
+                source_timestamp=None,
+                payload=hat.event.common.EventPayloadJson(payload))
 
     def _on_termination(self, termination):
         cmd_session_id = _get_command_session_id(
@@ -537,6 +592,7 @@ class Iec61850ClientDevice(common.Device):
 
         except ConnectionError:
             self.close()
+            raise
 
     async def _register_status(self, status):
         if status == self._conn_status:
@@ -567,17 +623,25 @@ def _dataset_ref_from_conf(ds_conf):
         return iec61850.PersistedDatasetRef(**ds_conf)
 
 
-def _data_matches_value(data_path, value_ref):
-    value_path = (value_ref.logical_device,
-                  value_ref.logical_node,
-                  *value_ref.names)
-    if len(data_path) == len(value_path):
-        return data_path == value_path
+def _refs_match(ref1, ref2):
+    if ref1.logical_device != ref2.logical_device:
+        return False
 
-    if len(data_path) > len(value_path):
-        return data_path[:len(value_path)] == value_path
+    if ref1.logical_node != ref2.logical_node:
+        return False
 
-    return value_path[:len(data_path)] == data_path
+    if ref1.fc != ref2.fc:
+        return False
+
+    if len(ref1.names) == len(ref2.names):
+        return ref1.names == ref2.names
+
+    if len(ref1.names) < len(ref2.names):
+        names1, names2 = ref1.names, ref2.names
+    else:
+        names1, names2 = ref2.names, ref1.names
+
+    return names2[:len(names1)] == names1
 
 
 def _get_persist_dyn_datasets(conf):
@@ -628,13 +692,10 @@ def _value_types_from_conf(conf):
     for vt in conf['value_types']:
         ref = (vt['logical_device'],
                vt['logical_node'],
+               vt['fc'],
                vt['name'])
         value_type = _value_type_from_vt_conf(vt['type'])
-        if ref in value_types:
-            value_types[ref] = _merge_types(
-                value_type, value_types[ref], set(ref))
-        else:
-            value_types[ref] = value_type
+        value_types = json.set_(value_types, ref, value_type)
 
     return value_types
 
@@ -676,28 +737,23 @@ def _value_type_from_vt_conf(vt_conf):
     raise Exception('unsupported value type')
 
 
-def _merge_types(type1, type2, ref):
-    if isinstance(type1, dict) and isinstance(type2, dict):
-        return {**type1,
-                **{k: (subtype if k not in type1
-                       else _merge_types(type1[k], subtype, ref.union(k)))
-                   for k, subtype in type2.items()}}
-
-    mlog.warning('value types conflict on reference %s: %s and %s',
-                 ref, type1, type2)
-    return type2
-
-
 def _value_type_from_ref(value_types, ref):
     left_names = []
+    if isinstance(ref, iec61850.CommandRef):
+        ref = [ref.logical_device, ref.logical_node, 'CO', ref.name]
+        return json.get(value_types, ref)
+
     if isinstance(ref, iec61850.DataRef):
         left_names = ref.names[1:]
         ref = (ref.logical_device, ref.logical_node, ref.names[0])
 
-    if ref not in value_types:
+    else:
+        raise Exception('unexpected reference')
+
+    value_type = json.get(value_types, ref)
+    if value_type is None:
         return
 
-    value_type = value_types[ref]
     while left_names:
         name = left_names[0]
         left_names = left_names[1:]
@@ -797,28 +853,6 @@ def _get_command_session_id(cmd_ref, cmd):
     return (cmd_ref, cmd.control_number)
 
 
-def _report_values_to_event(event_type_prefix, report_values_types, data_name,
-                            data_ref):
-    reasons = list(set(reason.name for rv, _ in report_values_types
-                       for reason in rv.reasons or []))
-    data = _event_data_from_report(report_values_types, data_ref)
-    payload = {'data': data,
-               'reasons': reasons}
-    return hat.event.common.RegisterEvent(
-        type=(*event_type_prefix, 'gateway', 'data', data_name),
-        source_timestamp=None,
-        payload=hat.event.common.EventPayloadJson(payload))
-
-
-def _event_data_from_report(report_values_types, data_ref):
-    values_json = {}
-    for rv, value_type in report_values_types:
-        val_json = _value_to_json(rv.value, value_type)
-        val_path = [rv.ref.logical_device, rv.ref.logical_node, *rv.ref.names]
-        values_json = json.set_(values_json, val_path, val_json)
-    return json.get(values_json, list(data_ref))
-
-
 def _value_from_json(event_value, value_type):
     if isinstance(value_type, iec61850.BasicValueType):
         if value_type == iec61850.BasicValueType.OCTET_STRING:
@@ -878,7 +912,8 @@ def _value_from_json(event_value, value_type):
         return iec61850.BinaryControl[event_value]
 
     if isinstance(value_type, iec61850.ArrayValueType):
-        return [_value_from_json(val, value_type.type) for val in event_value]
+        return [_value_from_json(val, value_type.type)
+                for val in event_value]
 
     if isinstance(value_type, dict):
         return {k: _value_from_json(v, value_type[k])
@@ -988,3 +1023,10 @@ def _validate_get_rcb_response(get_rcb_resp, rcb_conf):
             raise Exception(
                 f"Conf revision {v} different from "
                 f"the configuration defined {rcb_conf['conf_revision']}")
+
+
+def _conf_ref_to_path(conf_ref):
+    return [conf_ref['value']['logical_device'],
+            conf_ref['value']['logical_node'],
+            conf_ref['value']['fc'],
+            *conf_ref['value']['names']]
