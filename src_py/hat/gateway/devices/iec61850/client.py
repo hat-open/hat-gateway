@@ -36,23 +36,27 @@ async def create(conf: common.DeviceConf,
     value_ref_data_name = {}
     for data_conf in conf['data']:
         data_v_ref = _value_ref_from_conf(data_conf['value'])
+
         data_q_ref = (_value_ref_from_conf(data_conf['quality'])
                       if data_conf.get('quality') else None)
-        q_type = _value_type_from_ref(value_types, data_q_ref)
-        if not isinstance(q_type, iec61850.AcsiValueType.QUALITY):
-            raise Exception(f"invalid quality type {data_q_ref}")
+        if data_q_ref:
+            q_type = _value_type_from_ref(value_types, data_q_ref)
+            if q_type != iec61850.AcsiValueType.QUALITY:
+                raise Exception(f"invalid quality type {data_q_ref}")
 
         data_t_ref = (_value_ref_from_conf(data_conf['timestamp'])
                       if data_conf.get('timestamp') else None)
-        t_type = _value_type_from_ref(value_types, data_t_ref)
-        if not isinstance(t_type, iec61850.AcsiValueType.TIMESTAMP):
-            raise Exception(f"invalid timestamp type {data_t_ref}")
+        if data_t_ref:
+            t_type = _value_type_from_ref(value_types, data_t_ref)
+            if t_type != iec61850.AcsiValueType.TIMESTAMP:
+                raise Exception(f"invalid timestamp type {data_t_ref}")
 
         data_seld_ref = (_value_ref_from_conf(data_conf['selected'])
                          if data_conf.get('selected') else None)
-        seld_type = _value_type_from_ref(value_types, data_seld_ref)
-        if not isinstance(seld_type, iec61850.BasicValueType.BOOLEAN):
-            raise Exception(f"invalid selected type {data_seld_ref}")
+        if data_seld_ref:
+            seld_type = _value_type_from_ref(value_types, data_seld_ref)
+            if seld_type != iec61850.BasicValueType.BOOLEAN:
+                raise Exception(f"invalid selected type {data_seld_ref}")
 
         rcb_conf = rcb_confs[data_conf['report_id']]
         ds_ref = _dataset_ref_from_conf(rcb_conf['dataset'])
@@ -60,9 +64,9 @@ async def create(conf: common.DeviceConf,
         for value_conf in ds_conf['values']:
             value_ref = _value_ref_from_conf(value_conf)
             if (_refs_match(data_v_ref, value_ref) or
-                _refs_match(data_q_ref, value_ref) or
-                _refs_match(data_t_ref, value_ref) or
-                    _refs_match(data_seld_ref, value_ref)):
+                    (data_q_ref and _refs_match(data_q_ref, value_ref)) or
+                    (data_t_ref and _refs_match(data_t_ref, value_ref)) or
+                    (data_seld_ref and _refs_match(data_seld_ref, value_ref))):
                 value_ref_data_name[value_ref] = data_conf['name']
 
     entry_id_event_types = [
@@ -361,7 +365,7 @@ class Iec61850ClientDevice(common.Device):
             mlog.warning('report %s ignored: %s',
                          report.report_id, e, exc_info=e)
 
-    async def _events_from_report(self, report):
+    def _events_from_report(self, report):
         report_id = report.report_id
         if report_id not in self._report_data_refs:
             raise Exception(f'unexpected report {report_id}')
@@ -409,12 +413,13 @@ class Iec61850ClientDevice(common.Device):
             data_name = self._value_ref_data_name[rv.ref]
             value_type = _value_type_from_ref(self._value_types, rv.ref)
             value_json = _value_to_json(rv.value, value_type)
-            value_path = [
-                rv.ref.logical_device, rv.ref.logical_node, *rv.ref.names]
+            value_path = [rv.ref.logical_device, rv.ref.logical_node,
+                          rv.ref.fc, *rv.ref.names]
             data_values_json[data_name] = json.set_(
                 data_values_json[data_name], value_path, value_json)
-            data_reasons[data_name].update(
-                reason.name for reason in rv.reasons)
+            if rv.reasons:
+                data_reasons[data_name].update(
+                    reason.name for reason in rv.reasons)
 
         for data_name, values_json in data_values_json.items():
             payload = {'reasons': list(data_reasons[data_name])}
@@ -690,10 +695,10 @@ def _get_command_value_types(conf, value_types):
 def _value_types_from_conf(conf):
     value_types = {}
     for vt in conf['value_types']:
-        ref = (vt['logical_device'],
+        ref = [vt['logical_device'],
                vt['logical_node'],
                vt['fc'],
-               vt['name'])
+               vt['name']]
         value_type = _value_type_from_vt_conf(vt['type'])
         value_types = json.set_(value_types, ref, value_type)
 
@@ -740,17 +745,17 @@ def _value_type_from_vt_conf(vt_conf):
 def _value_type_from_ref(value_types, ref):
     left_names = []
     if isinstance(ref, iec61850.CommandRef):
-        ref = [ref.logical_device, ref.logical_node, 'CO', ref.name]
-        return json.get(value_types, ref)
+        path = [ref.logical_device, ref.logical_node, 'CO', ref.name]
+        return json.get(value_types, path)
 
     if isinstance(ref, iec61850.DataRef):
         left_names = ref.names[1:]
-        ref = (ref.logical_device, ref.logical_node, ref.names[0])
+        path = [ref.logical_device, ref.logical_node, ref.fc, ref.names[0]]
 
     else:
         raise Exception('unexpected reference')
 
-    value_type = json.get(value_types, ref)
+    value_type = json.get(value_types, path)
     if value_type is None:
         return
 
@@ -1026,7 +1031,7 @@ def _validate_get_rcb_response(get_rcb_resp, rcb_conf):
 
 
 def _conf_ref_to_path(conf_ref):
-    return [conf_ref['value']['logical_device'],
-            conf_ref['value']['logical_node'],
-            conf_ref['value']['fc'],
-            *conf_ref['value']['names']]
+    return [conf_ref['logical_device'],
+            conf_ref['logical_node'],
+            conf_ref['fc'],
+            *conf_ref['names']]
