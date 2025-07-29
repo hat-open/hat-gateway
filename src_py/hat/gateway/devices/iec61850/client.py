@@ -9,6 +9,7 @@ import math
 
 from hat import aio
 from hat import json
+from hat import util
 from hat.drivers import iec61850
 from hat.drivers import tcp
 import hat.event.common
@@ -29,7 +30,16 @@ async def create(conf: common.DeviceConf,
                  event_type_prefix: common.EventTypePrefix
                  ) -> 'Iec61850ClientDevice':
 
-    value_types = _value_types_from_conf(conf)
+    value_types = {}
+    value_types_61850 = {}
+    for vt in conf['value_types']:
+        ref = (vt['logical_device'],
+               vt['logical_node'],
+               vt['fc'],
+               vt['name'])
+        value_types_61850[ref] = _vtype_61850_from_vtype_conf(vt['type'])
+        value_types[ref] = _vtype_from_vtype_conf(vt['type'])
+
     rcb_confs = {i['report_id']: i for i in conf['rcbs']}
     dataset_confs = {_dataset_ref_from_conf(ds_conf['ref']): ds_conf
                      for ds_conf in conf['datasets']}
@@ -37,26 +47,26 @@ async def create(conf: common.DeviceConf,
     for data_conf in conf['data']:
         data_v_ref = _value_ref_from_conf(data_conf['value'])
 
-        data_q_ref = (_value_ref_from_conf(data_conf['quality'])
-                      if data_conf.get('quality') else None)
-        if data_q_ref:
-            q_type = _value_type_from_ref(value_types, data_q_ref)
+        q_ref = (_value_ref_from_conf(data_conf['quality'])
+                 if data_conf.get('quality') else None)
+        if data_conf.get('quality'):
+            q_type = _value_type_from_ref(value_types, q_ref)
             if q_type != iec61850.AcsiValueType.QUALITY:
-                raise Exception(f"invalid quality type {data_q_ref}")
+                raise Exception(f"invalid quality type {q_ref}")
 
-        data_t_ref = (_value_ref_from_conf(data_conf['timestamp'])
-                      if data_conf.get('timestamp') else None)
-        if data_t_ref:
-            t_type = _value_type_from_ref(value_types, data_t_ref)
+        t_ref = (_value_ref_from_conf(data_conf['timestamp'])
+                 if data_conf.get('timestamp') else None)
+        if t_ref:
+            t_type = _value_type_from_ref(value_types, t_ref)
             if t_type != iec61850.AcsiValueType.TIMESTAMP:
-                raise Exception(f"invalid timestamp type {data_t_ref}")
+                raise Exception(f"invalid timestamp type {t_ref}")
 
-        data_seld_ref = (_value_ref_from_conf(data_conf['selected'])
-                         if data_conf.get('selected') else None)
-        if data_seld_ref:
-            seld_type = _value_type_from_ref(value_types, data_seld_ref)
+        seld_ref = (_value_ref_from_conf(data_conf['selected'])
+                    if data_conf.get('selected') else None)
+        if seld_ref:
+            seld_type = _value_type_from_ref(value_types, seld_ref)
             if seld_type != iec61850.BasicValueType.BOOLEAN:
-                raise Exception(f"invalid selected type {data_seld_ref}")
+                raise Exception(f"invalid selected type {seld_ref}")
 
         rcb_conf = rcb_confs[data_conf['report_id']]
         ds_ref = _dataset_ref_from_conf(rcb_conf['dataset'])
@@ -64,10 +74,29 @@ async def create(conf: common.DeviceConf,
         for value_conf in ds_conf['values']:
             value_ref = _value_ref_from_conf(value_conf)
             if (_refs_match(data_v_ref, value_ref) or
-                    (data_q_ref and _refs_match(data_q_ref, value_ref)) or
-                    (data_t_ref and _refs_match(data_t_ref, value_ref)) or
-                    (data_seld_ref and _refs_match(data_seld_ref, value_ref))):
+                    (q_ref and _refs_match(q_ref, value_ref)) or
+                    (t_ref and _refs_match(t_ref, value_ref)) or
+                    (seld_ref and _refs_match(seld_ref, value_ref))):
                 value_ref_data_name[value_ref] = data_conf['name']
+
+    dataset_values_ref_type = {}
+    for ds_conf in conf['datasets']:
+        for val_ref_conf in ds_conf['values']:
+            value_ref = _value_ref_from_conf(val_ref_conf)
+            value_type = _value_type_from_ref(value_types, value_ref)
+            dataset_values_ref_type[value_ref] = value_type
+
+    command_ref_value_type = {}
+    for cmd_conf in conf['commands']:
+        cmd_ref = iec61850.CommandRef(**cmd_conf['ref'])
+        value_type = _value_type_from_ref(value_types, cmd_ref)
+        command_ref_value_type[cmd_ref] = value_type
+
+    change_ref_value_type = {}
+    for change_conf in conf['changes']:
+        value_ref = _value_ref_from_conf(change_conf['ref'])
+        value_type = _value_type_from_ref(value_types, value_ref)
+        change_ref_value_type[value_ref] = value_type
 
     entry_id_event_types = [
         (*event_type_prefix, 'gateway', 'entry_id', i['report_id'])
@@ -93,8 +122,10 @@ async def create(conf: common.DeviceConf,
     device._terminations = {}
     device._reports_segments = {}
 
-    device._value_types = value_types
     device._value_ref_data_name = value_ref_data_name
+    device._dataset_values_ref_type = dataset_values_ref_type
+    device._command_ref_value_type = command_ref_value_type
+    device._change_ref_value_type = change_ref_value_type
     device._data_name_confs = {i['name']: i for i in conf['data']}
     device._command_name_confs = {i['name']: i for i in conf['commands']}
     device._command_name_ctl_nums = {i['name']: 0 for i in conf['commands']}
@@ -102,12 +133,8 @@ async def create(conf: common.DeviceConf,
         i['name']: _value_ref_from_conf(i['ref']) for i in conf['changes']}
     device._rcb_type = {rcb_conf['report_id']: rcb_conf['ref']['type']
                         for rcb_conf in conf['rcbs']}
-
     device._persist_dyn_datasets = set(_get_persist_dyn_datasets(conf))
-    device._dyn_datasets_values = {
-        ds_ref: values
-        for ds_ref, values in _get_dyn_datasets_values(conf)}
-
+    device._dyn_datasets_values = dict(_get_dyn_datasets_values(conf))
     device._report_data_refs = collections.defaultdict(collections.deque)
     for rcb_conf in device._conf['rcbs']:
         report_id = rcb_conf['report_id']
@@ -116,12 +143,10 @@ async def create(conf: common.DeviceConf,
             value_ref = _value_ref_from_conf(value_conf)
             device._report_data_refs[report_id].append(value_ref)
 
-    device._cmd_value_types = {
-        cmd_ref: value_type
-        for cmd_ref, value_type in _get_command_value_types(conf, value_types)}
-    device._data_value_types = {
-        value_ref: value_type
-        for value_ref, value_type in _get_data_value_types(conf, value_types)}
+    device._data_value_types = dict(
+        _get_data_value_types(conf, value_types_61850))
+    device._cmd_value_types = dict(
+        _get_cmd_value_types(conf, value_types_61850))
 
     device._async_group = aio.Group()
     device._async_group.spawn(device._connection_loop)
@@ -261,7 +286,10 @@ class Iec61850ClientDevice(common.Device):
             ctl_num = self._command_name_ctl_nums[cmd_name]
             ctl_num = _update_ctl_num(ctl_num, action, cmd_conf['model'])
             self._command_name_ctl_nums[cmd_name] = ctl_num
-            value_type = _value_type_from_ref(self._value_types, cmd_ref)
+            value_type = self._command_ref_value_type[cmd_ref]
+            if value_type is None:
+                raise Exception('value type undefined')
+
             cmd = _command_from_event(event, cmd_conf, ctl_num, value_type)
 
         term_future = None
@@ -328,7 +356,7 @@ class Iec61850ClientDevice(common.Device):
             raise Exception('unexpected change name')
 
         ref = self._change_name_value_refs[value_name]
-        value_type = _value_type_from_ref(self._value_types, ref)
+        value_type = self._change_ref_value_type[ref]
         if value_type is None:
             raise Exception('value type undefined')
 
@@ -411,7 +439,11 @@ class Iec61850ClientDevice(common.Device):
                 continue
 
             data_name = self._value_ref_data_name[rv.ref]
-            value_type = _value_type_from_ref(self._value_types, rv.ref)
+            value_type = self._dataset_values_ref_type[rv.ref]
+            if value_type is None:
+                mlog.warning('report data ignored: unknown value type')
+                continue
+
             value_json = _value_to_json(rv.value, value_type)
             value_path = [rv.ref.logical_device, rv.ref.logical_node,
                           rv.ref.fc, *rv.ref.names]
@@ -669,75 +701,60 @@ def _get_dyn_datasets_values(conf):
                        for val_conf in ds_conf['values']]
 
 
-def _get_data_value_types(conf, value_types):
-    for ds_conf in conf['datasets']:
-        for val_ref_conf in ds_conf['values']:
-            value_ref = _value_ref_from_conf(val_ref_conf)
-            value_type = _value_type_to_iec61850(
-                _value_type_from_ref(value_types, value_ref))
-            yield value_ref, value_type
-
-    for change_conf in conf['changes']:
-        value_ref = _value_ref_from_conf(change_conf['ref'])
-        value_type = _value_type_to_iec61850(
-            _value_type_from_ref(value_types, value_ref))
-        yield value_ref, value_type
-
-
-def _get_command_value_types(conf, value_types):
-    for cmd_conf in conf['commands']:
-        cmd_ref = iec61850.CommandRef(**cmd_conf['ref'])
-        value_type = _value_type_to_iec61850(
-            _value_type_from_ref(value_types, cmd_ref))
-        yield cmd_ref, value_type
-
-
-def _value_types_from_conf(conf):
-    value_types = {}
-    for vt in conf['value_types']:
-        ref = [vt['logical_device'],
-               vt['logical_node'],
-               vt['fc'],
-               vt['name']]
-        value_type = _value_type_from_vt_conf(vt['type'])
-        value_types = json.set_(value_types, ref, value_type)
-
-    return value_types
-
-
-def _value_type_from_vt_conf(vt_conf):
+def _vtype_61850_from_vtype_conf(vt_conf):
     if isinstance(vt_conf, str):
-        if vt_conf in ['BOOLEAN',
-                       'INTEGER',
-                       'UNSIGNED',
-                       'FLOAT',
-                       'BIT_STRING',
-                       'OCTET_STRING',
-                       'VISIBLE_STRING',
-                       'MMS_STRING']:
-            return iec61850.BasicValueType(vt_conf)
-
-        if vt_conf in ['QUALITY',
-                       'TIMESTAMP',
-                       'DOUBLE_POINT',
-                       'DIRECTION',
-                       'SEVERITY',
-                       'ANALOGUE',
-                       'VECTOR',
-                       'STEP_POSITION',
-                       'BINARY_CONTROL']:
-            return iec61850.AcsiValueType(vt_conf)
-
-        raise Exception('unsupported value type')
+        return _value_type_from_str(vt_conf)
 
     if vt_conf['type'] == 'ARRAY':
-        element_type = _value_type_from_vt_conf(vt_conf['element_type'])
-        return iec61850.ArrayValueType(type=element_type,
-                                       length=vt_conf['length'])
+        return iec61850.ArrayValueType(
+            type=_vtype_61850_from_vtype_conf(vt_conf['element_type']),
+            length=vt_conf['length'])
 
     if vt_conf['type'] == 'STRUCT':
-        return {el_conf['name']: _value_type_from_vt_conf(el_conf['type'])
+        return iec61850.StructValueType(
+            [(el_conf['name'], _vtype_61850_from_vtype_conf(el_conf['type']))
+             for el_conf in vt_conf['elements']])
+
+    raise Exception('unsupported value type')
+
+
+def _vtype_from_vtype_conf(vt_conf):
+    if isinstance(vt_conf, str):
+        return _value_type_from_str(vt_conf)
+
+    if vt_conf['type'] == 'ARRAY':
+        return iec61850.ArrayValueType(
+            type=_vtype_from_vtype_conf(vt_conf['element_type']),
+            length=vt_conf['length'])
+
+    if vt_conf['type'] == 'STRUCT':
+        return {el_conf['name']: _vtype_from_vtype_conf(el_conf['type'])
                 for el_conf in vt_conf['elements']}
+
+    raise Exception('unsupported value type')
+
+
+def _value_type_from_str(vt_conf):
+    if vt_conf in ['BOOLEAN',
+                   'INTEGER',
+                   'UNSIGNED',
+                   'FLOAT',
+                   'BIT_STRING',
+                   'OCTET_STRING',
+                   'VISIBLE_STRING',
+                   'MMS_STRING']:
+        return iec61850.BasicValueType(vt_conf)
+
+    if vt_conf in ['QUALITY',
+                   'TIMESTAMP',
+                   'DOUBLE_POINT',
+                   'DIRECTION',
+                   'SEVERITY',
+                   'ANALOGUE',
+                   'VECTOR',
+                   'STEP_POSITION',
+                   'BINARY_CONTROL']:
+        return iec61850.AcsiValueType(vt_conf)
 
     raise Exception('unsupported value type')
 
@@ -745,25 +762,29 @@ def _value_type_from_vt_conf(vt_conf):
 def _value_type_from_ref(value_types, ref):
     left_names = []
     if isinstance(ref, iec61850.CommandRef):
-        path = [ref.logical_device, ref.logical_node, 'CO', ref.name]
-        return json.get(value_types, path)
+        left_names = []
+        key = (ref.logical_device, ref.logical_node, 'CO', ref.name)
 
-    if isinstance(ref, iec61850.DataRef):
+    elif isinstance(ref, iec61850.DataRef):
         left_names = ref.names[1:]
-        path = [ref.logical_device, ref.logical_node, ref.fc, ref.names[0]]
+        key = (ref.logical_device, ref.logical_node, ref.fc, ref.names[0])
 
     else:
         raise Exception('unexpected reference')
 
-    value_type = json.get(value_types, path)
-    if value_type is None:
+    if key not in value_types:
         return
 
+    value_type = value_types[key]
     while left_names:
         name = left_names[0]
         left_names = left_names[1:]
         if isinstance(name, str):
-            value_type = value_type[name]
+            if isinstance(value_type, iec61850.StructValueType):
+                _, value_type = util.first(
+                    value_type.elements, lambda i: i[0] == name)
+            else:
+                value_type = value_type[name]
 
         if isinstance(name, int):
             value_type = value_type.type
@@ -771,19 +792,24 @@ def _value_type_from_ref(value_types, ref):
     return value_type
 
 
-def _value_type_to_iec61850(val_type):
-    if (isinstance(val_type, iec61850.BasicValueType) or
-            isinstance(val_type, iec61850.AcsiValueType)):
-        return val_type
+def _get_data_value_types(conf, value_types):
+    for ds_conf in conf['datasets']:
+        for val_ref_conf in ds_conf['values']:
+            value_ref = _value_ref_from_conf(val_ref_conf)
+            value_type = _value_type_from_ref(value_types, value_ref)
+            yield value_ref, value_type
 
-    if isinstance(val_type, iec61850.ArrayValueType):
-        return iec61850.ArrayValueType(
-            type=_value_type_to_iec61850(val_type.type),
-            length=val_type.length)
+    for change_conf in conf['changes']:
+        value_ref = _value_ref_from_conf(change_conf['ref'])
+        value_type = _value_type_from_ref(value_types, value_ref)
+        yield value_ref, value_type
 
-    if isinstance(val_type, dict):
-        return iec61850.StructValueType(
-            [(k, _value_type_to_iec61850(v)) for k, v in val_type.items()])
+
+def _get_cmd_value_types(conf, value_types):
+    for cmd_conf in conf['commands']:
+        cmd_ref = iec61850.CommandRef(**cmd_conf['ref'])
+        value_type = _value_type_from_ref(value_types, cmd_ref)
+        yield cmd_ref, value_type
 
 
 _epoch_start = datetime.datetime.fromtimestamp(0, datetime.timezone.utc)
