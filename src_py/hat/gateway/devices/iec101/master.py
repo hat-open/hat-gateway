@@ -61,7 +61,7 @@ class Iec101MasterDevice(common.Device):
         self._conf = conf
         self._event_type_prefix = event_type_prefix
         self._eventer_client = eventer_client
-        self._master = None
+        self._link = None
         self._conns = {}
         self._send_queue = aio.Queue(send_queue_size)
         self._async_group = aio.Group()
@@ -71,7 +71,7 @@ class Iec101MasterDevice(common.Device):
                               for i in conf['remote_devices']}
         self._remote_groups = {}
 
-        self.async_group.spawn(self._create_link_master_loop)
+        self.async_group.spawn(self._link_loop)
         self.async_group.spawn(self._send_loop)
 
     @property
@@ -86,32 +86,41 @@ class Iec101MasterDevice(common.Device):
             except Exception as e:
                 mlog.warning('error processing event: %s', e, exc_info=e)
 
-    async def _create_link_master_loop(self):
+    async def _link_loop(self):
 
         async def cleanup():
             with contextlib.suppress(ConnectionError):
                 await self._register_status('DISCONNECTED')
 
-            if self._master:
-                await self._master.async_close()
+            if self._link:
+                await self._link.async_close()
 
         try:
+            if self._conf['link_type'] == 'BALANCED':
+                create_link = link.create_balanced_link
+
+            elif self._conf['link_type'] == 'UNBALANCED':
+                create_link = link.create_master_link
+
+            else:
+                raise ValueError('unsupported link type')
+
             while True:
                 await self._register_status('CONNECTING')
 
                 try:
-                    self._master = await link.unbalanced.create_master(
+                    self._link = await create_link(
                         port=self._conf['port'],
+                        address_size=link.AddressSize[
+                            self._conf['device_address_size']],
+                        silent_interval=self._conf['silent_interval'],
                         baudrate=self._conf['baudrate'],
                         bytesize=serial.ByteSize[self._conf['bytesize']],
                         parity=serial.Parity[self._conf['parity']],
                         stopbits=serial.StopBits[self._conf['stopbits']],
                         xonxoff=self._conf['flow_control']['xonxoff'],
                         rtscts=self._conf['flow_control']['rtscts'],
-                        dsrdtr=self._conf['flow_control']['dsrdtr'],
-                        silent_interval=self._conf['silent_interval'],
-                        address_size=link.AddressSize[
-                            self._conf['device_address_size']])
+                        dsrdtr=self._conf['flow_control']['dsrdtr'])
 
                 except Exception as e:
                     mlog.warning('link master (endpoint) failed to create: %s',
@@ -126,9 +135,9 @@ class Iec101MasterDevice(common.Device):
                     if enabled:
                         self._enable_remote(address)
 
-                await self._master.wait_closed()
+                await self._link.wait_closed()
                 await self._register_status('DISCONNECTED')
-                self._master = None
+                self._link = None
 
         except Exception as e:
             mlog.error('create link master error: %s', e, exc_info=e)
@@ -163,22 +172,38 @@ class Iec101MasterDevice(common.Device):
             with contextlib.suppress(ConnectionError):
                 await self._register_rmt_status(address, 'DISCONNECTED')
 
-            conn = self._conns.pop(address, None)
+            self._conns.pop(address, None)
             if conn:
                 await conn.async_close()
 
+        conn = None
         remote_conf = self._remote_confs[address]
+
         try:
+            if self._conf['link_type'] == 'BALANCED':
+                conn_args = {
+                    'direction': link.Direction[remote_conf['direction']],
+                    'addr': address,
+                    'response_timeout': remote_conf['response_timeout'],
+                    'send_retry_count': remote_conf['send_retry_count'],
+                    'test_delay': remote_conf['test_delay']}
+
+            elif self._conf['link_type'] == 'UNBALANCED':
+                conn_args = {
+                    'addr': address,
+                    'response_timeout': remote_conf['response_timeout'],
+                    'send_retry_count': remote_conf['send_retry_count'],
+                    'poll_class1_delay': remote_conf['poll_class1_delay'],
+                    'poll_class2_delay': remote_conf['poll_class2_delay']}
+
+            else:
+                raise ValueError('unsupported link type')
+
             while True:
                 await self._register_rmt_status(address, 'CONNECTING')
 
                 try:
-                    master_conn = await self._master.connect(
-                        addr=address,
-                        response_timeout=remote_conf['response_timeout'],
-                        send_retry_count=remote_conf['send_retry_count'],
-                        poll_class1_delay=remote_conf['poll_class1_delay'],
-                        poll_class2_delay=remote_conf['poll_class2_delay'])
+                    conn = await self._link.open_connection(**conn_args)
 
                 except Exception as e:
                     mlog.error('connection error to address %s: %s',
@@ -189,8 +214,8 @@ class Iec101MasterDevice(common.Device):
 
                 await self._register_rmt_status(address, 'CONNECTED')
 
-                conn = iec101.MasterConnection(
-                    conn=master_conn,
+                conn = iec101.Connection(
+                    conn=conn,
                     cause_size=iec101.CauseSize[self._conf['cause_size']],
                     asdu_address_size=iec101.AsduAddressSize[
                         self._conf['asdu_address_size']],
@@ -205,7 +230,7 @@ class Iec101MasterDevice(common.Device):
 
                 await conn.wait_closed()
                 await self._register_rmt_status(address, 'DISCONNECTED')
-                self._conns.pop(address)
+                self._conns.pop(address, None)
 
         except Exception as e:
             mlog.error('connection loop error: %s', e, exc_info=e)
@@ -344,7 +369,7 @@ class Iec101MasterDevice(common.Device):
         if not enable:
             self._disable_remote(address)
 
-        elif not self._master:
+        elif not self._link:
             return
 
         else:

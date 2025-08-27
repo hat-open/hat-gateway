@@ -1,6 +1,7 @@
 """IEC 60870-5-104 slave device"""
 
 from collections.abc import Collection, Iterable
+import asyncio
 import collections
 import contextlib
 import functools
@@ -31,6 +32,7 @@ async def create(conf: common.DeviceConf,
     device._event_type_prefix = event_type_prefix
     device._next_conn_ids = itertools.count(1)
     device._conns = {}
+    device._send_queues = {}
     device._buffers = {}
     device._data_msgs = {}
     device._data_buffers = {}
@@ -45,22 +47,31 @@ async def create(conf: common.DeviceConf,
                     eventer_client=eventer_client,
                     event_type_prefix=event_type_prefix)
 
-    device._slave = await link.unbalanced.create_slave(
+    if conf['link_type'] == 'BALANCED':
+        create_link = link.create_balanced_link
+
+    elif conf['link_type'] == 'UNBALANCED':
+        create_link = link.create_slave_link
+
+    else:
+        raise ValueError('unsupported link type')
+
+    device._link = await create_link(
         port=conf['port'],
-        addrs=conf['addresses'],
-        connection_cb=device._on_connection,
+        address_size=link.AddressSize[conf['device_address_size']],
+        silent_interval=conf['silent_interval'],
         baudrate=conf['baudrate'],
         bytesize=serial.ByteSize[conf['bytesize']],
         parity=serial.Parity[conf['parity']],
         stopbits=serial.StopBits[conf['stopbits']],
         xonxoff=conf['flow_control']['xonxoff'],
         rtscts=conf['flow_control']['rtscts'],
-        dsrdtr=conf['flow_control']['dsrdtr'],
-        silent_interval=conf['silent_interval'],
-        address_size=link.AddressSize[conf['device_address_size']],
-        keep_alive_timeout=conf['keep_alive_timeout'])
+        dsrdtr=conf['flow_control']['dsrdtr'])
 
     try:
+        for device_conf in conf['devices']:
+            device.async_group.spawn(device._connection_loop, device_conf)
+
         await device._register_connections()
 
     except BaseException:
@@ -142,7 +153,7 @@ class Iec101SlaveDevice(common.Device):
 
     @property
     def async_group(self) -> aio.Group:
-        return self._slave.async_group
+        return self._link.async_group
 
     async def process_events(self, events: Collection[hat.event.common.Event]):
         for event in events:
@@ -152,34 +163,111 @@ class Iec101SlaveDevice(common.Device):
             except Exception as e:
                 mlog.warning('error processing event: %s', e, exc_info=e)
 
-    def _on_connection(self, conn):
-        self.async_group.spawn(self._connection_loop, conn)
-
-    async def _connection_loop(self, conn):
-        conn_id = next(self._next_conn_ids)
+    async def _connection_loop(self, device_conf):
+        conn = None
 
         try:
-            conn = iec101.SlaveConnection(
-                conn=conn,
-                cause_size=iec101.CauseSize[self._conf['cause_size']],
-                asdu_address_size=iec101.AsduAddressSize[self._conf['asdu_address_size']],  # NOQA
-                io_address_size=iec101.IoAddressSize[self._conf['io_address_size']])  # NOQA
+            if self._conf['link_type'] == 'BALANCED':
+                conn_args = {
+                    'direction': link.Direction[device_conf['direction']],
+                    'addr': device_conf['address'],
+                    'response_timeout': device_conf['response_timeout'],
+                    'send_retry_count': device_conf['send_retry_count'],
+                    'test_delay': device_conf['test_delay']}
 
-            self._conns[conn_id] = conn
-            await self._register_connections()
+            elif self._conf['link_type'] == 'UNBALANCED':
+                conn_args = {
+                    'addr': device_conf['address'],
+                    'keep_alive_timeout': device_conf['keep_alive_timeout']}
 
-            with contextlib.suppress(Exception):
-                for buffer in self._buffers.values():
-                    for event_id, data_msg in buffer.get_event_id_data_msgs():
-                        self._send_data_msg(conn, buffer, event_id, data_msg)
+            else:
+                raise ValueError('unsupported link type')
 
+            while True:
+                try:
+                    conn = await self._link.open_connection(**conn_args)
+
+                except Exception as e:
+                    mlog.error('connection error for address %s: %s',
+                               device_conf['address'], e, exc_info=e)
+                    await asyncio.sleep(device_conf['reconnect_delay'])
+                    continue
+
+                conn = iec101.Connection(
+                    conn=conn,
+                    cause_size=iec101.CauseSize[self._conf['cause_size']],
+                    asdu_address_size=iec101.AsduAddressSize[
+                        self._conf['asdu_address_size']],
+                    io_address_size=iec101.IoAddressSize[
+                        self._conf['io_address_size']])
+
+                conn_id = next(self._next_conn_ids)
+                self._conns[conn_id] = conn
+
+                send_queue = aio.Queue(1024)
+                self._send_queues[conn_id] = send_queue
+
+                try:
+                    conn.async_group.spawn(self._connection_send_loop, conn,
+                                           send_queue)
+                    conn.async_group.spawn(self._connection_receive_loop, conn,
+                                           conn_id)
+
+                    await self._register_connections()
+
+                    with contextlib.suppress(Exception):
+                        for buffer in self._buffers.values():
+                            for event_id, data_msg in buffer.get_event_id_data_msgs():  # NOQA
+                                await self._send_data_msg(conn_id, buffer,
+                                                          event_id, data_msg)
+
+                    await conn.wait_closed()
+
+                finally:
+                    send_queue.close()
+
+                    self._conns.pop(conn_id, None)
+                    self._send_queues.pop(conn_id, None)
+
+                    with contextlib.suppress(Exception):
+                        await aio.uncancellable(self._register_connections())
+
+                await conn.async_close()
+
+        except Exception as e:
+            mlog.warning('connection loop error: %s', e, exc_info=e)
+
+        finally:
+            mlog.debug('closing connection')
+            self.close()
+
+            if conn:
+                await aio.uncancellable(conn.async_close())
+
+    async def _connection_send_loop(self, conn, send_queue):
+        try:
+            while True:
+                msgs, sent_cb = await send_queue.get()
+                await conn.send(msgs, sent_cb=sent_cb)
+
+        except ConnectionError:
+            mlog.debug('connection close')
+
+        except Exception as e:
+            mlog.warning('connection send loop error: %s', e, exc_info=e)
+
+        finally:
+            conn.close()
+
+    async def _connection_receive_loop(self, conn, conn_id):
+        try:
             while True:
                 msgs = await conn.receive()
 
                 for msg in msgs:
                     try:
                         mlog.debug('received message: %s', msg)
-                        await self._process_msg(conn_id, conn, msg)
+                        await self._process_msg(conn_id, msg)
 
                     except Exception as e:
                         mlog.warning('error processing message: %s',
@@ -189,15 +277,10 @@ class Iec101SlaveDevice(common.Device):
             mlog.debug('connection close')
 
         except Exception as e:
-            mlog.warning('connection error: %s', e, exc_info=e)
+            mlog.warning('connection receive loop error: %s', e, exc_info=e)
 
         finally:
-            mlog.debug('closing connection')
             conn.close()
-
-            with contextlib.suppress(Exception):
-                self._conns.pop(conn_id)
-                await aio.uncancellable(self._register_connections())
 
     async def _register_connections(self):
         payload = [{'connection_id': conn_id,
@@ -245,47 +328,46 @@ class Iec101SlaveDevice(common.Device):
         if buffer:
             buffer.add(event.id, data_msg)
 
-        for conn in self._conns.values():
-            self._send_data_msg(conn, buffer, event.id, data_msg)
+        for conn_id in self._conns.keys():
+            await self._send_data_msg(conn_id, buffer, event.id, data_msg)
 
     async def _process_command_event(self, cmd_key, event):
         cmd_msg = cmd_msg_from_event(cmd_key, event)
         conn_id = event.payload.data['connection_id']
-        conn = self._conns[conn_id]
-        conn.send([cmd_msg])
+        await self._send(conn_id, [cmd_msg])
 
-    async def _process_msg(self, conn_id, conn, msg):
+    async def _process_msg(self, conn_id, msg):
         if isinstance(msg, iec101.CommandMsg):
-            await self._process_command_msg(conn_id, conn, msg)
+            await self._process_command_msg(conn_id, msg)
 
         elif isinstance(msg, iec101.InterrogationMsg):
-            self._process_interrogation_msg(conn_id, conn, msg)
+            await self._process_interrogation_msg(conn_id, msg)
 
         elif isinstance(msg, iec101.CounterInterrogationMsg):
-            self._process_counter_interrogation_msg(conn_id, conn, msg)
+            await self._process_counter_interrogation_msg(conn_id, msg)
 
         elif isinstance(msg, iec101.ReadMsg):
-            self._process_read_msg(conn_id, conn, msg)
+            await self._process_read_msg(conn_id, msg)
 
         elif isinstance(msg, iec101.ClockSyncMsg):
-            self._process_clock_sync_msg(conn_id, conn, msg)
+            await self._process_clock_sync_msg(conn_id, msg)
 
         elif isinstance(msg, iec101.TestMsg):
-            self._process_test_msg(conn_id, conn, msg)
+            await self._process_test_msg(conn_id, msg)
 
         elif isinstance(msg, iec101.ResetMsg):
-            self._process_reset_msg(conn_id, conn, msg)
+            await self._process_reset_msg(conn_id, msg)
 
         elif isinstance(msg, iec101.ParameterMsg):
-            self._process_parameter_msg(conn_id, conn, msg)
+            await self._process_parameter_msg(conn_id, msg)
 
         elif isinstance(msg, iec101.ParameterActivationMsg):
-            self._process_parameter_activation_msg(conn_id, conn, msg)
+            await self._process_parameter_activation_msg(conn_id, msg)
 
         else:
             raise Exception('unsupported message')
 
-    async def _process_command_msg(self, conn_id, conn, msg):
+    async def _process_command_msg(self, conn_id, msg):
         if isinstance(msg.cause, iec101.CommandReqCause):
             event = cmd_msg_to_event(self._event_type_prefix, conn_id, msg)
             await self._eventer_client.register([event])
@@ -293,14 +375,14 @@ class Iec101SlaveDevice(common.Device):
         else:
             res = msg._replace(cause=iec101.CommandResCause.UNKNOWN_CAUSE,
                                is_negative_confirm=True)
-            conn.send([res])
+            await self._send(conn_id, [res])
 
-    def _process_interrogation_msg(self, conn_id, conn, msg):
+    async def _process_interrogation_msg(self, conn_id, msg):
         if msg.cause == iec101.CommandReqCause.ACTIVATION:
             res = msg._replace(
                 cause=iec101.CommandResCause.ACTIVATION_CONFIRMATION,
                 is_negative_confirm=False)
-            conn.send([res])
+            await self._send(conn_id, [res])
 
             data_msgs = [
                 data_msg._replace(
@@ -311,30 +393,30 @@ class Iec101SlaveDevice(common.Device):
                     (msg.asdu_address == 0xFFFF or
                      msg.asdu_address == data_msg.asdu_address) and
                     not isinstance(data_msg.data, iec101.BinaryCounterData))]
-            conn.send(data_msgs)
+            await self._send(conn_id, data_msgs)
 
             res = msg._replace(
                 cause=iec101.CommandResCause.ACTIVATION_TERMINATION,
                 is_negative_confirm=False)
-            conn.send([res])
+            await self._send(conn_id, [res])
 
         elif msg.cause == iec101.CommandReqCause.DEACTIVATION:
             res = msg._replace(
                 cause=iec101.CommandResCause.DEACTIVATION_CONFIRMATION,
                 is_negative_confirm=True)
-            conn.send([res])
+            await self._send(conn_id, [res])
 
         else:
             res = msg._replace(cause=iec101.CommandResCause.UNKNOWN_CAUSE,
                                is_negative_confirm=True)
-            conn.send([res])
+            await self._send(conn_id, [res])
 
-    def _process_counter_interrogation_msg(self, conn_id, conn, msg):
+    async def _process_counter_interrogation_msg(self, conn_id, msg):
         if msg.cause == iec101.CommandReqCause.ACTIVATION:
             res = msg._replace(
                 cause=iec101.CommandResCause.ACTIVATION_CONFIRMATION,
                 is_negative_confirm=False)
-            conn.send([res])
+            await self._send(conn_id, [res])
 
             data_msgs = [
                 data_msg._replace(
@@ -345,61 +427,69 @@ class Iec101SlaveDevice(common.Device):
                     (msg.asdu_address == 0xFFFF or
                      msg.asdu_address == data_msg.asdu_address) and
                     isinstance(data_msg.data, iec101.BinaryCounterData))]
-            conn.send(data_msgs)
+            await self._send(conn_id, data_msgs)
 
             res = msg._replace(
                 cause=iec101.CommandResCause.ACTIVATION_TERMINATION,
                 is_negative_confirm=False)
-            conn.send([res])
+            await self._send(conn_id, [res])
 
         elif msg.cause == iec101.CommandReqCause.DEACTIVATION:
             res = msg._replace(
                 cause=iec101.CommandResCause.DEACTIVATION_CONFIRMATION,
                 is_negative_confirm=True)
-            conn.send([res])
+            await self._send(conn_id, [res])
 
         else:
             res = msg._replace(cause=iec101.CommandResCause.UNKNOWN_CAUSE,
                                is_negative_confirm=True)
-            conn.send([res])
+            await self._send(conn_id, [res])
 
-    def _process_read_msg(self, conn_id, conn, msg):
+    async def _process_read_msg(self, conn_id, msg):
         res = msg._replace(cause=iec101.ReadResCause.UNKNOWN_TYPE)
-        conn.send([res])
+        await self._send(conn_id, [res])
 
-    def _process_clock_sync_msg(self, conn_id, conn, msg):
+    async def _process_clock_sync_msg(self, conn_id, msg):
         if isinstance(msg.cause, iec101.ClockSyncReqCause):
             res = msg._replace(
                 cause=iec101.ClockSyncResCause.ACTIVATION_CONFIRMATION,
                 is_negative_confirm=True)
-            conn.send([res])
+            await self._send(conn_id, [res])
 
         else:
             res = msg._replace(cause=iec101.ClockSyncResCause.UNKNOWN_CAUSE,
                                is_negative_confirm=True)
-            conn.send([res])
+            await self._send(conn_id, [res])
 
-    def _process_test_msg(self, conn_id, conn, msg):
+    async def _process_test_msg(self, conn_id, msg):
         res = msg._replace(cause=iec101.ActivationResCause.UNKNOWN_TYPE)
-        conn.send([res])
+        await self._send(conn_id, [res])
 
-    def _process_reset_msg(self, conn_id, conn, msg):
+    async def _process_reset_msg(self, conn_id, msg):
         res = msg._replace(cause=iec101.ActivationResCause.UNKNOWN_TYPE)
-        conn.send([res])
+        await self._send(conn_id, [res])
 
-    def _process_parameter_msg(self, conn_id, conn, msg):
+    async def _process_parameter_msg(self, conn_id, msg):
         res = msg._replace(cause=iec101.ParameterResCause.UNKNOWN_TYPE)
-        conn.send([res])
+        await self._send(conn_id, [res])
 
-    def _process_parameter_activation_msg(self, conn_id, conn, msg):
+    async def _process_parameter_activation_msg(self, conn_id, msg):
         res = msg._replace(
             cause=iec101.ParameterActivationResCause.UNKNOWN_TYPE)
-        conn.send([res])
+        await self._send(conn_id, [res])
 
-    def _send_data_msg(self, conn, buffer, event_id, data_msg):
+    async def _send_data_msg(self, conn_id, buffer, event_id, data_msg):
         sent_cb = (functools.partial(buffer.remove, event_id)
                    if buffer else None)
-        conn.send([data_msg], sent_cb=sent_cb)
+        await self._send(conn_id, [data_msg], sent_cb=sent_cb)
+
+    async def _send(self, conn_id, msgs, sent_cb=None):
+        send_queue = self._send_queues.get(conn_id)
+        if send_queue is None:
+            return
+
+        with contextlib.suppress(aio.QueueClosedError):
+            await send_queue.put((msgs, sent_cb))
 
 
 def cmd_msg_to_event(event_type_prefix: hat.event.common.EventType,

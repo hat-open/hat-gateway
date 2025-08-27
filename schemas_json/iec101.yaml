@@ -2,234 +2,337 @@ $schema: "https://json-schema.org/draft/2020-12/schema"
 $id: "hat-gateway://iec101.yaml"
 $defs:
     master:
-        type: object
-        required:
-            - port
-            - baudrate
-            - bytesize
-            - parity
-            - stopbits
-            - flow_control
-            - silent_interval
-            - device_address_size
-            - cause_size
-            - asdu_address_size
-            - io_address_size
-            - reconnect_delay
-            - remote_devices
-        properties:
-            port:
-                type: string
-            baudrate:
-                type: integer
-            bytesize:
-                enum:
-                    - FIVEBITS
-                    - SIXBITS
-                    - SEVENBITS
-                    - EIGHTBITS
-            parity:
-                enum:
-                    - NONE
-                    - EVEN
-                    - ODD
-                    - MARK
-                    - SPACE
-            stopbits:
-                enum:
-                    - ONE
-                    - ONE_POINT_FIVE
-                    - TWO
-            flow_control:
-                type: object
-                required:
-                    - xonxoff
-                    - rtscts
-                    - dsrdtr
-                properties:
-                    xonxoff:
-                        type: boolean
-                    rtscts:
-                        type: boolean
-                    dsrdtr:
-                        type: boolean
-            silent_interval:
-                type: number
-            device_address_size:
-                enum:
-                    - ONE
-                    - TWO
-            cause_size:
-                enum:
-                    - ONE
-                    - TWO
-            asdu_address_size:
-                enum:
-                    - ONE
-                    - TWO
-            io_address_size:
-                enum:
-                    - ONE
-                    - TWO
-                    - THREE
-            reconnect_delay:
-                type: number
-            remote_devices:
-                type: array
-                items:
-                    type: object
-                    required:
-                        - address
-                        - response_timeout
-                        - send_retry_count
-                        - poll_class1_delay
-                        - poll_class2_delay
-                        - reconnect_delay
-                        - time_sync_delay
-                    properties:
-                        address:
-                            type: integer
-                        response_timeout:
-                            type: number
-                        send_retry_count:
-                            type: integer
-                        poll_class1_delay:
-                            type:
-                                - "null"
-                                - number
-                        poll_class2_delay:
-                            type:
-                                - "null"
-                                - number
-                        reconnect_delay:
-                            type: number
-                        time_sync_delay:
-                            type:
-                                - "null"
-                                - number
-    slave:
-        type: object
-        required:
-            - port
-            - addresses
-            - baudrate
-            - bytesize
-            - parity
-            - stopbits
-            - flow_control
-            - silent_interval
-            - device_address_size
-            - keep_alive_timeout
-            - cause_size
-            - asdu_address_size
-            - io_address_size
-            - buffers
-            - data
-        properties:
-            port:
-                type: string
-            addresses:
-                type: array
-                items:
+        allOf:
+          - type: object
+            required:
+                - port
+                - baudrate
+                - bytesize
+                - parity
+                - stopbits
+                - flow_control
+                - silent_interval
+                - device_address_size
+                - cause_size
+                - asdu_address_size
+                - io_address_size
+                - reconnect_delay
+            properties:
+                port:
+                    type: string
+                baudrate:
                     type: integer
-            baudrate:
-                type: integer
-            bytesize:
-                enum:
-                    - FIVEBITS
-                    - SIXBITS
-                    - SEVENBITS
-                    - EIGHTBITS
-            parity:
-                enum:
-                    - NONE
-                    - EVEN
-                    - ODD
-                    - MARK
-                    - SPACE
-            stopbits:
-                enum:
-                    - ONE
-                    - ONE_POINT_FIVE
-                    - TWO
-            flow_control:
-                type: object
+                bytesize:
+                    enum:
+                        - FIVEBITS
+                        - SIXBITS
+                        - SEVENBITS
+                        - EIGHTBITS
+                parity:
+                    enum:
+                        - NONE
+                        - EVEN
+                        - ODD
+                        - MARK
+                        - SPACE
+                stopbits:
+                    enum:
+                        - ONE
+                        - ONE_POINT_FIVE
+                        - TWO
+                flow_control:
+                    type: object
+                    required:
+                        - xonxoff
+                        - rtscts
+                        - dsrdtr
+                    properties:
+                        xonxoff:
+                            type: boolean
+                        rtscts:
+                            type: boolean
+                        dsrdtr:
+                            type: boolean
+                silent_interval:
+                    type: number
+                device_address_size:
+                    enum:
+                        - ONE
+                        - TWO
+                cause_size:
+                    enum:
+                        - ONE
+                        - TWO
+                asdu_address_size:
+                    enum:
+                        - ONE
+                        - TWO
+                io_address_size:
+                    enum:
+                        - ONE
+                        - TWO
+                        - THREE
+                reconnect_delay:
+                    type: number
+          - oneOf:
+              - type: object
                 required:
-                    - xonxoff
-                    - rtscts
-                    - dsrdtr
+                    - link_type
+                    - remote_devices
                 properties:
-                    xonxoff:
-                        type: boolean
-                    rtscts:
-                        type: boolean
-                    dsrdtr:
-                        type: boolean
-            silent_interval:
-                type: number
-            device_address_size:
-                enum:
-                    - ONE
-                    - TWO
-            keep_alive_timeout:
-                type: number
-            cause_size:
-                enum:
-                    - ONE
-                    - TWO
-            asdu_address_size:
-                enum:
-                    - ONE
-                    - TWO
-            io_address_size:
-                enum:
-                    - ONE
-                    - TWO
-                    - THREE
-            buffers:
-                type: array
-                items:
+                    link_type:
+                        const: BALANCED
+                    remote_devices:
+                        type: array
+                        items:
+                            type: object
+                            required:
+                                - direction
+                                - address
+                                - response_timeout
+                                - send_retry_count
+                                - test_delay
+                                - poll_class1_delay
+                                - poll_class2_delay
+                                - reconnect_delay
+                                - time_sync_delay
+                            properties:
+                                direction:
+                                    enum:
+                                        - A_TO_B
+                                        - B_TO_A
+                                address:
+                                    type: integer
+                                response_timeout:
+                                    type: number
+                                send_retry_count:
+                                    type: integer
+                                test_delay:
+                                    type: number
+                                reconnect_delay:
+                                    type: number
+                                time_sync_delay:
+                                    type:
+                                        - "null"
+                                        - number
+              - type: object
+                required:
+                    - link_type
+                    - remote_devices
+                properties:
+                    link_type:
+                        const: UNBALANCED
+                    remote_devices:
+                        type: array
+                        items:
+                            type: object
+                            required:
+                                - address
+                                - response_timeout
+                                - send_retry_count
+                                - poll_class1_delay
+                                - poll_class2_delay
+                                - reconnect_delay
+                                - time_sync_delay
+                            properties:
+                                address:
+                                    type: integer
+                                response_timeout:
+                                    type: number
+                                send_retry_count:
+                                    type: integer
+                                poll_class1_delay:
+                                    type:
+                                        - "null"
+                                        - number
+                                poll_class2_delay:
+                                    type:
+                                        - "null"
+                                        - number
+                                reconnect_delay:
+                                    type: number
+                                time_sync_delay:
+                                    type:
+                                        - "null"
+                                        - number
+    slave:
+        allOf:
+          - type: object
+            required:
+                - port
+                - baudrate
+                - bytesize
+                - parity
+                - stopbits
+                - flow_control
+                - silent_interval
+                - cause_size
+                - asdu_address_size
+                - io_address_size
+                - buffers
+                - data
+            properties:
+                port:
+                    type: string
+                baudrate:
+                    type: integer
+                bytesize:
+                    enum:
+                        - FIVEBITS
+                        - SIXBITS
+                        - SEVENBITS
+                        - EIGHTBITS
+                parity:
+                    enum:
+                        - NONE
+                        - EVEN
+                        - ODD
+                        - MARK
+                        - SPACE
+                stopbits:
+                    enum:
+                        - ONE
+                        - ONE_POINT_FIVE
+                        - TWO
+                flow_control:
                     type: object
                     required:
-                        - name
-                        - size
+                        - xonxoff
+                        - rtscts
+                        - dsrdtr
                     properties:
-                        name:
-                            type: string
-                        size:
-                            type: integer
-            data:
-                type: array
-                items:
-                    type: object
-                    required:
-                        - data_type
-                        - asdu_address
-                        - io_address
-                        - buffer
-                    properties:
-                        data_type:
-                            enum:
-                                - SINGLE
-                                - DOUBLE
-                                - STEP_POSITION
-                                - BITSTRING
-                                - NORMALIZED
-                                - SCALED
-                                - FLOATING
-                                - BINARY_COUNTER
-                                - PROTECTION
-                                - PROTECTION_START
-                                - PROTECTION_COMMAND
-                                - STATUS
-                        asdu_address:
-                            type: integer
-                        io_address:
-                            type: integer
-                        buffer:
-                            type:
-                                - "null"
-                                - string
+                        xonxoff:
+                            type: boolean
+                        rtscts:
+                            type: boolean
+                        dsrdtr:
+                            type: boolean
+                silent_interval:
+                    type: number
+                cause_size:
+                    enum:
+                        - ONE
+                        - TWO
+                asdu_address_size:
+                    enum:
+                        - ONE
+                        - TWO
+                io_address_size:
+                    enum:
+                        - ONE
+                        - TWO
+                        - THREE
+                buffers:
+                    type: array
+                    items:
+                        type: object
+                        required:
+                            - name
+                            - size
+                        properties:
+                            name:
+                                type: string
+                            size:
+                                type: integer
+                data:
+                    type: array
+                    items:
+                        type: object
+                        required:
+                            - data_type
+                            - asdu_address
+                            - io_address
+                            - buffer
+                        properties:
+                            data_type:
+                                enum:
+                                    - SINGLE
+                                    - DOUBLE
+                                    - STEP_POSITION
+                                    - BITSTRING
+                                    - NORMALIZED
+                                    - SCALED
+                                    - FLOATING
+                                    - BINARY_COUNTER
+                                    - PROTECTION
+                                    - PROTECTION_START
+                                    - PROTECTION_COMMAND
+                                    - STATUS
+                            asdu_address:
+                                type: integer
+                            io_address:
+                                type: integer
+                            buffer:
+                                type:
+                                    - "null"
+                                    - string
+          - oneOf:
+              - type: object
+                required:
+                    - link_type
+                    - device_address_size
+                    - devices
+                properties:
+                    link_type:
+                        const: BALANCED
+                    device_address_size:
+                        enum:
+                            - ZERO
+                            - ONE
+                            - TWO
+                    devices:
+                        type: array
+                        items:
+                            type: object
+                            required:
+                                - direction
+                                - address
+                                - response_timeout
+                                - send_retry_count
+                                - test_delay
+                                - reconnect_delay
+                            properties:
+                                direction:
+                                    enum:
+                                        - A_TO_B
+                                        - B_TO_A
+                                address:
+                                    type: integer
+                                response_timeout:
+                                    type: number
+                                send_retry_count:
+                                    type: integer
+                                test_delay:
+                                    type: number
+                                reconnect_delay:
+                                    type: number
+              - type: object
+                required:
+                    - link_type
+                    - device_address_size
+                    - devices
+                properties:
+                    link_type:
+                        const: UNBALANCED
+                    device_address_size:
+                        enum:
+                            - ONE
+                            - TWO
+                    devices:
+                        type: array
+                        items:
+                            type: object
+                            required:
+                                - address
+                                - keep_alive_timeout
+                                - reconnect_delay
+                            properties:
+                                address:
+                                    type: integer
+                                keep_alive_timeout:
+                                    type: number
+                                reconnect_delay:
+                                    type: number
     events:
         master:
             gateway:
