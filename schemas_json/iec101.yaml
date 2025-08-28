@@ -12,7 +12,6 @@ $defs:
                 - stopbits
                 - flow_control
                 - silent_interval
-                - device_address_size
                 - cause_size
                 - asdu_address_size
                 - io_address_size
@@ -55,10 +54,6 @@ $defs:
                             type: boolean
                 silent_interval:
                     type: number
-                device_address_size:
-                    enum:
-                        - ONE
-                        - TWO
                 cause_size:
                     enum:
                         - ONE
@@ -78,10 +73,16 @@ $defs:
               - type: object
                 required:
                     - link_type
+                    - device_address_size
                     - remote_devices
                 properties:
                     link_type:
                         const: BALANCED
+                    device_address_size:
+                        enum:
+                            - ZERO
+                            - ONE
+                            - TWO
                     remote_devices:
                         type: array
                         items:
@@ -116,10 +117,15 @@ $defs:
               - type: object
                 required:
                     - link_type
+                    - device_address_size
                     - remote_devices
                 properties:
                     link_type:
                         const: UNBALANCED
+                    device_address_size:
+                        enum:
+                            - ONE
+                            - TWO
                     remote_devices:
                         type: array
                         items:
