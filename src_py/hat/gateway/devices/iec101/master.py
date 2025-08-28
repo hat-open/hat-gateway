@@ -186,7 +186,7 @@ class Iec101MasterDevice(common.Device):
                     'addr': address,
                     'response_timeout': remote_conf['response_timeout'],
                     'send_retry_count': remote_conf['send_retry_count'],
-                    'test_delay': remote_conf['test_delay']}
+                    'status_delay': remote_conf['status_delay']}
 
             elif self._conf['link_type'] == 'UNBALANCED':
                 conn_args = {

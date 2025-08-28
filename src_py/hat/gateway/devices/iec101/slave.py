@@ -173,7 +173,7 @@ class Iec101SlaveDevice(common.Device):
                     'addr': device_conf['address'],
                     'response_timeout': device_conf['response_timeout'],
                     'send_retry_count': device_conf['send_retry_count'],
-                    'test_delay': device_conf['test_delay']}
+                    'status_delay': device_conf['status_delay']}
 
             elif self._conf['link_type'] == 'UNBALANCED':
                 conn_args = {
