@@ -71,14 +71,7 @@ class EventerClient(aio.Resource):
         return await aio.call(self._query_cb, params)
 
 
-def get_conf(remote_addresses=[],
-             asdu_address_size='TWO',
-             reconnect_delay=0.01,
-             response_timeout=0.1,
-             send_retry_count=1,
-             poll_class1_delay=1,
-             poll_class2_delay=None,
-             time_sync_delay=None):
+def get_serial_params():
     return {'port': '/dev/ttyS0',
             'baudrate': 9600,
             'bytesize': 'EIGHTBITS',
@@ -87,46 +80,94 @@ def get_conf(remote_addresses=[],
             'flow_control': {'xonxoff': False,
                              'rtscts': False,
                              'dsrdtr': False},
-            'silent_interval': 0.001,
-            'device_address_size': 'ONE',
-            'cause_size': 'TWO',
-            'asdu_address_size': asdu_address_size,
-            'io_address_size': 'THREE',
-            'reconnect_delay': reconnect_delay,
-            'remote_devices': [{'address': address,
-                                'response_timeout': response_timeout,
-                                'send_retry_count': send_retry_count,
-                                'poll_class1_delay': poll_class1_delay,
-                                'poll_class2_delay': poll_class2_delay,
-                                'reconnect_delay': reconnect_delay,
-                                'time_sync_delay': time_sync_delay}
-                               for address in remote_addresses]}
+            'silent_interval': 0.001}
 
 
-async def create_slave(conf, connection_cb):
+def get_conf(link_type,
+             remote_addresses=[],
+             device_address_size=iec101.AddressSize.ONE,
+             asdu_address_size=iec101.AsduAddressSize.TWO,
+             time_sync_delay=None):
+    reconnect_delay = 0.01
+    if link_type == 'BALANCED':
+        link_type_spec_props = {'direction': 'A_TO_B'}
+    elif link_type == 'UNBALANCED':
+        link_type_spec_props = {'poll_class1_delay': 1,
+                                'poll_class2_delay': None}
 
-    async def on_connection(conn):
-        conn = iec101.SlaveConnection(
+    return {
+        **get_serial_params(),
+        'cause_size': 'TWO',
+        'asdu_address_size': asdu_address_size.name,
+        'io_address_size': 'THREE',
+        'reconnect_delay': reconnect_delay,
+        'link_type': link_type,
+        'device_address_size': device_address_size.name,
+        'remote_devices': [{'address': address,
+                            'response_timeout': 0.01,
+                            'send_retry_count': 1,
+                            'status_delay': 1,
+                            'reconnect_delay': reconnect_delay,
+                            'time_sync_delay': time_sync_delay,
+                            **link_type_spec_props}
+                           for address in remote_addresses]}
+
+
+async def create_slave(link_type,
+                       device_addresses=[],
+                       connection_cb=None,
+                       device_address_size=link.common.AddressSize.ONE,
+                       asdu_address_size=iec101.AsduAddressSize.TWO):
+    response_timeout = 0.001
+    if link_type == 'BALANCED':
+        create_link = link.create_balanced_link
+
+    elif link_type == 'UNBALANCED':
+        create_link = link.create_slave_link
+
+    serial_params = get_serial_params()
+    slave_link = await create_link(
+        port=serial_params['port'],
+        address_size=device_address_size,
+        silent_interval=serial_params['silent_interval'],
+        baudrate=serial_params['baudrate'],
+        bytesize=serial.ByteSize[serial_params['bytesize']],
+        parity=serial.Parity[serial_params['parity']],
+        stopbits=serial.StopBits[serial_params['stopbits']],
+        xonxoff=serial_params['flow_control']['xonxoff'],
+        rtscts=serial_params['flow_control']['rtscts'],
+        dsrdtr=serial_params['flow_control']['dsrdtr'])
+
+    async def connect(addr):
+        if link_type == 'BALANCED':
+            conn_args = {
+                'direction': link.Direction.B_TO_A,
+                'addr': addr,
+                'response_timeout': response_timeout,
+                'send_retry_count': 0,
+                'status_delay': 1}
+
+        elif link_type == 'UNBALANCED':
+            conn_args = {
+                'addr': addr,
+                'keep_alive_timeout': 0.02}
+
+        conn = await slave_link.open_connection(**conn_args)
+        conn = iec101.Connection(
             conn=conn,
-            cause_size=iec101.CauseSize[conf['cause_size']],
-            asdu_address_size=iec101.AsduAddressSize[conf['asdu_address_size']],  # NOQA
-            io_address_size=iec101.IoAddressSize[conf['io_address_size']])
-        await aio.call(connection_cb, conn)
+            cause_size=iec101.CauseSize.TWO,
+            asdu_address_size=asdu_address_size,
+            io_address_size=iec101.IoAddressSize.THREE)
+        if connection_cb:
+            await aio.call(connection_cb, conn)
 
-    return await link.unbalanced.create_slave(
-        port=conf['port'],
-        addrs=[i['address'] for i in conf['remote_devices']],
-        connection_cb=on_connection,
-        baudrate=conf['baudrate'],
-        bytesize=serial.ByteSize[conf['bytesize']],
-        parity=serial.Parity[conf['parity']],
-        stopbits=serial.StopBits[conf['stopbits']],
-        xonxoff=conf['flow_control']['xonxoff'],
-        rtscts=conf['flow_control']['rtscts'],
-        dsrdtr=conf['flow_control']['dsrdtr'],
-        silent_interval=conf['silent_interval'],
-        address_size=link.common.AddressSize[conf['device_address_size']],
-        keep_alive_timeout=10)
+        await conn.wait_closed()
+        await conn.async_close()
+
+    for addr in device_addresses:
+        slave_link.async_group.spawn(connect, addr)
+
+    return slave_link
 
 
 def time_to_event_timestamp(time):
@@ -322,6 +363,10 @@ def create_command_event(address, cmd_type, asdu_addr, io_address, is_test,
                          'command': cmd_json})
 
 
+async def create_device(conf, eventer_client):
+    return await aio.call(info.create, conf, eventer_client, event_type_prefix)
+
+
 @pytest.fixture
 async def serial_conns(monkeypatch):
     valid_args = None
@@ -390,18 +435,23 @@ async def serial_conns(monkeypatch):
     return conns
 
 
-@pytest.mark.parametrize("conf", [get_conf(remote_addresses=[1, 2, 3])])
-def test_valid_conf(conf):
+def test_device_type():
+    assert info.type == 'iec101_master'
+
+
+@pytest.mark.parametrize('link_type', ['BALANCED', 'UNBALANCED'])
+def test_valid_conf(link_type):
+    conf = get_conf(link_type, remote_addresses=[1, 2, 3])
     validator = json.DefaultSchemaValidator(info.json_schema_repo)
     validator.validate(info.json_schema_id, conf)
 
 
-async def test_create(serial_conns):
-    conf = get_conf()
+@pytest.mark.parametrize('link_type', ['BALANCED', 'UNBALANCED'])
+async def test_create(serial_conns, link_type):
+    conf = get_conf(link_type)
 
     eventer_client = EventerClient()
-    device = await aio.call(info.create, conf, eventer_client,
-                            event_type_prefix)
+    device = await create_device(conf, eventer_client)
 
     assert device.is_open
 
@@ -409,11 +459,12 @@ async def test_create(serial_conns):
     await eventer_client.async_close()
 
 
-@pytest.mark.parametrize("conn_count", [0, 1, 5])
-async def test_connect(serial_conns, conn_count):
+@pytest.mark.parametrize("conn_count", [0, 2, 5])
+@pytest.mark.parametrize('link_type', ['BALANCED', 'UNBALANCED'])
+async def test_connect(serial_conns, conn_count, link_type):
     conn_queue = aio.Queue()
 
-    conf = get_conf(range(conn_count))
+    conf = get_conf(link_type, remote_addresses=range(conn_count))
 
     def on_query(params):
         events = [create_enable_event(i, True)
@@ -421,9 +472,9 @@ async def test_connect(serial_conns, conn_count):
         return hat.event.common.QueryResult(events, False)
 
     eventer_client = EventerClient(query_cb=on_query)
-    slave = await create_slave(conf, conn_queue.put_nowait)
-    device = await aio.call(info.create, conf, eventer_client,
-                            event_type_prefix)
+    slave = await create_slave(link_type, range(conn_count),
+                               conn_queue.put_nowait)
+    device = await create_device(conf, eventer_client)
 
     for _ in range(conn_count):
         conn = await conn_queue.get()
@@ -436,14 +487,47 @@ async def test_connect(serial_conns, conn_count):
     await eventer_client.async_close()
 
 
-async def test_status(serial_conns):
+@pytest.mark.parametrize('link_type, device_address_size, address', [
+    ('BALANCED', iec101.AddressSize.ZERO, 0),
+    ('BALANCED', iec101.AddressSize.ONE, 15),
+    ('BALANCED', iec101.AddressSize.TWO, 255),
+    ('UNBALANCED', iec101.AddressSize.ONE, 15),
+    ('UNBALANCED', iec101.AddressSize.TWO, 256)])
+async def test_device_address_size(serial_conns, link_type,
+                                   device_address_size, address):
+    conn_queue = aio.Queue()
+    conf = get_conf(link_type,
+                    remote_addresses=[address],
+                    device_address_size=device_address_size)
+
+    def on_query(params):
+        events = [create_enable_event(address, True)]
+        return hat.event.common.QueryResult(events, False)
+
+    eventer_client = EventerClient(query_cb=on_query)
+    slave = await create_slave(link_type, [address],
+                               conn_queue.put_nowait,
+                               device_address_size=device_address_size)
+    device = await create_device(conf, eventer_client)
+
+    conn = await conn_queue.get()
+    assert conn.is_open
+
+    assert conn_queue.empty()
+
+    await device.async_close()
+    await slave.async_close()
+    await eventer_client.async_close()
+
+
+@pytest.mark.parametrize('link_type', ['BALANCED', 'UNBALANCED'])
+async def test_status(serial_conns, link_type):
     event_queue = aio.Queue()
 
-    conf = get_conf()
+    conf = get_conf(link_type)
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
-    device = await aio.call(info.create, conf, eventer_client,
-                            event_type_prefix)
+    device = await create_device(conf, eventer_client)
 
     event = await event_queue.get()
     assert_status_event(event, 'CONNECTING')
@@ -475,24 +559,22 @@ async def test_status(serial_conns):
     await eventer_client.async_close()
 
 
+@pytest.mark.parametrize('link_type', ['BALANCED', 'UNBALANCED'])
 @pytest.mark.parametrize("address", [0])
-async def test_enable_remote_device(serial_conns, address):
-    conn_queue = aio.Queue()
+async def test_enable_remote_device(serial_conns, address, link_type):
     event_queue = aio.Queue()
 
-    conf = get_conf([address])
+    conf = get_conf(link_type, [address])
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
-    slave = await create_slave(conf, conn_queue.put_nowait)
-    device = await aio.call(info.create, conf, eventer_client,
-                            event_type_prefix)
+    slave = await create_slave(link_type, [address])
+    device = await create_device(conf, eventer_client)
 
     event = await event_queue.get()
     assert_status_event(event, 'CONNECTING')
 
     event = await event_queue.get()
     assert_status_event(event, 'CONNECTED')
-
     assert event_queue.empty()
 
     event = create_enable_event(address, True)
@@ -542,18 +624,20 @@ async def test_enable_remote_device(serial_conns, address):
     await eventer_client.async_close()
 
 
+@pytest.mark.parametrize('link_type', ['BALANCED', 'UNBALANCED'])
 @pytest.mark.parametrize("address", [0])
 @pytest.mark.parametrize("asdu_address_size, asdu_address", [
-    ('ONE', 0xFF),
-    ('TWO', 0xFFFF)
+    (iec101.AsduAddressSize.ONE, 0xFF),
+    (iec101.AsduAddressSize.TWO, 0xFFFF)
 ])
-async def test_time_sync(serial_conns, address, asdu_address_size,
+async def test_time_sync(serial_conns, link_type, address, asdu_address_size,
                          asdu_address):
     last_datetime = datetime.datetime.now(datetime.timezone.utc)
     conn_queue = aio.Queue()
     event_queue = aio.Queue()
 
-    conf = get_conf([address],
+    conf = get_conf(link_type,
+                    [address],
                     asdu_address_size=asdu_address_size,
                     time_sync_delay=0.001)
 
@@ -563,9 +647,11 @@ async def test_time_sync(serial_conns, address, asdu_address_size,
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait,
                                    query_cb=on_query)
-    slave = await create_slave(conf, conn_queue.put_nowait)
-    device = await aio.call(info.create, conf, eventer_client,
-                            event_type_prefix)
+    slave = await create_slave(link_type,
+                               [address],
+                               conn_queue.put_nowait,
+                               asdu_address_size=asdu_address_size)
+    device = await create_device(conf, eventer_client)
     conn = await conn_queue.get()
 
     for _ in range(10):
@@ -588,6 +674,7 @@ async def test_time_sync(serial_conns, address, asdu_address_size,
     await eventer_client.async_close()
 
 
+@pytest.mark.parametrize("link_type", ['BALANCED', 'UNBALANCED'])
 @pytest.mark.parametrize("is_test", [False, True])
 @pytest.mark.parametrize("address", [0])
 @pytest.mark.parametrize("asdu_address", [123])
@@ -640,17 +727,17 @@ async def test_time_sync(serial_conns, address, asdu_address_size,
      common.CommandType.BITSTRING,
      {'value': [1, 2, 3, 4]}),
 ])
-async def test_command_request(serial_conns, is_test, address, asdu_address,
-                               io_address, cause, command, cmd_type, cmd_json):
+async def test_command_request(serial_conns, link_type, is_test, address,
+                               asdu_address, io_address, cause, command,
+                               cmd_type, cmd_json):
     conn_queue = aio.Queue()
     event_queue = aio.Queue()
 
-    conf = get_conf([address])
+    conf = get_conf(link_type, [address])
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
-    slave = await create_slave(conf, conn_queue.put_nowait)
-    device = await aio.call(info.create, conf, eventer_client,
-                            event_type_prefix)
+    slave = await create_slave(link_type, [address], conn_queue.put_nowait)
+    device = await create_device(conf, eventer_client)
 
     await aio.call(device.process_events, [create_enable_event(address, True)])
     conn = await conn_queue.get()
@@ -677,22 +764,22 @@ async def test_command_request(serial_conns, is_test, address, asdu_address,
     await eventer_client.async_close()
 
 
+@pytest.mark.parametrize("link_type", ['BALANCED', 'UNBALANCED'])
 @pytest.mark.parametrize("is_test", [False, True])
 @pytest.mark.parametrize("address", [0])
 @pytest.mark.parametrize("asdu_address", [123])
 @pytest.mark.parametrize("_request", [42])
 @pytest.mark.parametrize("cause", list(iec101.CommandReqCause))
-async def test_interrogation_request(serial_conns, is_test, address,
+async def test_interrogation_request(serial_conns, link_type, is_test, address,
                                      asdu_address, _request, cause):
     conn_queue = aio.Queue()
     event_queue = aio.Queue()
 
-    conf = get_conf([address])
+    conf = get_conf(link_type, [address])
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
-    slave = await create_slave(conf, conn_queue.put_nowait)
-    device = await aio.call(info.create, conf, eventer_client,
-                            event_type_prefix)
+    slave = await create_slave(link_type, [address], conn_queue.put_nowait)
+    device = await create_device(conf, eventer_client)
 
     await aio.call(device.process_events, [create_enable_event(address, True)])
     conn = await conn_queue.get()
@@ -719,24 +806,24 @@ async def test_interrogation_request(serial_conns, is_test, address,
     await eventer_client.async_close()
 
 
+@pytest.mark.parametrize("link_type", ['BALANCED', 'UNBALANCED'])
 @pytest.mark.parametrize("is_test", [False, True])
 @pytest.mark.parametrize("address", [0])
 @pytest.mark.parametrize("asdu_address", [123])
 @pytest.mark.parametrize("_request", [42])
 @pytest.mark.parametrize("cause", list(iec101.CommandReqCause))
 @pytest.mark.parametrize("freeze", list(iec101.FreezeCode))
-async def test_counter_interrogation_request(serial_conns, is_test, address,
-                                             asdu_address, _request, cause,
-                                             freeze):
+async def test_counter_interrogation_request(serial_conns, link_type, is_test,
+                                             address, asdu_address, _request,
+                                             cause, freeze):
     conn_queue = aio.Queue()
     event_queue = aio.Queue()
 
-    conf = get_conf([address])
+    conf = get_conf(link_type, [address])
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
-    slave = await create_slave(conf, conn_queue.put_nowait)
-    device = await aio.call(info.create, conf, eventer_client,
-                            event_type_prefix)
+    slave = await create_slave(link_type, [address], conn_queue.put_nowait)
+    device = await create_device(conf, eventer_client)
 
     await aio.call(device.process_events, [create_enable_event(address, True)])
     conn = await conn_queue.get()
@@ -764,12 +851,13 @@ async def test_counter_interrogation_request(serial_conns, is_test, address,
     await eventer_client.async_close()
 
 
+@pytest.mark.parametrize("link_type", ['BALANCED'])
 @pytest.mark.parametrize("address", [0])
 @pytest.mark.parametrize("asdu_address", [123])
 @pytest.mark.parametrize("io_address", [321])
 @pytest.mark.parametrize("time", [None, default_time])
 @pytest.mark.parametrize("is_test", [False, True])
-@pytest.mark.parametrize("cause", iec101.DataResCause)
+@pytest.mark.parametrize("cause", [iec101.DataResCause.INTERROGATED_COUNTER])
 @pytest.mark.parametrize("data, data_type, data_json", [
     (iec101.SingleData(value=iec101.SingleValue.ON,
                        quality=default_indication_quality),
@@ -865,8 +953,9 @@ async def test_counter_interrogation_request(serial_conns, is_test, address,
                 'change': [False, True] * 8},
       'quality': default_measurement_quality._asdict()}),
 ])
-async def test_data_response(serial_conns, address, asdu_address, io_address,
-                             time, is_test, cause, data, data_type, data_json):
+async def test_data_response(serial_conns, link_type, address, asdu_address,
+                             io_address, time, is_test, cause, data, data_type,
+                             data_json):
     if data_type in (common.DataType.PROTECTION,
                      common.DataType.PROTECTION_START,
                      common.DataType.PROTECTION_COMMAND):
@@ -880,18 +969,16 @@ async def test_data_response(serial_conns, address, asdu_address, io_address,
     conn_queue = aio.Queue()
     event_queue = aio.Queue()
 
-    conf = get_conf([address])
+    conf = get_conf(link_type, [address])
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
-    slave = await create_slave(conf, conn_queue.put_nowait)
-    device = await aio.call(info.create, conf, eventer_client,
-                            event_type_prefix)
+    slave = await create_slave(link_type, [address], conn_queue.put_nowait)
+    device = await create_device(conf, eventer_client)
 
     await aio.call(device.process_events, [create_enable_event(address, True)])
     conn = await conn_queue.get()
 
     await wait_remote_device_connected_event(event_queue, address)
-
     msg = iec101.DataMsg(is_test=is_test,
                          originator_address=0,
                          asdu_address=asdu_address,
@@ -899,7 +986,7 @@ async def test_data_response(serial_conns, address, asdu_address, io_address,
                          data=data,
                          time=time,
                          cause=cause)
-    conn.send([msg])
+    await conn.send([msg])
 
     event = await event_queue.get()
     assert_data_event(event, address, data_type, asdu_address, io_address,
@@ -910,6 +997,7 @@ async def test_data_response(serial_conns, address, asdu_address, io_address,
     await eventer_client.async_close()
 
 
+@pytest.mark.parametrize("link_type", ['BALANCED', 'UNBALANCED'])
 @pytest.mark.parametrize("is_test", [False, True])
 @pytest.mark.parametrize("address", [0])
 @pytest.mark.parametrize("asdu_address", [123])
@@ -963,18 +1051,18 @@ async def test_data_response(serial_conns, address, asdu_address, io_address,
      common.CommandType.BITSTRING,
      {'value': [4, 3, 2, 1]}),
 ])
-async def test_command_response(serial_conns, is_test, address, asdu_address,
-                                io_address, cause, is_negative_confirm,
-                                command, cmd_type, cmd_json):
+async def test_command_response(serial_conns, link_type, is_test, address,
+                                asdu_address, io_address, cause,
+                                is_negative_confirm, command, cmd_type,
+                                cmd_json):
     conn_queue = aio.Queue()
     event_queue = aio.Queue()
 
-    conf = get_conf([address])
+    conf = get_conf(link_type, [address])
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
-    slave = await create_slave(conf, conn_queue.put_nowait)
-    device = await aio.call(info.create, conf, eventer_client,
-                            event_type_prefix)
+    slave = await create_slave(link_type, [address], conn_queue.put_nowait)
+    device = await create_device(conf, eventer_client)
 
     await aio.call(device.process_events, [create_enable_event(address, True)])
     conn = await conn_queue.get()
@@ -988,7 +1076,7 @@ async def test_command_response(serial_conns, is_test, address, asdu_address,
                             command=command,
                             is_negative_confirm=is_negative_confirm,
                             cause=cause)
-    conn.send([msg])
+    await conn.send([msg])
 
     event = await event_queue.get()
     assert_command_event(event, address, cmd_type, asdu_address,
@@ -1000,24 +1088,24 @@ async def test_command_response(serial_conns, is_test, address, asdu_address,
     await eventer_client.async_close()
 
 
+@pytest.mark.parametrize("link_type", ['BALANCED', 'UNBALANCED'])
 @pytest.mark.parametrize("is_test", [False, True])
 @pytest.mark.parametrize("address", [0])
 @pytest.mark.parametrize("asdu_address", [123])
 @pytest.mark.parametrize("_request", [42])
 @pytest.mark.parametrize("is_negative_confirm", [False, True])
 @pytest.mark.parametrize("cause", list(iec101.CommandResCause))
-async def test_interrogation_response(serial_conns, is_test, address,
-                                      asdu_address, _request,
+async def test_interrogation_response(serial_conns, link_type, is_test,
+                                      address, asdu_address, _request,
                                       is_negative_confirm, cause):
     conn_queue = aio.Queue()
     event_queue = aio.Queue()
 
-    conf = get_conf([address])
+    conf = get_conf(link_type, [address])
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
-    slave = await create_slave(conf, conn_queue.put_nowait)
-    device = await aio.call(info.create, conf, eventer_client,
-                            event_type_prefix)
+    slave = await create_slave(link_type, [address], conn_queue.put_nowait)
+    device = await create_device(conf, eventer_client)
 
     await aio.call(device.process_events, [create_enable_event(address, True)])
     conn = await conn_queue.get()
@@ -1030,7 +1118,7 @@ async def test_interrogation_response(serial_conns, is_test, address,
                                   request=_request,
                                   is_negative_confirm=is_negative_confirm,
                                   cause=cause)
-    conn.send([msg])
+    await conn.send([msg])
 
     event = await event_queue.get()
     assert_interrogation_event(event, address, asdu_address, is_test,
@@ -1041,6 +1129,7 @@ async def test_interrogation_response(serial_conns, is_test, address,
     await eventer_client.async_close()
 
 
+@pytest.mark.parametrize("link_type", ['BALANCED', 'UNBALANCED'])
 @pytest.mark.parametrize("is_test", [False, True])
 @pytest.mark.parametrize("address", [0])
 @pytest.mark.parametrize("asdu_address", [123])
@@ -1048,18 +1137,18 @@ async def test_interrogation_response(serial_conns, is_test, address,
 @pytest.mark.parametrize("_request", [42])
 @pytest.mark.parametrize("is_negative_confirm", [False, True])
 @pytest.mark.parametrize("cause", list(iec101.CommandResCause))
-async def test_counter_interrogation_response(serial_conns, is_test, address,
-                                              asdu_address, freeze, _request,
-                                              is_negative_confirm, cause):
+async def test_counter_interrogation_response(serial_conns, link_type, is_test,
+                                              address, asdu_address, freeze,
+                                              _request, is_negative_confirm,
+                                              cause):
     conn_queue = aio.Queue()
     event_queue = aio.Queue()
 
-    conf = get_conf([address])
+    conf = get_conf(link_type, [address])
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
-    slave = await create_slave(conf, conn_queue.put_nowait)
-    device = await aio.call(info.create, conf, eventer_client,
-                            event_type_prefix)
+    slave = await create_slave(link_type, [address], conn_queue.put_nowait)
+    device = await create_device(conf, eventer_client)
 
     await aio.call(device.process_events, [create_enable_event(address, True)])
     conn = await conn_queue.get()
@@ -1074,7 +1163,7 @@ async def test_counter_interrogation_response(serial_conns, is_test, address,
         freeze=freeze,
         is_negative_confirm=is_negative_confirm,
         cause=cause)
-    conn.send([msg])
+    await conn.send([msg])
 
     event = await event_queue.get()
     assert_counter_interrogation_event(event, address, asdu_address,

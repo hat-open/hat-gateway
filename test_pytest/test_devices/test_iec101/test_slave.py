@@ -8,6 +8,7 @@ import pytest
 
 from hat import aio
 from hat import json
+from hat import util
 from hat.drivers import iec101
 from hat.drivers import serial
 from hat.drivers.iec60870 import link
@@ -62,27 +63,44 @@ class EventerClient(aio.Resource):
         return await aio.call(self._query_cb, params)
 
 
-def get_conf(addresses=[],
+def get_serial_params():
+    return {'port': '/dev/ttyS0',
+            'baudrate': 9600,
+            'bytesize': 'EIGHTBITS',
+            'parity': 'NONE',
+            'stopbits': 'ONE',
+            'flow_control': {'xonxoff': False,
+                             'rtscts': False,
+                             'dsrdtr': False},
+            'silent_interval': 0.001}
+
+
+def get_conf(link_type,
+             addresses=[],
              keep_alive_timeout=3,
              buffers=[],
              data=[]):
-    return {"port": '/dev/ttyS0',
-            "addresses": addresses,
-            "baudrate": 9600,
-            "bytesize": "EIGHTBITS",
-            "parity": "NONE",
-            "stopbits": "ONE",
-            "flow_control": {'xonxoff': False,
-                             'rtscts': False,
-                             'dsrdtr': False},
-            "silent_interval": 0.001,
-            "keep_alive_timeout": keep_alive_timeout,
-            "device_address_size": "ONE",
-            "cause_size": "TWO",
-            "asdu_address_size": "TWO",
-            "io_address_size": "THREE",
-            "buffers": buffers,
-            "data": data}
+    if link_type == 'BALANCED':
+        link_type_spec_props = {'direction': 'B_TO_A',
+                                'response_timeout': 0.01,
+                                'send_retry_count': 0,
+                                'status_delay': 0.1}
+    elif link_type == 'UNBALANCED':
+        link_type_spec_props = {'keep_alive_timeout': keep_alive_timeout}
+    return {
+        **get_serial_params(),
+        'link_type': link_type,
+        'cause_size': 'TWO',
+        'asdu_address_size': "TWO",
+        'io_address_size': 'THREE',
+        'buffers': buffers,
+        'data': data,
+        'link_type': link_type,
+        'device_address_size': "ONE",
+        'devices': [{'address': address,
+                     'reconnect_delay': 0.01,
+                     **link_type_spec_props}
+                    for address in addresses]}
 
 
 def create_event(event_type, payload_data, source_timestamp=None):
@@ -130,7 +148,18 @@ def assert_quality(quality_json, quality_iec101):
 
 def assert_connections_event(event, addresses):
     assert event.type == (*event_type_prefix, 'gateway', 'connections')
-    assert [i['address'] for i in event.payload.data] == addresses
+    assert set(i['address'] for i in event.payload.data) == set(addresses)
+
+
+async def wait_connected_connections_event(event_queue, addresses):
+    event_type = (*event_type_prefix, 'gateway', 'connections')
+
+    while True:
+        event = await event_queue.get()
+        if (event.type == event_type and
+                set(i['address'] for i in event.payload.data) ==
+                set(addresses)):
+            return event
 
 
 async def create_device(conf, eventer_client):
@@ -205,51 +234,68 @@ async def serial_conns(monkeypatch):
     return conns
 
 
-@pytest.fixture
-async def create_master_conn(serial_conns):
-    conf = get_conf()
+async def create_master_link(link_type):
+    if link_type == 'BALANCED':
+        create_link = link.create_balanced_link
 
-    master = await link.unbalanced.create_master(
-        port=conf['port'],
-        baudrate=conf['baudrate'],
-        bytesize=serial.ByteSize[conf['bytesize']],
-        parity=serial.Parity[conf['parity']],
-        stopbits=serial.StopBits[conf['stopbits']],
-        xonxoff=conf['flow_control']['xonxoff'],
-        rtscts=conf['flow_control']['rtscts'],
-        dsrdtr=conf['flow_control']['dsrdtr'],
-        silent_interval=conf['silent_interval'],
-        address_size=link.common.AddressSize[conf['device_address_size']])
+    elif link_type == 'UNBALANCED':
+        create_link = link.create_master_link
 
-    async def create_master_conn(address):
-        conn = await master.connect(address)
+    serial_params = get_serial_params()
 
-        return iec101.MasterConnection(
-            conn=conn,
-            cause_size=iec101.CauseSize[conf['cause_size']],
-            asdu_address_size=iec101.AsduAddressSize[
-                conf['asdu_address_size']],
-            io_address_size=iec101.IoAddressSize[conf['io_address_size']])
+    return await create_link(
+        port=serial_params['port'],
+        address_size=link.common.AddressSize.ONE,
+        silent_interval=serial_params['silent_interval'],
+        baudrate=serial_params['baudrate'],
+        bytesize=serial.ByteSize[serial_params['bytesize']],
+        parity=serial.Parity[serial_params['parity']],
+        stopbits=serial.StopBits[serial_params['stopbits']],
+        xonxoff=serial_params['flow_control']['xonxoff'],
+        rtscts=serial_params['flow_control']['rtscts'],
+        dsrdtr=serial_params['flow_control']['dsrdtr'])
 
-    try:
-        yield create_master_conn
 
-    finally:
-        await master.async_close()
+async def create_master_conn(master_link, remote_address):
+    response_timeout = 0.01
+    if isinstance(master_link, link.BalancedLink):
+        conn_args = {
+            'direction': link.Direction.A_TO_B,
+            'addr': remote_address,
+            'response_timeout': response_timeout,
+            'send_retry_count': 0,
+            'status_delay': 0.1}
+
+    elif isinstance(master_link, link.MasterLink):
+        conn_args = {
+            'addr': remote_address,
+            'response_timeout': response_timeout,
+            'send_retry_count': 0,
+            'poll_class1_delay': 0.1,
+            'poll_class2_delay': None}
+    conn = await master_link.open_connection(**conn_args)
+
+    return iec101.Connection(
+        conn=conn,
+        cause_size=iec101.CauseSize.TWO,
+        asdu_address_size=iec101.AsduAddressSize.TWO,
+        io_address_size=iec101.IoAddressSize.THREE)
 
 
 def test_device_type():
     assert info.type == 'iec101_slave'
 
 
-def test_schema_validate():
-    conf = get_conf()
+@pytest.mark.parametrize('link_type', ['BALANCED', 'UNBALANCED'])
+def test_valid_conf(link_type):
+    conf = get_conf(link_type, addresses=[1, 2, 3])
     validator = json.DefaultSchemaValidator(info.json_schema_repo)
     validator.validate(info.json_schema_id, conf)
 
 
-async def test_create(serial_conns):
-    conf = get_conf()
+@pytest.mark.parametrize('link_type', ['BALANCED', 'UNBALANCED'])
+async def test_create(serial_conns, link_type):
+    conf = get_conf(link_type)
 
     eventer_client = EventerClient()
     device = await create_device(conf, eventer_client)
@@ -261,11 +307,13 @@ async def test_create(serial_conns):
     await eventer_client.async_close()
 
 
-async def test_connections(serial_conns, create_master_conn):
-    addresses = [i for i in range(10)]
+@pytest.mark.parametrize('link_type', ['BALANCED', 'UNBALANCED'])
+@pytest.mark.parametrize("conn_count", [1, 5])
+async def test_connections(serial_conns, link_type, conn_count):
+    addresses = [i for i in range(conn_count)]
     event_queue = aio.Queue()
 
-    conf = get_conf(addresses)
+    conf = get_conf(link_type, addresses)
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     device = await create_device(conf, eventer_client)
@@ -273,21 +321,25 @@ async def test_connections(serial_conns, create_master_conn):
     event = await event_queue.get()
     assert_connections_event(event, [])
 
+    master_link = await create_master_link(link_type)
     for i, addr in enumerate(addresses):
-        await create_master_conn(addr)
+        master_conn = await create_master_conn(master_link, addr)
 
         event = await event_queue.get()
         assert_connections_event(event, addresses[:i+1])
 
+    await master_conn.async_close()
+    await master_link.async_close()
     await device.async_close()
     await eventer_client.async_close()
 
 
-async def test_keep_alive_timeout(serial_conns, create_master_conn):
+async def test_keep_alive_timeout(serial_conns):
+    link_type = 'UNBALANCED'
     address = 123
     event_queue = aio.Queue()
 
-    conf = get_conf([address], keep_alive_timeout=0.05)
+    conf = get_conf(link_type, [address], keep_alive_timeout=0.05)
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     device = await create_device(conf, eventer_client)
@@ -295,7 +347,8 @@ async def test_keep_alive_timeout(serial_conns, create_master_conn):
     event = await event_queue.get()
     assert_connections_event(event, [])
 
-    await create_master_conn(address)
+    master_link = await create_master_link(link_type)
+    master_conn = await create_master_conn(master_link, address)
 
     event = await event_queue.get()
     assert_connections_event(event, [address])
@@ -303,14 +356,17 @@ async def test_keep_alive_timeout(serial_conns, create_master_conn):
     event = await event_queue.get()
     assert_connections_event(event, [])
 
+    await master_conn.async_close()
+    await master_link.async_close()
     await device.async_close()
     await eventer_client.async_close()
 
 
-async def test_query(serial_conns):
+@pytest.mark.parametrize('link_type', ['BALANCED', 'UNBALANCED'])
+async def test_query(serial_conns, link_type):
     query_queue = aio.Queue()
 
-    conf = get_conf()
+    conf = get_conf(link_type)
 
     def on_query(params):
         query_queue.put_nowait(params)
@@ -327,12 +383,13 @@ async def test_query(serial_conns):
     await eventer_client.async_close()
 
 
-async def test_interrogate(serial_conns, create_master_conn):
+@pytest.mark.parametrize('link_type', ['BALANCED', 'UNBALANCED'])
+async def test_interrogate(serial_conns, link_type):
     address = 123
     asdu_address = 1
     data_count = 10
 
-    conf = get_conf([address],
+    conf = get_conf(link_type, [address],
                     data=[{'data_type': 'SINGLE',
                            'asdu_address': asdu_address,
                            'io_address': i,
@@ -362,7 +419,8 @@ async def test_interrogate(serial_conns, create_master_conn):
 
     exp_gi_resp_events = new_events + query_events[data_count // 2:]
 
-    conn = await create_master_conn(address)
+    master_link = await create_master_link(link_type)
+    master_conn = await create_master_conn(master_link, address)
 
     msg = iec101.InterrogationMsg(
         is_test=False,
@@ -371,16 +429,16 @@ async def test_interrogate(serial_conns, create_master_conn):
         request=0,
         is_negative_confirm=False,
         cause=iec101.CommandReqCause.ACTIVATION)
-    await conn.send([msg])
+    await master_conn.send([msg])
 
-    msgs = await conn.receive()
+    msgs = await master_conn.receive()
     gi_resp_msg = msgs[0]
     assert isinstance(gi_resp_msg, iec101.InterrogationMsg)
     assert gi_resp_msg.cause == iec101.CommandResCause.ACTIVATION_CONFIRMATION
     assert not gi_resp_msg.is_negative_confirm
 
     for data_event in exp_gi_resp_events:
-        msgs = await conn.receive()
+        msgs = await master_conn.receive()
         gi_data_msg = msgs[0]
         assert isinstance(gi_data_msg, iec101.DataMsg)
         assert gi_data_msg.is_test == data_event.payload.data['is_test']
@@ -393,20 +451,24 @@ async def test_interrogate(serial_conns, create_master_conn):
             data_event.type[len(event_type_prefix) + 4])
         assert gi_data_msg.time is None
 
-    msgs = await conn.receive()
+    msgs = await master_conn.receive()
     gi_resp_msg = msgs[0]
     assert isinstance(gi_resp_msg, iec101.InterrogationMsg)
     assert gi_resp_msg.cause == iec101.CommandResCause.ACTIVATION_TERMINATION
     assert not gi_resp_msg.is_negative_confirm
 
+    await master_conn.async_close()
+    await master_link.async_close()
     await device.async_close()
     await eventer_client.async_close()
 
 
-async def test_interrogate_deactivation(serial_conns, create_master_conn):
+@pytest.mark.parametrize('link_type', ['BALANCED', 'UNBALANCED'])
+async def test_interrogate_deactivation(serial_conns, link_type):
     address = 123
 
-    conf = get_conf([address],
+    conf = get_conf(link_type,
+                    [address],
                     data=[{'data_type': 'SINGLE',
                            'asdu_address': 1,
                            'io_address': 1,
@@ -424,7 +486,8 @@ async def test_interrogate_deactivation(serial_conns, create_master_conn):
     eventer_client = EventerClient(query_cb=on_query)
     device = await create_device(conf, eventer_client)
 
-    conn101 = await create_master_conn(address)
+    master_link = await create_master_link(link_type)
+    master_conn = await create_master_conn(master_link, address)
 
     msg = iec101.InterrogationMsg(
         is_test=False,
@@ -433,7 +496,7 @@ async def test_interrogate_deactivation(serial_conns, create_master_conn):
         request=0,
         is_negative_confirm=False,
         cause=iec101.CommandReqCause.ACTIVATION)
-    await conn101.send([msg])
+    await master_conn.send([msg])
 
     msg = iec101.InterrogationMsg(
         is_test=False,
@@ -442,39 +505,43 @@ async def test_interrogate_deactivation(serial_conns, create_master_conn):
         request=0,
         is_negative_confirm=False,
         cause=iec101.CommandReqCause.DEACTIVATION)
-    await conn101.send([msg])
+    await master_conn.send([msg])
 
-    msgs = await conn101.receive()
+    msgs = await master_conn.receive()
     msg = msgs[0]
     assert isinstance(msg, iec101.InterrogationMsg)
     assert msg.cause == iec101.CommandResCause.ACTIVATION_CONFIRMATION
     assert not msg.is_negative_confirm
 
-    msgs = await conn101.receive()
+    msgs = await master_conn.receive()
     msg = msgs[0]
     assert isinstance(msg, iec101.DataMsg)
     assert msg.cause == iec101.DataResCause.INTERROGATED_STATION
 
-    msgs = await conn101.receive()
+    msgs = await master_conn.receive()
     msg = msgs[0]
     assert isinstance(msg, iec101.InterrogationMsg)
     assert msg.cause == iec101.CommandResCause.ACTIVATION_TERMINATION
     assert not msg.is_negative_confirm
 
-    msgs = await conn101.receive()
+    msgs = await master_conn.receive()
     msg = msgs[0]
     assert isinstance(msg, iec101.InterrogationMsg)
     assert msg.cause == iec101.CommandResCause.DEACTIVATION_CONFIRMATION
     assert msg.is_negative_confirm
 
+    await master_conn.async_close()
+    await master_link.async_close()
     await device.async_close()
     await eventer_client.async_close()
 
 
-async def test_counter_interrogate(serial_conns, create_master_conn):
+@pytest.mark.parametrize('link_type', ['BALANCED', 'UNBALANCED'])
+async def test_counter_interrogate(serial_conns, link_type):
     address = 123
 
-    conf = get_conf([address],
+    conf = get_conf(link_type,
+                    [address],
                     data=[{'data_type': 'SINGLE',
                            'asdu_address': 1,
                            'io_address': 1,
@@ -504,7 +571,8 @@ async def test_counter_interrogate(serial_conns, create_master_conn):
     eventer_client = EventerClient(query_cb=on_query)
     device = await create_device(conf, eventer_client)
 
-    conn101 = await create_master_conn(address)
+    master_link = await create_master_link(link_type)
+    master_conn = await create_master_conn(master_link, address)
 
     msg = iec101.CounterInterrogationMsg(
         is_test=False,
@@ -514,15 +582,15 @@ async def test_counter_interrogate(serial_conns, create_master_conn):
         freeze=iec101.FreezeCode.READ,
         is_negative_confirm=False,
         cause=iec101.CommandReqCause.ACTIVATION)
-    await conn101.send([msg])
+    await master_conn.send([msg])
 
-    msgs = await conn101.receive()
+    msgs = await master_conn.receive()
     gi_resp_msg = msgs[0]
     assert isinstance(gi_resp_msg, iec101.CounterInterrogationMsg)
     assert gi_resp_msg.cause == iec101.CommandResCause.ACTIVATION_CONFIRMATION
     assert not gi_resp_msg.is_negative_confirm
 
-    msgs = await conn101.receive()
+    msgs = await master_conn.receive()
     data_msg = msgs[0]
 
     assert isinstance(data_msg, iec101.DataMsg)
@@ -539,12 +607,14 @@ async def test_counter_interrogate(serial_conns, create_master_conn):
                    data_msg.data.quality)
     assert data_msg.time is None
 
-    msgs = await conn101.receive()
+    msgs = await master_conn.receive()
     gi_resp_msg = msgs[0]
     assert isinstance(gi_resp_msg, iec101.CounterInterrogationMsg)
     assert gi_resp_msg.cause == iec101.CommandResCause.ACTIVATION_TERMINATION
     assert not gi_resp_msg.is_negative_confirm
 
+    await master_conn.async_close()
+    await master_link.async_close()
     await device.async_close()
     await eventer_client.async_close()
 
@@ -697,9 +767,10 @@ def data_cases():
                      'quality': quality}, data
 
 
+@pytest.mark.parametrize('link_type', ['BALANCED', 'UNBALANCED'])
 @pytest.mark.parametrize("data_type, event_data, exp_data", data_cases())
 @pytest.mark.parametrize("source_timestamp", [hat.event.common.now(), None])
-async def test_data(serial_conns, create_master_conn, data_type, event_data,
+async def test_data(serial_conns, link_type, data_type, event_data,
                     exp_data, source_timestamp):
     if data_type in ['PROTECTION',
                      'PROTECTION_START',
@@ -709,24 +780,29 @@ async def test_data(serial_conns, create_master_conn, data_type, event_data,
     if data_type == 'STATUS' and source_timestamp:
         return
 
+    event_queue = aio.Queue()
     address = 123
 
-    conf = get_conf([address],
+    conf = get_conf(link_type,
+                    [address],
                     data=[{'data_type': data_type,
                            'asdu_address': 12,
                            'io_address': 34,
                            'buffer': None}])
 
-    eventer_client = EventerClient()
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
-    conn101 = await create_master_conn(address)
+    master_link = await create_master_link(link_type)
+    master_conn = await create_master_conn(master_link, address)
+
+    await wait_connected_connections_event(event_queue, [address])
 
     data_event = create_data_event(data_type, 12, 34, event_data,
                                    source_timestamp=source_timestamp)
     await aio.call(device.process_events, [data_event])
 
-    data_msgs = await conn101.receive()
+    data_msgs = await master_conn.receive()
     data_msg = data_msgs[0]
 
     assert isinstance(data_msg, iec101.DataMsg)
@@ -744,25 +820,33 @@ async def test_data(serial_conns, create_master_conn, data_type, event_data,
         assert data_msg.data == exp_data
     assert_time(data_event.source_timestamp, data_msg.time)
 
+    await master_conn.async_close()
+    await master_link.async_close()
     await device.async_close()
     await eventer_client.async_close()
 
 
-async def test_data_bulk(serial_conns, create_master_conn):
+@pytest.mark.parametrize('link_type', ['BALANCED', 'UNBALANCED'])
+async def test_data_bulk(serial_conns, link_type):
+    event_queue = aio.Queue()
     events_count = 10
     address = 123
 
-    conf = get_conf([address],
+    conf = get_conf(link_type,
+                    [address],
                     data=[{'data_type': 'SINGLE',
                            'asdu_address': 1,
                            'io_address': i,
                            'buffer': None}
                           for i in range(events_count)])
 
-    eventer_client = EventerClient()
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
-    conn101 = await create_master_conn(address)
+    master_link = await create_master_link(link_type)
+    master_conn = await create_master_conn(master_link, address)
+
+    await wait_connected_connections_event(event_queue, [address])
 
     data_events = [create_data_event('SINGLE', 1, i,
                                      {'value': 'ON',
@@ -775,7 +859,7 @@ async def test_data_bulk(serial_conns, create_master_conn):
 
     data_msgs = []
     for _ in range(events_count):
-        data_msgs.extend(await conn101.receive())
+        data_msgs.extend(await master_conn.receive())
 
     assert len(data_msgs) == len(data_events)
     for data_msg, data_event in zip(data_msgs, data_events):
@@ -792,6 +876,8 @@ async def test_data_bulk(serial_conns, create_master_conn):
         # TODO check quality
         # TODO check time
 
+    await master_conn.async_close()
+    await master_link.async_close()
     await device.async_close()
     await eventer_client.async_close()
 
@@ -843,20 +929,22 @@ async def test_data_bulk(serial_conns, create_master_conn):
      iec101.BitstringCommand(value=iec101.BitstringValue(b'\x01\x02\x03\x04')),
      {'value': [1, 2, 3, 4]})
     ])
+@pytest.mark.parametrize('link_type', ['BALANCED', 'UNBALANCED'])
 @pytest.mark.parametrize("negative_resp", [True, False])
-async def test_command(serial_conns, create_master_conn,
+async def test_command(serial_conns, link_type,
                        command_type, command, command_json, negative_resp):
     event_queue = aio.Queue()
     address = 123
 
-    conf = get_conf([address])
+    conf = get_conf(link_type, [address])
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
-    conn101 = await create_master_conn(address)
+    master_link = await create_master_link(link_type)
+    master_conn = await create_master_conn(master_link, address)
 
-    await event_queue.get_until_empty()
+    await wait_connected_connections_event(event_queue, [address])
 
     asdu = 1
     io = 2
@@ -867,7 +955,7 @@ async def test_command(serial_conns, create_master_conn,
                                 command=command,
                                 is_negative_confirm=False,
                                 cause=iec101.CommandReqCause.ACTIVATION)
-    await conn101.send([cmd_msg])
+    await master_conn.send([cmd_msg])
 
     cmd_req_event = await event_queue.get()
     assert cmd_req_event.type == (
@@ -900,7 +988,7 @@ async def test_command(serial_conns, create_master_conn,
         cmd_res_payload)
     await aio.call(device.process_events, [cmd_res_event])
 
-    msgs = await conn101.receive()
+    msgs = await master_conn.receive()
     assert len(msgs) == 1
     cmd_res_msg = msgs[0]
     assert isinstance(cmd_res_msg, iec101.CommandMsg)
@@ -915,22 +1003,26 @@ async def test_command(serial_conns, create_master_conn,
     else:
         assert cmd_res_msg.command == command
 
+    await master_conn.async_close()
+    await master_link.async_close()
     await device.async_close()
     await eventer_client.async_close()
 
 
-async def test_command_wrong_conn_id(serial_conns, create_master_conn):
+@pytest.mark.parametrize('link_type', ['BALANCED', 'UNBALANCED'])
+async def test_command_wrong_conn_id(serial_conns, link_type):
     event_queue = aio.Queue()
     address = 123
 
-    conf = get_conf([address])
+    conf = get_conf(link_type, [address])
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
-    conn101 = await create_master_conn(address)
+    master_link = await create_master_link(link_type)
+    master_conn = await create_master_conn(master_link, address)
 
-    await event_queue.get_until_empty()
+    await wait_connected_connections_event(event_queue, [address])
 
     asdu = 1
     io = 2
@@ -944,7 +1036,7 @@ async def test_command_wrong_conn_id(serial_conns, create_master_conn):
                                 command=command,
                                 is_negative_confirm=False,
                                 cause=iec101.CommandReqCause.ACTIVATION)
-    await conn101.send([cmd_msg])
+    await master_conn.send([cmd_msg])
 
     cmd_req_event = await event_queue.get()
     conn_id = cmd_req_event.payload.data['connection_id']
@@ -964,16 +1056,21 @@ async def test_command_wrong_conn_id(serial_conns, create_master_conn):
     await aio.call(device.process_events, [cmd_res_event])
 
     with pytest.raises(asyncio.TimeoutError):
-        await aio.wait_for(conn101.receive(), 0.1)
+        await aio.wait_for(master_conn.receive(), 0.1)
 
+    await master_conn.async_close()
+    await master_link.async_close()
     await device.async_close()
     await eventer_client.async_close()
 
 
-async def test_buffer(serial_conns, create_master_conn):
-    address = 123
+@pytest.mark.parametrize('link_type', ['BALANCED', 'UNBALANCED'])
+async def test_buffer(serial_conns, link_type):
+    address1 = 123
+    address2 = 234
 
-    conf = get_conf([address],
+    conf = get_conf(link_type,
+                    [address1, address2],
                     keep_alive_timeout=0.05,
                     buffers=[{'name': 'b1', 'size': 100}],
                     data=[{'data_type': 'DOUBLE',
@@ -1009,10 +1106,11 @@ async def test_buffer(serial_conns, create_master_conn):
                 buffered_data_events.append(data_event)
     await aio.call(device.process_events, data_events)
 
-    conn = await create_master_conn(address)
+    master_link = await create_master_link(link_type)
+    master_conn1 = await create_master_conn(master_link, address1)
 
     for data_event in buffered_data_events:
-        msgs = await conn.receive()
+        msgs = await master_conn1.receive()
         data_msg = msgs[0]
         assert data_msg.is_test == data_event.payload.data['is_test']
         assert data_msg.cause.name == data_event.payload.data['cause']
@@ -1027,21 +1125,26 @@ async def test_buffer(serial_conns, create_master_conn):
         assert_time(data_event.source_timestamp, data_msg.time)
 
     with pytest.raises(asyncio.TimeoutError):
-        await aio.wait_for(conn.receive(), 0.01)
+        await aio.wait_for(master_conn1.receive(), 0.01)
 
     # check buffer is empty for another master
-    conn2 = await create_master_conn(address)
+    master_conn2 = await create_master_conn(master_link, address2)
     with pytest.raises(asyncio.TimeoutError):
-        await aio.wait_for(conn2.receive(), 0.01)
+        await aio.wait_for(master_conn2.receive(), 0.01)
 
+    await master_conn2.async_close()
+    await master_conn1.async_close()
+    await master_link.async_close()
     await device.async_close()
     await eventer_client.async_close()
 
 
-async def test_buffer_size(serial_conns, create_master_conn):
+@pytest.mark.parametrize('link_type', ['BALANCED', 'UNBALANCED'])
+async def test_buffer_size(serial_conns, link_type):
     address = 123
 
-    conf = get_conf([address],
+    conf = get_conf(link_type,
+                    [address],
                     buffers=[{'name': 'b1', 'size': 100},
                              {'name': 'b2', 'size': 25}],
                     data=[{'data_type': 'DOUBLE',
@@ -1074,13 +1177,14 @@ async def test_buffer_size(serial_conns, create_master_conn):
                 buffered_events[data_conf['buffer']].append(data_event)
     await aio.call(device.process_events, data_events)
 
-    conn = await create_master_conn(address)
+    master_link = await create_master_link(link_type)
+    master_conn = await create_master_conn(master_link, address)
 
     # ordered notification of data from buffers is assumed
     exp_buffered_events = itertools.chain(buffered_events['b1'][-100:],
                                           buffered_events['b2'][-25:])
     for data_event in exp_buffered_events:
-        msgs = await conn.receive()
+        msgs = await master_conn.receive()
         data_msg = msgs[0]
         assert data_msg.is_test == data_event.payload.data['is_test']
         assert data_msg.cause.name == data_event.payload.data['cause']
@@ -1095,29 +1199,37 @@ async def test_buffer_size(serial_conns, create_master_conn):
         assert_time(data_event.source_timestamp, data_msg.time)
 
     with pytest.raises(asyncio.TimeoutError):
-        await aio.wait_for(conn.receive(), 0.01)
+        await aio.wait_for(master_conn.receive(), 0.01)
 
+    await master_conn.async_close()
+    await master_link.async_close()
     await device.async_close()
     await eventer_client.async_close()
 
 
-async def test_data_on_multi_masters(serial_conns, create_master_conn):
+@pytest.mark.parametrize('link_type', ['BALANCED', 'UNBALANCED'])
+async def test_data_on_multi_masters(serial_conns, link_type):
+    event_queue = aio.Queue()
     masters_count = 5
     addresses = list(range(masters_count))
 
-    conf = get_conf(addresses,
+    conf = get_conf(link_type,
+                    addresses,
                     data=[{'data_type': 'DOUBLE',
                            'asdu_address': 1,
                            'io_address': 2,
                            'buffer': None}])
 
-    eventer_client = EventerClient()
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
+    master_link = await create_master_link(link_type)
     master_conns = []
     for addr in addresses:
-        conn = await create_master_conn(addr)
+        conn = await create_master_conn(master_link, addr)
         master_conns.append(conn)
+
+    await wait_connected_connections_event(event_queue, addresses)
 
     data_event = create_data_event('DOUBLE', 1, 2,
                                    {'value': 'INTERMEDIATE',
@@ -1133,30 +1245,36 @@ async def test_data_on_multi_masters(serial_conns, create_master_conn):
         msgs = await master_conn.receive()
         assert msgs[0] == data_msg
 
+    await master_link.async_close()
     await device.async_close()
     await eventer_client.async_close()
 
 
-async def test_command_on_multi_masters(serial_conns, create_master_conn):
+@pytest.mark.parametrize('link_type', ['BALANCED', 'UNBALANCED'])
+async def test_command_on_multi_masters(serial_conns, link_type):
     masters_count = 3
     event_queue = aio.Queue()
     addresses = list(range(masters_count))
 
-    conf = get_conf(addresses)
+    conf = get_conf(link_type, addresses)
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
+    master_link = await create_master_link(link_type)
     master_conns = []
     for addr in addresses:
-        conn = await create_master_conn(addr)
+        conn = await create_master_conn(master_link, addr)
         master_conns.append(conn)
 
-    conns_event = await event_queue.get_until_empty()
-    assert len(conns_event.payload.data) == masters_count
+    conns_event = await wait_connected_connections_event(
+        event_queue, addresses)
 
+    master_conn1_addr = addresses[0]
     master_conn1 = master_conns[0]
-    master_conn1_conn_id = conns_event.payload.data[0]['connection_id']
+    master_conn1_conn_id = util.first(
+        conns_event.payload.data,
+        lambda i: i['address'] == master_conn1_addr)['connection_id']
 
     asdu = 1
     io = 2
@@ -1203,5 +1321,6 @@ async def test_command_on_multi_masters(serial_conns, create_master_conn):
         with pytest.raises(asyncio.TimeoutError):
             await aio.wait_for(master_conn.receive(), 0.01)
 
+    await master_link.async_close()
     await device.async_close()
     await eventer_client.async_close()
