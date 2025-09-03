@@ -63,18 +63,6 @@ class EventerClient(aio.Resource):
         return await aio.call(self._query_cb, params)
 
 
-def get_serial_params():
-    return {'port': '/dev/ttyS0',
-            'baudrate': 9600,
-            'bytesize': 'EIGHTBITS',
-            'parity': 'NONE',
-            'stopbits': 'ONE',
-            'flow_control': {'xonxoff': False,
-                             'rtscts': False,
-                             'dsrdtr': False},
-            'silent_interval': 0.001}
-
-
 def get_conf(link_type,
              addresses=[],
              keep_alive_timeout=3,
@@ -88,7 +76,15 @@ def get_conf(link_type,
     elif link_type == 'UNBALANCED':
         link_type_spec_props = {'keep_alive_timeout': keep_alive_timeout}
     return {
-        **get_serial_params(),
+        'port': '/dev/ttyS0',
+        'baudrate': 9600,
+        'bytesize': 'EIGHTBITS',
+        'parity': 'NONE',
+        'stopbits': 'ONE',
+        'flow_control': {'xonxoff': False,
+                         'rtscts': False,
+                         'dsrdtr': False},
+        'silent_interval': 0.001,
         'link_type': link_type,
         'cause_size': 'TWO',
         'asdu_address_size': "TWO",
@@ -234,26 +230,24 @@ async def serial_conns(monkeypatch):
     return conns
 
 
-async def create_master_link(link_type):
+async def create_master_link(link_type, conf):
     if link_type == 'BALANCED':
         create_link = link.create_balanced_link
 
     elif link_type == 'UNBALANCED':
         create_link = link.create_master_link
 
-    serial_params = get_serial_params()
-
     return await create_link(
-        port=serial_params['port'],
+        port=conf['port'],
         address_size=link.common.AddressSize.ONE,
-        silent_interval=serial_params['silent_interval'],
-        baudrate=serial_params['baudrate'],
-        bytesize=serial.ByteSize[serial_params['bytesize']],
-        parity=serial.Parity[serial_params['parity']],
-        stopbits=serial.StopBits[serial_params['stopbits']],
-        xonxoff=serial_params['flow_control']['xonxoff'],
-        rtscts=serial_params['flow_control']['rtscts'],
-        dsrdtr=serial_params['flow_control']['dsrdtr'])
+        silent_interval=conf['silent_interval'],
+        baudrate=conf['baudrate'],
+        bytesize=serial.ByteSize[conf['bytesize']],
+        parity=serial.Parity[conf['parity']],
+        stopbits=serial.StopBits[conf['stopbits']],
+        xonxoff=conf['flow_control']['xonxoff'],
+        rtscts=conf['flow_control']['rtscts'],
+        dsrdtr=conf['flow_control']['dsrdtr'])
 
 
 async def create_master_conn(master_link, remote_address):
@@ -321,7 +315,7 @@ async def test_connections(serial_conns, link_type, conn_count):
     event = await event_queue.get()
     assert_connections_event(event, [])
 
-    master_link = await create_master_link(link_type)
+    master_link = await create_master_link(link_type, conf)
     for i, addr in enumerate(addresses):
         master_conn = await create_master_conn(master_link, addr)
 
@@ -347,7 +341,7 @@ async def test_keep_alive_timeout(serial_conns):
     event = await event_queue.get()
     assert_connections_event(event, [])
 
-    master_link = await create_master_link(link_type)
+    master_link = await create_master_link(link_type, conf)
     master_conn = await create_master_conn(master_link, address)
 
     event = await event_queue.get()
@@ -419,7 +413,7 @@ async def test_interrogate(serial_conns, link_type):
 
     exp_gi_resp_events = new_events + query_events[data_count // 2:]
 
-    master_link = await create_master_link(link_type)
+    master_link = await create_master_link(link_type, conf)
     master_conn = await create_master_conn(master_link, address)
 
     msg = iec101.InterrogationMsg(
@@ -486,7 +480,7 @@ async def test_interrogate_deactivation(serial_conns, link_type):
     eventer_client = EventerClient(query_cb=on_query)
     device = await create_device(conf, eventer_client)
 
-    master_link = await create_master_link(link_type)
+    master_link = await create_master_link(link_type, conf)
     master_conn = await create_master_conn(master_link, address)
 
     msg = iec101.InterrogationMsg(
@@ -571,7 +565,7 @@ async def test_counter_interrogate(serial_conns, link_type):
     eventer_client = EventerClient(query_cb=on_query)
     device = await create_device(conf, eventer_client)
 
-    master_link = await create_master_link(link_type)
+    master_link = await create_master_link(link_type, conf)
     master_conn = await create_master_conn(master_link, address)
 
     msg = iec101.CounterInterrogationMsg(
@@ -793,7 +787,7 @@ async def test_data(serial_conns, link_type, data_type, event_data,
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
-    master_link = await create_master_link(link_type)
+    master_link = await create_master_link(link_type, conf)
     master_conn = await create_master_conn(master_link, address)
 
     await wait_connected_connections_event(event_queue, [address])
@@ -843,7 +837,7 @@ async def test_data_bulk(serial_conns, link_type):
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
-    master_link = await create_master_link(link_type)
+    master_link = await create_master_link(link_type, conf)
     master_conn = await create_master_conn(master_link, address)
 
     await wait_connected_connections_event(event_queue, [address])
@@ -941,7 +935,7 @@ async def test_command(serial_conns, link_type,
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
-    master_link = await create_master_link(link_type)
+    master_link = await create_master_link(link_type, conf)
     master_conn = await create_master_conn(master_link, address)
 
     await wait_connected_connections_event(event_queue, [address])
@@ -1019,7 +1013,7 @@ async def test_command_wrong_conn_id(serial_conns, link_type):
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
-    master_link = await create_master_link(link_type)
+    master_link = await create_master_link(link_type, conf)
     master_conn = await create_master_conn(master_link, address)
 
     await wait_connected_connections_event(event_queue, [address])
@@ -1106,7 +1100,7 @@ async def test_buffer(serial_conns, link_type):
                 buffered_data_events.append(data_event)
     await aio.call(device.process_events, data_events)
 
-    master_link = await create_master_link(link_type)
+    master_link = await create_master_link(link_type, conf)
     master_conn1 = await create_master_conn(master_link, address1)
 
     for data_event in buffered_data_events:
@@ -1177,7 +1171,7 @@ async def test_buffer_size(serial_conns, link_type):
                 buffered_events[data_conf['buffer']].append(data_event)
     await aio.call(device.process_events, data_events)
 
-    master_link = await create_master_link(link_type)
+    master_link = await create_master_link(link_type, conf)
     master_conn = await create_master_conn(master_link, address)
 
     # ordered notification of data from buffers is assumed
@@ -1223,7 +1217,7 @@ async def test_data_on_multi_masters(serial_conns, link_type):
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
-    master_link = await create_master_link(link_type)
+    master_link = await create_master_link(link_type, conf)
     master_conns = []
     for addr in addresses:
         conn = await create_master_conn(master_link, addr)
@@ -1261,7 +1255,7 @@ async def test_command_on_multi_masters(serial_conns, link_type):
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
-    master_link = await create_master_link(link_type)
+    master_link = await create_master_link(link_type, conf)
     master_conns = []
     for addr in addresses:
         conn = await create_master_conn(master_link, addr)

@@ -71,18 +71,6 @@ class EventerClient(aio.Resource):
         return await aio.call(self._query_cb, params)
 
 
-def get_serial_params():
-    return {'port': '/dev/ttyS0',
-            'baudrate': 9600,
-            'bytesize': 'EIGHTBITS',
-            'parity': 'NONE',
-            'stopbits': 'ONE',
-            'flow_control': {'xonxoff': False,
-                             'rtscts': False,
-                             'dsrdtr': False},
-            'silent_interval': 0.001}
-
-
 def get_conf(link_type,
              remote_addresses=[],
              device_address_size=iec101.AddressSize.ONE,
@@ -96,7 +84,15 @@ def get_conf(link_type,
                                 'poll_class2_delay': None}
 
     return {
-        **get_serial_params(),
+        'port': '/dev/ttyS0',
+        'baudrate': 9600,
+        'bytesize': 'EIGHTBITS',
+        'parity': 'NONE',
+        'stopbits': 'ONE',
+        'flow_control': {'xonxoff': False,
+                         'rtscts': False,
+                         'dsrdtr': False},
+        'silent_interval': 0.001,
         'cause_size': 'TWO',
         'asdu_address_size': asdu_address_size.name,
         'io_address_size': 'THREE',
@@ -114,9 +110,9 @@ def get_conf(link_type,
 
 
 async def create_slave(link_type,
+                       conf,
                        device_addresses=[],
                        connection_cb=None,
-                       device_address_size=link.common.AddressSize.ONE,
                        asdu_address_size=iec101.AsduAddressSize.TWO):
     response_timeout = 0.001
     if link_type == 'BALANCED':
@@ -125,18 +121,17 @@ async def create_slave(link_type,
     elif link_type == 'UNBALANCED':
         create_link = link.create_slave_link
 
-    serial_params = get_serial_params()
     slave_link = await create_link(
-        port=serial_params['port'],
-        address_size=device_address_size,
-        silent_interval=serial_params['silent_interval'],
-        baudrate=serial_params['baudrate'],
-        bytesize=serial.ByteSize[serial_params['bytesize']],
-        parity=serial.Parity[serial_params['parity']],
-        stopbits=serial.StopBits[serial_params['stopbits']],
-        xonxoff=serial_params['flow_control']['xonxoff'],
-        rtscts=serial_params['flow_control']['rtscts'],
-        dsrdtr=serial_params['flow_control']['dsrdtr'])
+        port=conf['port'],
+        address_size=iec101.AddressSize[conf['device_address_size']],
+        silent_interval=conf['silent_interval'],
+        baudrate=conf['baudrate'],
+        bytesize=serial.ByteSize[conf['bytesize']],
+        parity=serial.Parity[conf['parity']],
+        stopbits=serial.StopBits[conf['stopbits']],
+        xonxoff=conf['flow_control']['xonxoff'],
+        rtscts=conf['flow_control']['rtscts'],
+        dsrdtr=conf['flow_control']['dsrdtr'])
 
     async def connect(addr):
         if link_type == 'BALANCED':
@@ -150,7 +145,7 @@ async def create_slave(link_type,
         elif link_type == 'UNBALANCED':
             conn_args = {
                 'addr': addr,
-                'keep_alive_timeout': 0.02}
+                'keep_alive_timeout': 10}
 
         conn = await slave_link.open_connection(**conn_args)
         conn = iec101.Connection(
@@ -162,7 +157,6 @@ async def create_slave(link_type,
             await aio.call(connection_cb, conn)
 
         await conn.wait_closed()
-        await conn.async_close()
 
     for addr in device_addresses:
         slave_link.async_group.spawn(connect, addr)
@@ -472,8 +466,8 @@ async def test_connect(serial_conns, conn_count, link_type):
         return hat.event.common.QueryResult(events, False)
 
     eventer_client = EventerClient(query_cb=on_query)
-    slave = await create_slave(link_type, range(conn_count),
-                               conn_queue.put_nowait)
+    slave = await create_slave(
+        link_type, conf, range(conn_count), conn_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
     for _ in range(conn_count):
@@ -505,9 +499,8 @@ async def test_device_address_size(serial_conns, link_type,
         return hat.event.common.QueryResult(events, False)
 
     eventer_client = EventerClient(query_cb=on_query)
-    slave = await create_slave(link_type, [address],
-                               conn_queue.put_nowait,
-                               device_address_size=device_address_size)
+    slave = await create_slave(
+        link_type, conf, [address], conn_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
     conn = await conn_queue.get()
@@ -567,7 +560,7 @@ async def test_enable_remote_device(serial_conns, address, link_type):
     conf = get_conf(link_type, [address])
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
-    slave = await create_slave(link_type, [address])
+    slave = await create_slave(link_type, conf, [address])
     device = await create_device(conf, eventer_client)
 
     event = await event_queue.get()
@@ -647,7 +640,7 @@ async def test_time_sync(serial_conns, link_type, address, asdu_address_size,
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait,
                                    query_cb=on_query)
-    slave = await create_slave(link_type,
+    slave = await create_slave(link_type, conf,
                                [address],
                                conn_queue.put_nowait,
                                asdu_address_size=asdu_address_size)
@@ -736,7 +729,8 @@ async def test_command_request(serial_conns, link_type, is_test, address,
     conf = get_conf(link_type, [address])
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
-    slave = await create_slave(link_type, [address], conn_queue.put_nowait)
+    slave = await create_slave(link_type, conf, [address],
+                               conn_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
     await aio.call(device.process_events, [create_enable_event(address, True)])
@@ -778,7 +772,8 @@ async def test_interrogation_request(serial_conns, link_type, is_test, address,
     conf = get_conf(link_type, [address])
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
-    slave = await create_slave(link_type, [address], conn_queue.put_nowait)
+    slave = await create_slave(link_type, conf, [address],
+                               conn_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
     await aio.call(device.process_events, [create_enable_event(address, True)])
@@ -822,7 +817,8 @@ async def test_counter_interrogation_request(serial_conns, link_type, is_test,
     conf = get_conf(link_type, [address])
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
-    slave = await create_slave(link_type, [address], conn_queue.put_nowait)
+    slave = await create_slave(link_type, conf, [address],
+                               conn_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
     await aio.call(device.process_events, [create_enable_event(address, True)])
@@ -972,7 +968,8 @@ async def test_data_response(serial_conns, link_type, address, asdu_address,
     conf = get_conf(link_type, [address])
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
-    slave = await create_slave(link_type, [address], conn_queue.put_nowait)
+    slave = await create_slave(
+        link_type, conf, [address], conn_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
     await aio.call(device.process_events, [create_enable_event(address, True)])
@@ -1061,7 +1058,8 @@ async def test_command_response(serial_conns, link_type, is_test, address,
     conf = get_conf(link_type, [address])
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
-    slave = await create_slave(link_type, [address], conn_queue.put_nowait)
+    slave = await create_slave(
+        link_type, conf, [address], conn_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
     await aio.call(device.process_events, [create_enable_event(address, True)])
@@ -1104,7 +1102,8 @@ async def test_interrogation_response(serial_conns, link_type, is_test,
     conf = get_conf(link_type, [address])
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
-    slave = await create_slave(link_type, [address], conn_queue.put_nowait)
+    slave = await create_slave(
+        link_type, conf, [address], conn_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
     await aio.call(device.process_events, [create_enable_event(address, True)])
@@ -1147,7 +1146,8 @@ async def test_counter_interrogation_response(serial_conns, link_type, is_test,
     conf = get_conf(link_type, [address])
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
-    slave = await create_slave(link_type, [address], conn_queue.put_nowait)
+    slave = await create_slave(
+        link_type, conf, [address], conn_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
     await aio.call(device.process_events, [create_enable_event(address, True)])
