@@ -75,8 +75,8 @@ class Connection(aio.Resource):
     def async_group(self):
         return self._conn.async_group
 
-    def send(self, asdu):
-        self._conn.send(self._encoder.encode_asdu(asdu))
+    async def send(self, asdu):
+        await self._conn.send(self._encoder.encode_asdu(asdu))
 
     async def receive(self):
         asdu_bytes = await self._conn.receive()
@@ -85,12 +85,9 @@ class Connection(aio.Resource):
 
 
 def get_conf(remote_addresses=[],
-             reconnect_delay=0.01,
-             response_timeout=0.1,
-             send_retry_count=1,
              poll_class1_delay=1,
-             poll_class2_delay=None,
              time_sync_delay=None):
+    reconnect_delay = 0.01
     return {'port': '/dev/ttyS0',
             'baudrate': 9600,
             'bytesize': 'EIGHTBITS',
@@ -101,36 +98,44 @@ def get_conf(remote_addresses=[],
                              'dsrdtr': False},
             'silent_interval': 0.001,
             'reconnect_delay': reconnect_delay,
+            'device_address_size': link.AddressSize.ONE.name,
             'remote_devices': [{'address': address,
-                                'response_timeout': response_timeout,
-                                'send_retry_count': send_retry_count,
+                                'response_timeout': 0.1,
+                                'send_retry_count': 1,
                                 'poll_class1_delay': poll_class1_delay,
-                                'poll_class2_delay': poll_class2_delay,
+                                'poll_class2_delay': None,
                                 'reconnect_delay': reconnect_delay,
                                 'time_sync_delay': time_sync_delay}
                                for address in remote_addresses]}
 
 
-async def create_slave(conf, connection_cb):
-
-    async def on_connection(conn):
-        conn = Connection(conn)
-        await aio.call(connection_cb, conn)
-
-    return await link.unbalanced.create_slave(
+async def create_slave(conf, connection_cb=None):
+    slave_link = await link.create_slave_link(
         port=conf['port'],
-        addrs=[i['address'] for i in conf['remote_devices']],
-        connection_cb=on_connection,
+        address_size=link.AddressSize[conf['device_address_size']],
+        silent_interval=conf['silent_interval'],
         baudrate=conf['baudrate'],
         bytesize=serial.ByteSize[conf['bytesize']],
         parity=serial.Parity[conf['parity']],
         stopbits=serial.StopBits[conf['stopbits']],
         xonxoff=conf['flow_control']['xonxoff'],
         rtscts=conf['flow_control']['rtscts'],
-        dsrdtr=conf['flow_control']['dsrdtr'],
-        silent_interval=conf['silent_interval'],
-        address_size=link.common.AddressSize.ONE,
-        keep_alive_timeout=10)
+        dsrdtr=conf['flow_control']['dsrdtr'])
+
+    async def connect(address):
+        conn = await slave_link.open_connection(
+            addr=address,
+            keep_alive_timeout=10)
+        conn = Connection(conn)
+        if connection_cb:
+            await aio.call(connection_cb, conn)
+
+        await conn.wait_closed()
+
+    for dev_conf in conf['remote_devices']:
+        slave_link.async_group.spawn(connect, dev_conf['address'])
+
+    return slave_link
 
 
 def time_to_event_timestamp(time):
@@ -359,6 +364,10 @@ async def serial_conns(monkeypatch):
     return conns
 
 
+def test_device_type():
+    assert info.type == 'iec103_master'
+
+
 @pytest.mark.parametrize("conf", [get_conf(remote_addresses=[1, 2, 3])])
 def test_valid_conf(conf):
     validator = json.DefaultSchemaValidator(info.json_schema_repo)
@@ -443,13 +452,12 @@ async def test_status(serial_conns):
 
 @pytest.mark.parametrize("address", [0])
 async def test_enable_remote_device(serial_conns, address):
-    conn_queue = aio.Queue()
     event_queue = aio.Queue()
 
     conf = get_conf([address])
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
-    slave = await create_slave(conf, conn_queue.put_nowait)
+    slave = await create_slave(conf)
     device = await create_device(conf, eventer_client)
 
     event = await event_queue.get()
@@ -609,7 +617,7 @@ async def test_command(serial_conns, address, asdu_address, io_function,
                     value=value,
                     time=default_time,
                     supplementary=return_identifier))])])
-    conn.send(asdu)
+    await conn.send(asdu)
 
     event = await event_queue.get()
     assert_command_event(event, address, asdu_address, io_function,
@@ -661,7 +669,7 @@ async def test_interrogation(serial_conns, address, asdu_address):
             address=encoding.IoAddress(255, 0),
             elements=[encoding.IoElement_GENERAL_INTERROGATION_TERMINATION(  # NOQA
                 scan_number=scan_number)])])
-    conn.send(asdu)
+    await conn.send(asdu)
 
     event = await event_queue.get()
     assert_interrogation_event(event, address, asdu_address)
@@ -706,7 +714,7 @@ async def test_double_data(serial_conns, address, asdu_address, io_function,
                     value=value,
                     time=time,
                     supplementary=0))])])
-    conn.send(asdu)
+    await conn.send(asdu)
 
     event = await event_queue.get()
     assert_data_event(event, address, 'double', asdu_address, io_function,
@@ -725,7 +733,7 @@ async def test_double_data(serial_conns, address, asdu_address, io_function,
                     fault_number=321,
                     time=time,
                     supplementary=0))])])
-    conn.send(asdu)
+    await conn.send(asdu)
 
     event = await event_queue.get()
     assert_data_event(event, address, 'double', asdu_address, io_function,
@@ -788,7 +796,7 @@ async def test_m1_data(serial_conns, address, asdu_address, io_function,
         ios=[encoding.IO(
             address=encoding.IoAddress(io_function, io_information),
             elements=elements)])
-    conn.send(asdu)
+    await conn.send(asdu)
 
     events = collections.deque()
     for _ in data_types:
@@ -872,7 +880,7 @@ async def test_m2_data(serial_conns, address, asdu_address, io_function,
         ios=[encoding.IO(
             address=encoding.IoAddress(io_function, io_information),
             elements=elements)])
-    conn.send(asdu)
+    await conn.send(asdu)
 
     events = collections.deque()
     for _ in data_types:
