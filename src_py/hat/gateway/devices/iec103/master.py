@@ -102,17 +102,17 @@ class Iec103MasterDevice(common.Device):
                 await self._register_status('CONNECTING')
 
                 try:
-                    self._master = await link.unbalanced.create_master(
+                    self._master = await link.create_master_link(
                             port=self._conf['port'],
+                            address_size=link.AddressSize.ONE,
+                            silent_interval=self._conf['silent_interval'],
                             baudrate=self._conf['baudrate'],
                             bytesize=serial.ByteSize[self._conf['bytesize']],
                             parity=serial.Parity[self._conf['parity']],
                             stopbits=serial.StopBits[self._conf['stopbits']],
                             xonxoff=self._conf['flow_control']['xonxoff'],
                             rtscts=self._conf['flow_control']['rtscts'],
-                            dsrdtr=self._conf['flow_control']['dsrdtr'],
-                            silent_interval=self._conf['silent_interval'],
-                            address_size=link.AddressSize.ONE)
+                            dsrdtr=self._conf['flow_control']['dsrdtr'])
 
                 except Exception as e:
                     mlog.warning('link master (endpoint) failed to create: %s',
@@ -151,7 +151,7 @@ class Iec103MasterDevice(common.Device):
                 await self._register_rmt_status(address, 'CONNECTING')
 
                 try:
-                    conn_link = await self._master.connect(
+                    conn_link = await self._master.open_connection(
                         addr=address,
                         response_timeout=remote_conf['response_timeout'],
                         send_retry_count=remote_conf['send_retry_count'],
