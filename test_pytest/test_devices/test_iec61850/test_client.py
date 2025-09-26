@@ -103,7 +103,10 @@ def assert_data_event(event: hat.event.common.Event,
     assert event.payload.data['reasons'] == [reason.name for reason in reasons]
 
     if value is not None:
-        assert event.payload.data['value'] == value
+        if isinstance(value, float):
+            math.isclose(event.payload.data['value'], value)
+        else:
+            assert event.payload.data['value'] == value
 
     if quality is not None:
         assert event.payload.data['quality'] == {
@@ -2499,24 +2502,109 @@ async def test_data_subset_report(addr, create_conf):
     await client.async_close()
 
 
-async def test_data_superset_report(addr, create_conf):
+@pytest.mark.parametrize(
+    'value_type, data_ref, report_data_value, value_names, quality_names, '
+    'timestamp_names, selected_names, value, quality, timestamp, selected', [
+     (iec61850.StructValueType([
+        ('value', iec61850.BasicValueType.INTEGER),
+        ('quality', iec61850.AcsiValueType.QUALITY),
+        ('timestamp', iec61850.AcsiValueType.TIMESTAMP),
+        ('selected', iec61850.BasicValueType.BOOLEAN)]),
+      iec61850.DataRef(logical_device='ld',
+                       logical_node='ln',
+                       fc='fc',
+                       names=('a', )),
+      {'value': 1,
+       'quality': iec61850.Quality(
+            validity=iec61850.QualityValidity.GOOD,
+            details=set(),
+            source=iec61850.QualitySource.PROCESS,
+            test=False,
+            operator_blocked=False),
+       'timestamp': iec61850.Timestamp(
+            value=datetime.datetime.now(datetime.timezone.utc),
+            leap_second=False,
+            clock_failure=False,
+            not_synchronized=False,
+            accuracy=0),
+       'selected': False},
+      ['value'],
+      ['quality'],
+      ['timestamp'],
+      ['selected'],
+      1,
+      iec61850.Quality(
+        validity=iec61850.QualityValidity.GOOD,
+        details=set(),
+        source=iec61850.QualitySource.PROCESS,
+        test=False,
+        operator_blocked=False),
+      iec61850.Timestamp(
+        value=datetime.datetime.now(datetime.timezone.utc),
+        leap_second=False,
+        clock_failure=False,
+        not_synchronized=False,
+        accuracy=0),
+      False),
+     (iec61850.AcsiValueType.VECTOR,
+      iec61850.DataRef(logical_device='ld',
+                       logical_node='ln',
+                       fc='fc',
+                       names=('a', )),
+      iec61850.Vector(magnitude=iec61850.Analogue(f=123.456, i=None),
+                      angle=None),
+      ['mag', 'f'],
+      None,
+      None,
+      None,
+      123.456,
+      None,
+      None,
+      None),
+     (iec61850.AcsiValueType.STEP_POSITION,
+      iec61850.DataRef(logical_device='ld',
+                       logical_node='ln',
+                       fc='fc',
+                       names=('a', )),
+      iec61850.StepPosition(value=234,
+                            transient=True),
+      ['posVal'],
+      None,
+      None,
+      None,
+      234,
+      None,
+      None,
+      None),
+     (iec61850.AcsiValueType.STEP_POSITION,
+      iec61850.DataRef(logical_device='ld',
+                       logical_node='ln',
+                       fc='fc',
+                       names=('a', )),
+      iec61850.StepPosition(value=234,
+                            transient=True),
+      ['transInd'],
+      None,
+      None,
+      None,
+      True,
+      None,
+      None,
+      None),
+    ])
+async def test_data_superset_report(addr, create_conf, value_type,
+                                    data_ref, report_data_value, value_names,
+                                    quality_names, timestamp_names,
+                                    selected_names, value, quality, timestamp,
+                                    selected):
     event_queue = aio.Queue()
 
     name = 'data name'
     report_id = 'report id'
     dataset = 'ds'
-    logical_device = 'ld'
-    logical_node = 'ln'
+    logical_device = data_ref.logical_device
+    logical_node = data_ref.logical_node
     rcb_type = iec61850.RcbType.BUFFERED
-    value_type = iec61850.StructValueType([
-        ('value', iec61850.BasicValueType.INTEGER),
-        ('quality', iec61850.AcsiValueType.QUALITY),
-        ('timestamp', iec61850.AcsiValueType.TIMESTAMP),
-        ('selected', iec61850.BasicValueType.BOOLEAN)])
-    data_ref = iec61850.DataRef(logical_device=logical_device,
-                                logical_node=logical_node,
-                                fc='fc',
-                                names=('a', ))
     rcb_ref = iec61850.RcbRef(logical_device=logical_device,
                               logical_node=logical_node,
                               type=rcb_type,
@@ -2524,6 +2612,27 @@ async def test_data_superset_report(addr, create_conf):
     data_defs = [DataDef(ref=data_ref,
                          value_type=value_type)]
 
+    data_conf = {'name': name,
+                 'report_id': report_id,
+                 'value': {'logical_device': logical_device,
+                           'logical_node': logical_node,
+                           'fc': data_ref.fc,
+                           'names': [*data_ref.names, *value_names]}}
+    if quality_names:
+        data_conf['quality'] = {'logical_device': logical_device,
+                                'logical_node': logical_node,
+                                'fc': data_ref.fc,
+                                'names': [*data_ref.names, *quality_names]}
+    if timestamp_names:
+        data_conf['timestamp'] = {'logical_device': logical_device,
+                                  'logical_node': logical_node,
+                                  'fc': data_ref.fc,
+                                  'names': [*data_ref.names, *timestamp_names]}
+    if selected_names:
+        data_conf['selected'] = {'logical_device': logical_device,
+                                 'logical_node': logical_node,
+                                 'fc': data_ref.fc,
+                                 'names': [*data_ref.names, *selected_names]}
     conf = create_conf(
         value_types=[
             {'logical_device': logical_device,
@@ -2543,24 +2652,7 @@ async def test_data_superset_report(addr, create_conf):
                        'name': rcb_ref.name},
                'report_id': report_id,
                'dataset': dataset}],
-        data=[{'name': name,
-               'report_id': report_id,
-               'value': {'logical_device': logical_device,
-                         'logical_node': logical_node,
-                         'fc': data_ref.fc,
-                         'names': ['a', 'value']},
-               'quality': {'logical_device': logical_device,
-                           'logical_node': logical_node,
-                           'fc': data_ref.fc,
-                           'names': ['a', 'quality']},
-               'timestamp': {'logical_device': logical_device,
-                             'logical_node': logical_node,
-                             'fc': data_ref.fc,
-                             'names': ['a', 'timestamp']},
-               'selected': {'logical_device': logical_device,
-                            'logical_node': logical_node,
-                            'fc': data_ref.fc,
-                            'names': ['a', 'selected']}}])
+        data=[data_conf])
 
     client = EventerClient(event_cb=event_queue.put_nowait)
 
@@ -2579,21 +2671,6 @@ async def test_data_superset_report(addr, create_conf):
     event = await event_queue.get()
     assert_status_event(event, 'CONNECTED')
 
-    value = 1
-    quality = iec61850.Quality(
-        validity=iec61850.QualityValidity.GOOD,
-        details=set(),
-        source=iec61850.QualitySource.PROCESS,
-        test=False,
-        operator_blocked=False)
-    timestamp = iec61850.Timestamp(
-        value=datetime.datetime.now(datetime.timezone.utc),
-        leap_second=False,
-        clock_failure=False,
-        not_synchronized=False,
-        accuracy=0)
-    selected = False
-
     report = iec61850.Report(
         report_id=report_id,
         sequence_number=None,
@@ -2604,12 +2681,10 @@ async def test_data_superset_report(addr, create_conf):
         conf_revision=None,
         entry_time=None,
         entry_id=None,
-        data=[iec61850.ReportData(ref=data_ref,
-                                  value={'value': value,
-                                         'quality': quality,
-                                         'timestamp': timestamp,
-                                         'selected': selected},
-                                  reasons={iec61850.Reason.DATA_CHANGE})])
+        data=[iec61850.ReportData(
+            ref=data_ref,
+            value=report_data_value,
+            reasons={iec61850.Reason.DATA_CHANGE})])
     await server.send_report(report, data_defs)
 
     entry_id_event = None

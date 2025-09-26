@@ -44,8 +44,11 @@ async def create(conf: common.DeviceConf,
     dataset_confs = {_dataset_ref_from_conf(ds_conf['ref']): ds_conf
                      for ds_conf in conf['datasets']}
     value_ref_data_name = {}
+    data_value_types = {}
     for data_conf in conf['data']:
         data_v_ref = _value_ref_from_conf(data_conf['value'])
+        data_value_types[data_v_ref] = _value_type_from_ref(
+            value_types, data_v_ref)
 
         q_ref = (_value_ref_from_conf(data_conf['quality'])
                  if data_conf.get('quality') else None)
@@ -123,6 +126,7 @@ async def create(conf: common.DeviceConf,
     device._reports_segments = {}
 
     device._value_ref_data_name = value_ref_data_name
+    device._data_value_types = data_value_types
     device._dataset_values_ref_type = dataset_values_ref_type
     device._command_ref_value_type = command_ref_value_type
     device._change_ref_value_type = change_ref_value_type
@@ -143,8 +147,8 @@ async def create(conf: common.DeviceConf,
             value_ref = _value_ref_from_conf(value_conf)
             device._report_data_refs[report_id].append(value_ref)
 
-    device._data_value_types = dict(
-        _get_data_value_types(conf, value_types_61850))
+    device._dataset_change_value_types = dict(
+        _get_dataset_change_value_types(conf, value_types_61850))
     device._cmd_value_types = dict(
         _get_cmd_value_types(conf, value_types_61850))
 
@@ -206,7 +210,7 @@ class Iec61850ClientDevice(common.Device):
                         iec61850.connect(
                             addr=tcp.Address(conn_conf['host'],
                                              conn_conf['port']),
-                            data_value_types=self._data_value_types,
+                            data_value_types=self._dataset_change_value_types,
                             cmd_value_types=self._cmd_value_types,
                             report_data_refs=self._report_data_refs,
                             report_cb=self._on_report,
@@ -459,7 +463,10 @@ class Iec61850ClientDevice(common.Device):
             value_path = _conf_ref_to_path(data_conf['value'])
             value_json = json.get(values_json, value_path)
             if value_json is not None:
-                payload['value'] = value_json
+                value_ref = _value_ref_from_conf(data_conf['value'])
+                value_type = self._data_value_types[value_ref]
+                payload['value'] = _value_json_to_event_json(
+                    value_json, value_type)
 
             if 'quality' in data_conf:
                 quality_path = _conf_ref_to_path(data_conf['quality'])
@@ -783,6 +790,31 @@ def _value_type_from_ref(value_types, ref):
             if isinstance(value_type, iec61850.StructValueType):
                 _, value_type = util.first(
                     value_type.elements, lambda i: i[0] == name)
+
+            elif value_type == iec61850.AcsiValueType.ANALOGUE:
+                if name == 'i':
+                    value_type = iec61850.BasicValueType.INTEGER
+                elif name == 'f':
+                    value_type = iec61850.BasicValueType.FLOAT
+                else:
+                    raise Exception("analogue attribute should be 'i' or 'f'")
+
+            elif value_type == iec61850.AcsiValueType.VECTOR:
+                if name in ('mag', 'ang'):
+                    value_type = iec61850.AcsiValueType.ANALOGUE
+                else:
+                    raise Exception(
+                        "vector attribute should be 'mag' or 'ang'")
+
+            elif value_type == iec61850.AcsiValueType.STEP_POSITION:
+                if name == 'posVal':
+                    value_type = iec61850.BasicValueType.INTEGER
+                elif name == 'transInd':
+                    value_type = iec61850.BasicValueType.BOOLEAN
+                else:
+                    raise Exception("step position attribute should be "
+                                    "'posVal' or 'transInd'")
+
             else:
                 value_type = value_type[name]
 
@@ -792,7 +824,7 @@ def _value_type_from_ref(value_types, ref):
     return value_type
 
 
-def _get_data_value_types(conf, value_types):
+def _get_dataset_change_value_types(conf, value_types):
     for ds_conf in conf['datasets']:
         for val_ref_conf in ds_conf['values']:
             value_ref = _value_ref_from_conf(val_ref_conf)
@@ -1000,17 +1032,17 @@ def _value_to_json(data_value, value_type):
             return val
 
         if value_type == iec61850.AcsiValueType.VECTOR:
-            val = {'magnitude': _value_to_json(
+            val = {'mag': _value_to_json(
                         data_value.magnitude, iec61850.AcsiValueType.ANALOGUE)}
             if data_value.angle is not None:
-                val['angle'] = _value_to_json(
+                val['ang'] = _value_to_json(
                     data_value.angle, iec61850.AcsiValueType.ANALOGUE)
             return val
 
         if value_type == iec61850.AcsiValueType.STEP_POSITION:
-            val = {'value': data_value.value}
+            val = {'posVal': data_value.value}
             if data_value.transient is not None:
-                val['transient'] = data_value.transient
+                val['transInd'] = data_value.transient
             return val
 
     if isinstance(value_type, iec61850.ArrayValueType):
@@ -1022,6 +1054,32 @@ def _value_to_json(data_value, value_type):
             for child_name, child_value in data_value.items()}
 
     raise Exception('unsupported value type')
+
+
+def _value_json_to_event_json(data_value, value_type):
+    if value_type == iec61850.AcsiValueType.VECTOR:
+        val = {'magnitude': data_value['mag']}
+        if 'ang' in data_value:
+            val['angle'] = data_value['ang']
+        return val
+
+    if value_type == iec61850.AcsiValueType.STEP_POSITION:
+        val = {'value': data_value['posVal']}
+        if 'transInd' in data_value:
+            val['transient'] = data_value['transInd']
+        return val
+
+    if isinstance(value_type, iec61850.ArrayValueType):
+        return [_value_json_to_event_json(i, value_type.type)
+                for i in data_value]
+
+    if isinstance(value_type, dict):
+        return {
+            child_name: _value_json_to_event_json(
+                child_value, value_type[child_name])
+            for child_name, child_value in data_value.items()}
+
+    return data_value
 
 
 def _update_ctl_num(ctl_num, action, cmd_model):
