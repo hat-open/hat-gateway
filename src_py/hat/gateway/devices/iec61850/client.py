@@ -769,7 +769,7 @@ def _value_type_from_str(vt_conf):
 def _value_type_from_ref(value_types, ref):
     left_names = []
     if isinstance(ref, iec61850.CommandRef):
-        left_names = []
+        left_names = ['Oper', 'ctlVal']
         key = (ref.logical_device, ref.logical_node, 'CO', ref.name)
 
     elif isinstance(ref, iec61850.DataRef):

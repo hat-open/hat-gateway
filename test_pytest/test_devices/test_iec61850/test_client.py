@@ -1424,15 +1424,24 @@ async def test_command_success(addr, create_conf, model, with_operate_time,
         assert cmd.test == test
         assert cmd.checks == (checks if not is_cancel else set())
 
-    conf = create_conf(value_types=[{'logical_device': cmd_ref.logical_device,
-                                     'logical_node': cmd_ref.logical_node,
-                                     'fc': 'CO',
-                                     'name': cmd_ref.name,
-                                     'type': value_type_to_json(value_type)}],
-                       commands=[{'name': name,
-                                  'model': model,
-                                  'ref': cmd_ref._asdict(),
-                                  'with_operate_time': with_operate_time}])
+    conf = create_conf(
+        value_types=[
+            {'logical_device': cmd_ref.logical_device,
+             'logical_node': cmd_ref.logical_node,
+             'fc': 'CO',
+             'name': cmd_ref.name,
+             'type': {'type': 'STRUCT',
+                      'elements': [
+                        {'name': 'Oper',
+                         'type': {
+                            'type': 'STRUCT',
+                            'elements': [{'name': 'ctlVal',
+                                          'type': value_type_to_json(
+                                             value_type)}]}}]}}],
+        commands=[{'name': name,
+                   'model': model,
+                   'ref': cmd_ref._asdict(),
+                   'with_operate_time': with_operate_time}])
 
     client = EventerClient(event_cb=event_queue.put_nowait)
 
@@ -1554,15 +1563,24 @@ async def test_command_error(addr, create_conf, model, with_operate_time,
     def on_command(cmd_ref, cmd):
         return mms.DataAccessError.OBJECT_UNDEFINED
 
-    conf = create_conf(value_types=[{'logical_device': cmd_ref.logical_device,
-                                     'logical_node': cmd_ref.logical_node,
-                                     'fc': 'CO',
-                                     'name': cmd_ref.name,
-                                     'type': value_type_to_json(value_type)}],
-                       commands=[{'name': name,
-                                  'model': model,
-                                  'ref': cmd_ref._asdict(),
-                                  'with_operate_time': with_operate_time}])
+    conf = create_conf(
+        value_types=[
+            {'logical_device': cmd_ref.logical_device,
+             'logical_node': cmd_ref.logical_node,
+             'fc': 'CO',
+             'name': cmd_ref.name,
+             'type': {'type': 'STRUCT',
+                      'elements': [
+                        {'name': 'Oper',
+                         'type': {
+                            'type': 'STRUCT',
+                            'elements': [{'name': 'ctlVal',
+                                          'type': value_type_to_json(
+                                            value_type)}]}}]}}],
+        commands=[{'name': name,
+                   'model': model,
+                   'ref': cmd_ref._asdict(),
+                   'with_operate_time': with_operate_time}])
 
     client = EventerClient(event_cb=event_queue.put_nowait)
 

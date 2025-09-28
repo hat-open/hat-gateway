@@ -1,7 +1,7 @@
 appdirs ~=1.4.4
 hat-aio ~=0.7.12
 hat-doit ~=0.16.2
-hat-drivers ~=0.9.17
+hat-drivers ~=0.9.23
 hat-event ~=0.9.36
 hat-json ~=0.6.3
 hat-monitor ~=0.8.19
