@@ -620,11 +620,7 @@ class Iec61850ClientDevice(common.Device):
                     mlog.debug('dataset %s already exists', ds_ref)
                     continue
 
-                mlog.debug("dataset %s exists, but different", ds_ref)
-                res = await self._conn.delete_dataset(ds_ref)
-                if res is not None:
-                    raise Exception(f'delete dataset {ds_ref} failed: {res}')
-                mlog.debug("dataset %s deleted", ds_ref)
+                raise Exception('persisted dataset changed')
 
             res = await self._conn.create_dataset(ds_ref, ds_value_refs)
             if res is not None:

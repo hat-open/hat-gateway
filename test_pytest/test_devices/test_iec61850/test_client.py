@@ -415,14 +415,11 @@ async def test_dynamic_dataset(addr, create_conf, ref_conf, dataset_ref,
 
 async def test_dynamic_dataset_changed_values(addr, create_conf):
     dataset_queue = aio.Queue()
+    rcb_queue = aio.Queue()
 
     dataset_ref = iec61850.PersistedDatasetRef(logical_device='ld',
                                                logical_node='ln',
                                                name='ds')
-    data_ref_a = iec61850.DataRef(logical_device='ld',
-                                  logical_node='ln',
-                                  fc='fc',
-                                  names=('a', ))
     data_ref_b = iec61850.DataRef(logical_device='ld',
                                   logical_node='ln',
                                   fc='fc',
@@ -440,18 +437,20 @@ async def test_dynamic_dataset_changed_values(addr, create_conf):
 
     server = await create_server(addr=addr,
                                  datasets={dataset_ref: [data_ref_b]},
+                                 rcb_cb=create_queue_cb(rcb_queue),
                                  dataset_cb=create_queue_cb(dataset_queue))
     device = await aio.call(info.create, conf, client, event_type_prefix)
 
-    result_dataset_ref, result_data_refs = await dataset_queue.get()
+    async def wait_gi():
+        while True:
+            _, attr_type, __ = await rcb_queue.get()
+            if attr_type == iec61850.RcbAttrType.GI:
+                return
 
-    assert result_dataset_ref == dataset_ref
-    assert result_data_refs is None
+    with pytest.raises(asyncio.TimeoutError):
+        await aio.wait_for(wait_gi(), 0.1)
 
-    result_dataset_ref, result_data_refs = await dataset_queue.get()
-
-    assert result_dataset_ref == dataset_ref
-    assert list(result_data_refs) == [data_ref_a]
+    assert dataset_queue.empty()
 
     await device.async_close()
     await server.async_close()
