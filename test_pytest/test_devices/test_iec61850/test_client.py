@@ -525,12 +525,7 @@ async def test_rcb_enable(addr, create_conf, rcb_type):
         rcb_cb=create_queue_cb(rcb_queue))
     device = await aio.call(info.create, conf, client, event_type_prefix)
 
-    result_rcb_ref, attr_type, attr_value = await rcb_queue.get()
-    assert result_rcb_ref == rcb_ref
-    assert attr_type == iec61850.RcbAttrType.REPORT_ENABLE
-    assert attr_value is False
-
-    async def wait_enable_true():
+    async def wait_enable(value):
         while True:
             result_rcb_ref, attr_type, attr_value = await rcb_queue.get()
             assert result_rcb_ref == rcb_ref
@@ -538,10 +533,12 @@ async def test_rcb_enable(addr, create_conf, rcb_type):
             if attr_type != iec61850.RcbAttrType.REPORT_ENABLE:
                 continue
 
-            assert attr_value is True
+            assert attr_value is value
             break
 
-    await aio.wait_for(wait_enable_true(), 0.1)
+    await aio.wait_for(wait_enable(False), 0.1)
+
+    await aio.wait_for(wait_enable(True), 0.1)
 
     await device.async_close()
     await server.async_close()
@@ -1098,6 +1095,11 @@ async def test_rcb_reservation_time(addr, create_conf, rcb_type,
         rcb_cb=create_queue_cb(rcb_queue))
     device = await aio.call(info.create, conf, client, event_type_prefix)
 
+    if rcb_type == iec61850.RcbType.BUFFERED and reservation_time is not None:
+        _, attr_type, attr_value = await rcb_queue.get()
+        assert attr_type == iec61850.RcbAttrType.RESERVATION_TIME
+        assert attr_value == reservation_time
+
     async def wait_gi():
         while True:
             _, attr_type, __ = await rcb_queue.get()
@@ -1147,6 +1149,11 @@ async def test_rcb_reserve(addr, create_conf, rcb_type):
                     'ds')}},
         rcb_cb=create_queue_cb(rcb_queue))
     device = await aio.call(info.create, conf, client, event_type_prefix)
+
+    if rcb_type == iec61850.RcbType.UNBUFFERED:
+        _, attr_type, attr_value = await rcb_queue.get()
+        assert attr_type == iec61850.RcbAttrType.RESERVE
+        assert attr_value is True
 
     async def wait_gi():
         while True:

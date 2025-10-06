@@ -521,6 +521,16 @@ class Iec61850ClientDevice(common.Device):
         get_rcb_resp = await self._conn.get_rcb_attrs(ref, get_attrs)
         _validate_get_rcb_response(get_rcb_resp, rcb_conf)
 
+        if ref.type == iec61850.RcbType.BUFFERED:
+            if 'reservation_time' in rcb_conf:
+                await self._set_rcb(
+                    ref, [(iec61850.RcbAttrType.RESERVATION_TIME,
+                           rcb_conf['reservation_time'])])
+        elif ref.type == iec61850.RcbType.UNBUFFERED:
+            await self._set_rcb(ref, [(iec61850.RcbAttrType.RESERVE, True)])
+        else:
+            raise Exception('unexpected rcb type')
+
         await self._set_rcb(ref, [(iec61850.RcbAttrType.REPORT_ENABLE, False)])
 
         if dataset_ref in self._dyn_datasets_values:
@@ -529,11 +539,6 @@ class Iec61850ClientDevice(common.Device):
                 critical=True)
 
         if ref.type == iec61850.RcbType.BUFFERED:
-            if 'reservation_time' in rcb_conf:
-                await self._set_rcb(
-                    ref, [(iec61850.RcbAttrType.RESERVATION_TIME,
-                           rcb_conf['reservation_time'])])
-
             entry_id = self._rcbs_entry_ids.get(rcb_conf['report_id'])
             if rcb_conf.get('purge_buffer') or entry_id is None:
                 await self._set_rcb(
@@ -550,9 +555,6 @@ class Iec61850ClientDevice(common.Device):
                     # try setting entry id to 0 in order to resynchronize
                     await self._set_rcb(
                         ref, [(iec61850.RcbAttrType.ENTRY_ID, b'\x00')])
-
-        elif ref.type == iec61850.RcbType.UNBUFFERED:
-            await self._set_rcb(ref, [(iec61850.RcbAttrType.RESERVE, True)])
 
         attrs = collections.deque()
         if 'trigger_options' in rcb_conf:
