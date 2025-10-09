@@ -223,7 +223,7 @@ async def serial_conns(monkeypatch):
         async def drain(self):
             pass
 
-        async def reset_input_buffer(self):
+        async def clear_input_buffer(self):
             return 0
 
     monkeypatch.setattr(serial, 'create', create)
