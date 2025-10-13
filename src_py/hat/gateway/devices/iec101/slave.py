@@ -284,7 +284,7 @@ class Iec101SlaveDevice(common.Device):
 
     async def _register_connections(self):
         payload = [{'connection_id': conn_id,
-                    'address': conn.address}
+                    'address': conn.info.address}
                    for conn_id, conn in self._conns.items()]
 
         event = hat.event.common.RegisterEvent(
