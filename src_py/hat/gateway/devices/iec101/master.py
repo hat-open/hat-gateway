@@ -70,6 +70,7 @@ class Iec101MasterDevice(common.Device):
         self._remote_confs = {i['address']: i
                               for i in conf['remote_devices']}
         self._remote_groups = {}
+        self._log = common.create_device_logger_adapter(mlog, conf['name'])
 
         self.async_group.spawn(self._link_loop)
         self.async_group.spawn(self._send_loop)
@@ -84,7 +85,7 @@ class Iec101MasterDevice(common.Device):
                 await self._process_event(event)
 
             except Exception as e:
-                mlog.warning('error processing event: %s', e, exc_info=e)
+                self._log.warning('error processing event: %s', e, exc_info=e)
 
     async def _link_loop(self):
 
@@ -120,11 +121,13 @@ class Iec101MasterDevice(common.Device):
                         stopbits=serial.StopBits[self._conf['stopbits']],
                         xonxoff=self._conf['flow_control']['xonxoff'],
                         rtscts=self._conf['flow_control']['rtscts'],
-                        dsrdtr=self._conf['flow_control']['dsrdtr'])
+                        dsrdtr=self._conf['flow_control']['dsrdtr'],
+                        name=self._conf['name'])
 
                 except Exception as e:
-                    mlog.warning('link master (endpoint) failed to create: %s',
-                                 e, exc_info=e)
+                    self._log.warning(
+                        'link master (endpoint) failed to create: %s',
+                        e, exc_info=e)
                     await self._register_status('DISCONNECTED')
                     await asyncio.sleep(self._conf['reconnect_delay'])
                     continue
@@ -140,10 +143,10 @@ class Iec101MasterDevice(common.Device):
                 self._link = None
 
         except Exception as e:
-            mlog.error('create link master error: %s', e, exc_info=e)
+            self._log.error('create link master error: %s', e, exc_info=e)
 
         finally:
-            mlog.debug('closing link master loop')
+            self._log.debug('closing link master loop')
             self.close()
             self._conns = {}
             await aio.uncancellable(cleanup())
@@ -154,17 +157,17 @@ class Iec101MasterDevice(common.Device):
 
             conn = self._conns.get(address)
             if not conn or not conn.is_open:
-                mlog.warning('msg %s not sent, connection to %s closed',
-                             msg, address)
+                self._log.warning('msg %s not sent, connection to %s closed',
+                                  msg, address)
                 continue
 
             try:
                 await conn.send([msg])
-                mlog.debug('msg sent asdu=%s', msg.asdu_address)
+                self._log.debug('msg sent asdu=%s', msg.asdu_address)
 
             except ConnectionError:
-                mlog.warning('msg %s not sent, connection to %s closed',
-                             msg, address)
+                self._log.warning('msg %s not sent, connection to %s closed',
+                                  msg, address)
 
     async def _connection_loop(self, group, address):
 
@@ -186,7 +189,8 @@ class Iec101MasterDevice(common.Device):
                     'addr': address,
                     'response_timeout': remote_conf['response_timeout'],
                     'send_retry_count': remote_conf['send_retry_count'],
-                    'status_delay': remote_conf['status_delay']}
+                    'status_delay': remote_conf['status_delay'],
+                    'name': self._conf['name']}
 
             elif self._conf['link_type'] == 'UNBALANCED':
                 conn_args = {
@@ -194,7 +198,8 @@ class Iec101MasterDevice(common.Device):
                     'response_timeout': remote_conf['response_timeout'],
                     'send_retry_count': remote_conf['send_retry_count'],
                     'poll_class1_delay': remote_conf['poll_class1_delay'],
-                    'poll_class2_delay': remote_conf['poll_class2_delay']}
+                    'poll_class2_delay': remote_conf['poll_class2_delay'],
+                    'name': self._conf['name']}
 
             else:
                 raise ValueError('unsupported link type')
@@ -206,8 +211,8 @@ class Iec101MasterDevice(common.Device):
                     conn = await self._link.open_connection(**conn_args)
 
                 except Exception as e:
-                    mlog.error('connection error to address %s: %s',
-                               address, e, exc_info=e)
+                    self._log.error('connection error to address %s: %s',
+                                    address, e, exc_info=e)
                     await self._register_rmt_status(address, 'DISCONNECTED')
                     await asyncio.sleep(remote_conf['reconnect_delay'])
                     continue
@@ -233,10 +238,10 @@ class Iec101MasterDevice(common.Device):
                 self._conns.pop(address, None)
 
         except Exception as e:
-            mlog.error('connection loop error: %s', e, exc_info=e)
+            self._log.error('connection loop error: %s', e, exc_info=e)
 
         finally:
-            mlog.debug('closing remote device %s', address)
+            self._log.debug('closing remote device %s', address)
             group.close()
             await aio.uncancellable(cleanup())
 
@@ -247,7 +252,7 @@ class Iec101MasterDevice(common.Device):
                     msgs = await conn.receive()
 
                 except iec101.AsduTypeError as e:
-                    mlog.warning("asdu type error: %s", e)
+                    self._log.warning("asdu type error: %s", e)
                     continue
 
                 events = collections.deque()
@@ -261,21 +266,21 @@ class Iec101MasterDevice(common.Device):
                         events.append(event)
 
                     except Exception as e:
-                        mlog.warning('message %s ignored due to: %s',
-                                     msg, e, exc_info=e)
+                        self._log.warning('message %s ignored due to: %s',
+                                          msg, e, exc_info=e)
 
                 if not events:
                     continue
 
                 await self._eventer_client.register(events)
                 for e in events:
-                    mlog.debug('registered event %s', e)
+                    self._log.debug('registered event %s', e)
 
         except ConnectionError:
-            mlog.debug('connection closed')
+            self._log.debug('connection closed')
 
         except Exception as e:
-            mlog.error('receive loop error: %s', e, exc_info=e)
+            self._log.error('receive loop error: %s', e, exc_info=e)
 
         finally:
             conn.close()
@@ -295,15 +300,15 @@ class Iec101MasterDevice(common.Device):
                     is_negative_confirm=False,
                     cause=iec101.ClockSyncReqCause.ACTIVATION)
                 await conn.send([msg])
-                mlog.debug('time sync sent %s', time_iec101)
+                self._log.debug('time sync sent %s', time_iec101)
 
                 await asyncio.sleep(delay)
 
         except ConnectionError:
-            mlog.debug('connection closed')
+            self._log.debug('connection closed')
 
         except Exception as e:
-            mlog.error('time sync loop error: %s', e, exc_info=e)
+            self._log.error('time sync loop error: %s', e, exc_info=e)
 
         finally:
             conn.close()
@@ -330,24 +335,26 @@ class Iec101MasterDevice(common.Device):
             msg = _command_from_event(cmd_key, event)
 
             await self._send_queue.put((msg, address))
-            mlog.debug('command asdu=%s io=%s prepared for sending',
-                       cmd_key.asdu_address, cmd_key.io_address)
+            self._log.debug('command asdu=%s io=%s prepared for sending',
+                            cmd_key.asdu_address, cmd_key.io_address)
 
         elif match_type((*prefix, 'interrogation', '?')):
             asdu_address = int(suffix[1])
             msg = _interrogation_from_event(asdu_address, event)
 
             await self._send_queue.put((msg, address))
-            mlog.debug("interrogation request asdu=%s prepared for sending",
-                       asdu_address)
+            self._log.debug(
+                "interrogation request asdu=%s prepared for sending",
+                asdu_address)
 
         elif match_type((*prefix, 'counter_interrogation', '?')):
             asdu_address = int(suffix[1])
             msg = _counter_interrogation_from_event(asdu_address, event)
 
             await self._send_queue.put((msg, address))
-            mlog.debug("counter interrogation request asdu=%s prepared for "
-                       "sending", asdu_address)
+            self._log.debug(
+                "counter interrogation request asdu=%s prepared for sending",
+                asdu_address)
 
         else:
             raise Exception('unexpected event type')
@@ -361,7 +368,7 @@ class Iec101MasterDevice(common.Device):
             raise Exception('invalid enable event payload')
 
         if address not in self._remote_enabled:
-            mlog.warning('received enable for unexpected remote device')
+            self._log.warning('received enable for unexpected remote device')
             return
 
         self._remote_enabled[address] = enable
@@ -376,10 +383,10 @@ class Iec101MasterDevice(common.Device):
             self._enable_remote(address)
 
     def _enable_remote(self, address):
-        mlog.debug('enabling device %s', address)
+        self._log.debug('enabling device %s', address)
         remote_group = self._remote_groups.get(address)
         if remote_group and remote_group.is_open:
-            mlog.debug('device %s is already running', address)
+            self._log.debug('device %s is already running', address)
             return
 
         remote_group = self._async_group.create_subgroup()
@@ -387,7 +394,7 @@ class Iec101MasterDevice(common.Device):
         remote_group.spawn(self._connection_loop, remote_group, address)
 
     def _disable_remote(self, address):
-        mlog.debug('disabling device %s', address)
+        self._log.debug('disabling device %s', address)
         if address in self._remote_groups:
             remote_group = self._remote_groups.pop(address)
             remote_group.close()
@@ -398,7 +405,7 @@ class Iec101MasterDevice(common.Device):
             source_timestamp=None,
             payload=hat.event.common.EventPayloadJson(status))
         await self._eventer_client.register([event])
-        mlog.debug('device status -> %s', status)
+        self._log.debug('device status -> %s', status)
 
     async def _register_rmt_status(self, address, status):
         event = hat.event.common.RegisterEvent(
@@ -407,7 +414,7 @@ class Iec101MasterDevice(common.Device):
             source_timestamp=None,
             payload=hat.event.common.EventPayloadJson(status))
         await self._eventer_client.register([event])
-        mlog.debug('remote device %s status -> %s', address, status)
+        self._log.debug('remote device %s status -> %s', address, status)
 
 
 def _msg_to_event(event_type_prefix, address, msg):

@@ -84,6 +84,7 @@ def get_conf(link_type,
                                 'poll_class2_delay': None}
 
     return {
+        'name': '',
         'port': '/dev/ttyS0',
         'baudrate': 9600,
         'bytesize': 'EIGHTBITS',
@@ -374,7 +375,8 @@ async def serial_conns(monkeypatch):
                      xonxoff: bool = False,
                      rtscts: bool = False,
                      dsrdtr: bool = False,
-                     silent_interval: float = 0):
+                     silent_interval: float = 0,
+                     name: str | None = None):
         nonlocal valid_args
         args = {'port': port,
                 'baudrate': baudrate,
@@ -400,6 +402,11 @@ async def serial_conns(monkeypatch):
         @property
         def async_group(self):
             return self._async_group
+
+        @property
+        def info(self):
+            return serial.EndpointInfo(name=None,
+                                       port='')
 
         async def read(self, size):
             data = collections.deque()
