@@ -4,6 +4,7 @@ $defs:
     master:
         type: object
         required:
+            - name
             - remote_addresses
             - response_timeout
             - supervisory_timeout
@@ -14,6 +15,8 @@ $defs:
             - time_sync_delay
             - security
         properties:
+            name:
+                type: string
             remote_addresses:
                 type: array
                 items:

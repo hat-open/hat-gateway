@@ -63,10 +63,10 @@ class EventerClientProxy(aio.Resource):
     def __init__(self,
                  eventer_client: hat.event.eventer.Client,
                  event_type_prefix: common.EventTypePrefix,
-                 log_prefix: str):
+                 name: str):
         self._eventer_client = eventer_client
         self._event_type_prefix = event_type_prefix
-        self._log_prefix = log_prefix
+        self._log = common.create_device_logger_adapter(mlog, name)
 
     @property
     def async_group(self) -> aio.Group:
@@ -75,14 +75,13 @@ class EventerClientProxy(aio.Resource):
     def process_events(self,
                        events: Collection[hat.event.common.Event]
                        ) -> Iterable[Request]:
-        self._log(logging.DEBUG, 'received %s events', len(events))
+        self._log.debug('received %s events', len(events))
         for event in events:
             try:
                 yield _request_from_event(self._event_type_prefix, event)
 
             except Exception as e:
-                self._log(logging.INFO, 'received invalid event: %s', e,
-                          exc_info=e)
+                self._log.info('received invalid event: %s', e, exc_info=e)
 
     async def write(self, responses: Iterable[Response]):
         events = [_response_to_register_event(self._event_type_prefix, i)
@@ -90,14 +89,14 @@ class EventerClientProxy(aio.Resource):
         await self._eventer_client.register(events)
 
     async def query_enabled_devices(self) -> set[int]:
-        self._log(logging.DEBUG, 'querying enabled devices')
+        self._log.debug('querying enabled devices')
         enabled_devices = set()
 
         event_type = (*self._event_type_prefix, 'system', 'remote_device',
                       '?', 'enable')
         params = hat.event.common.QueryLatestParams([event_type])
         result = await self._eventer_client.query(params)
-        self._log(logging.DEBUG, 'received %s events', len(result.events))
+        self._log.debug('received %s events', len(result.events))
 
         for event in result.events:
             if not event.payload or not bool(event.payload.data):
@@ -107,15 +106,8 @@ class EventerClientProxy(aio.Resource):
             with contextlib.suppress(ValueError):
                 enabled_devices.add(int(device_id_str))
 
-        self._log(logging.DEBUG, 'detected %s enabled devices',
-                  len(enabled_devices))
+        self._log.debug('detected %s enabled devices', len(enabled_devices))
         return enabled_devices
-
-    def _log(self, level, msg, *args, **kwargs):
-        if not mlog.isEnabledFor(level):
-            return
-
-        mlog.log(level, f"{self._log_prefix}: {msg}", *args, **kwargs)
 
 
 def _request_from_event(event_type_prefix, event):

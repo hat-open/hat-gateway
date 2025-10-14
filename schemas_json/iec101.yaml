@@ -5,6 +5,7 @@ $defs:
         allOf:
           - type: object
             required:
+                - name
                 - port
                 - baudrate
                 - bytesize
@@ -17,6 +18,8 @@ $defs:
                 - io_address_size
                 - reconnect_delay
             properties:
+                name:
+                    type: string
                 port:
                     type: string
                 baudrate:

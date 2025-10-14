@@ -155,8 +155,8 @@ def create_conf(port):
         else:
             raise ValueError('unsupported snmp version')
 
-        return {'name': '',
-                **version_conf,
+        return {**version_conf,
+                'name': '',
                 'remote_host': '127.0.0.1',
                 'remote_port': port,
                 'connect_delay': connect_delay,

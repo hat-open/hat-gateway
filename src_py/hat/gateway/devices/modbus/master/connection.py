@@ -10,6 +10,8 @@ from hat.drivers import modbus
 from hat.drivers import serial
 from hat.drivers import tcp
 
+from hat.gateway import common
+
 
 mlog = logging.getLogger(__name__)
 
@@ -28,7 +30,7 @@ Error = enum.Enum('Error', [
 
 
 async def connect(conf: json.Data,
-                  log_prefix: str,
+                  name: str,
                   request_queue_size: int = 1024
                   ) -> 'Connection':
     transport_conf = conf['transport']
@@ -39,7 +41,8 @@ async def connect(conf: json.Data,
         master = await modbus.create_tcp_master(
             modbus_type=modbus_type,
             addr=addr,
-            response_timeout=conf['request_timeout'])
+            response_timeout=conf['request_timeout'],
+            name=name)
 
     elif transport_conf['type'] == 'SERIAL':
         port = transport_conf['port']
@@ -62,14 +65,15 @@ async def connect(conf: json.Data,
             rtscts=rtscts,
             dsrdtr=dsrdtr,
             silent_interval=silent_interval,
-            response_timeout=conf['request_timeout'])
+            response_timeout=conf['request_timeout'],
+            name=name)
 
     else:
         raise ValueError('unsupported link type')
 
     return Connection(conf=conf,
                       master=master,
-                      log_prefix=log_prefix,
+                      name=name,
                       request_queue_size=request_queue_size)
 
 
@@ -78,12 +82,13 @@ class Connection(aio.Resource):
     def __init__(self,
                  conf: json.Data,
                  master: modbus.Master,
-                 log_prefix: str,
+                 name: str,
                  request_queue_size: int):
         self._conf = conf
-        self._log_prefix = log_prefix
         self._master = master
+        self._name = name
         self._request_queue = aio.Queue(request_queue_size)
+        self._log = common.create_device_logger_adapter(mlog, name)
 
         self.async_group.spawn(self._request_loop)
 
@@ -97,7 +102,7 @@ class Connection(aio.Resource):
                    start_address: int,
                    quantity: int
                    ) -> list[int] | Error:
-        self._log(logging.DEBUG, 'enqueuing read request')
+        self._log.debug('enqueuing read request')
         return await self._request(self._master.read, device_id, data_type,
                                    start_address, quantity)
 
@@ -107,7 +112,7 @@ class Connection(aio.Resource):
                     start_address: int,
                     values: list[int]
                     ) -> Error | None:
-        self._log(logging.DEBUG, 'enqueuing write request')
+        self._log.debug('enqueuing write request')
         return await self._request(self._master.write, device_id, data_type,
                                    start_address, values)
 
@@ -117,7 +122,7 @@ class Connection(aio.Resource):
                          and_mask: int,
                          or_mask: int
                          ) -> Error | None:
-        self._log(logging.DEBUG, 'enqueuing write mask request')
+        self._log.debug('enqueuing write mask request')
         return await self._request(self._master.write_mask, device_id,
                                    address, and_mask, or_mask)
 
@@ -126,10 +131,10 @@ class Connection(aio.Resource):
         result_t = None
 
         try:
-            self._log(logging.DEBUG, 'starting request loop')
+            self._log.debug('starting request loop')
             while True:
                 fn, args, delayed_count, future = await self._request_queue.get()  # NOQA
-                self._log(logging.DEBUG, 'dequed request')
+                self._log.debug('dequed request')
 
                 if result_t is not None and self._conf['request_delay'] > 0:
                     dt = time.monotonic() - result_t
@@ -149,50 +154,49 @@ class Connection(aio.Resource):
                         result = await fn(*args)
                         result_t = time.monotonic()
 
-                        self._log(logging.DEBUG, 'received result %s', result)
+                        self._log.debug('received result %s', result)
                         if isinstance(result, modbus.Error):
                             result = Error[result.name]
 
                         if not future.done():
-                            self._log(logging.DEBUG, 'setting request result')
+                            self._log.debug('setting request result')
                             future.set_result(result)
 
                         break
 
                     except TimeoutError:
-                        self._log(logging.DEBUG, 'single request timeout')
+                        self._log.debug('single request timeout')
 
                         if immediate_count > 0:
-                            self._log(logging.DEBUG, 'immediate request retry')
+                            self._log.debug('immediate request retry')
                             continue
 
                         if delayed_count > 0:
-                            self._log(logging.DEBUG, 'delayed request retry')
+                            self._log.debug('delayed request retry')
                             self.async_group.spawn(self._delay_request, fn,
                                                    args, delayed_count, future)
                             future = None
 
                         elif not future.done():
-                            self._log(logging.DEBUG,
-                                      'request resulting in timeout')
+                            self._log.debug('request resulting in timeout')
                             future.set_result(Error.TIMEOUT)
 
                         break
 
                     except Exception as e:
-                        self._log(logging.DEBUG, 'setting request exception')
+                        self._log.debug('setting request exception')
                         if not future.done():
                             future.set_exception(e)
                         raise
 
         except ConnectionError:
-            self._log(logging.DEBUG, 'connection closed')
+            self._log.debug('connection closed')
 
         except Exception as e:
-            self._log(logging.ERROR, 'request loop error: %s', e, exc_info=e)
+            self._log.error('request loop error: %s', e, exc_info=e)
 
         finally:
-            self._log(logging.DEBUG, 'closing request loop')
+            self._log.debug('closing request loop')
             self.close()
             self._request_queue.close()
 
@@ -226,9 +230,3 @@ class Connection(aio.Resource):
         finally:
             if future and not future.done():
                 future.set_exception(ConnectionError())
-
-    def _log(self, level, msg, *args, **kwargs):
-        if not mlog.isEnabledFor(level):
-            return
-
-        mlog.log(level, f"{self._log_prefix}: {msg}", *args, **kwargs)

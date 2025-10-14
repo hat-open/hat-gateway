@@ -85,7 +85,8 @@ def nullmodem(request, tmp_path):
 
 @pytest.fixture
 def conn_conf(nullmodem):
-    return {'modbus_type': 'RTU',
+    return {'name': '',
+            'modbus_type': 'RTU',
             'transport': {'type': 'SERIAL',
                           'port': nullmodem[1],
                           'baudrate': 9600,
