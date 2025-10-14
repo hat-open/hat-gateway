@@ -73,6 +73,7 @@ class Iec103MasterDevice(common.Device):
                               for i in conf['remote_devices']}
         self._remote_groups = {}
         self._async_group = aio.Group()
+        self._log = common.create_device_logger_adapter(mlog, conf['name'])
 
         self.async_group.spawn(self._create_link_master_loop)
 
@@ -86,7 +87,7 @@ class Iec103MasterDevice(common.Device):
                 await self._process_event(event)
 
             except Exception as e:
-                mlog.warning('error processing event: %s', e, exc_info=e)
+                self._log.warning('error processing event: %s', e, exc_info=e)
 
     async def _create_link_master_loop(self):
 
@@ -112,11 +113,13 @@ class Iec103MasterDevice(common.Device):
                             stopbits=serial.StopBits[self._conf['stopbits']],
                             xonxoff=self._conf['flow_control']['xonxoff'],
                             rtscts=self._conf['flow_control']['rtscts'],
-                            dsrdtr=self._conf['flow_control']['dsrdtr'])
+                            dsrdtr=self._conf['flow_control']['dsrdtr'],
+                            name=self._conf['name'])
 
                 except Exception as e:
-                    mlog.warning('link master (endpoint) failed to create: %s',
-                                 e, exc_info=e)
+                    self._log.warning(
+                        'link master (endpoint) failed to create: %s',
+                        e, exc_info=e)
                     await self._register_status('DISCONNECTED')
                     await asyncio.sleep(self._conf['reconnect_delay'])
                     continue
@@ -131,7 +134,7 @@ class Iec103MasterDevice(common.Device):
                 self._master = None
 
         finally:
-            mlog.debug('closing link master loop')
+            self._log.debug('closing link master loop')
             self.close()
             await aio.uncancellable(cleanup())
 
@@ -156,11 +159,12 @@ class Iec103MasterDevice(common.Device):
                         response_timeout=remote_conf['response_timeout'],
                         send_retry_count=remote_conf['send_retry_count'],
                         poll_class1_delay=remote_conf['poll_class1_delay'],
-                        poll_class2_delay=remote_conf['poll_class2_delay'])
+                        poll_class2_delay=remote_conf['poll_class2_delay'],
+                        name=self._conf['name'])
 
                 except Exception as e:
-                    mlog.error('connection error to address %s: %s',
-                               address, e, exc_info=e)
+                    self._log.error('connection error to address %s: %s',
+                                    address, e, exc_info=e)
                     await self._register_rmt_status(address, 'DISCONNECTED')
                     await asyncio.sleep(remote_conf['reconnect_delay'])
                     continue
@@ -180,7 +184,7 @@ class Iec103MasterDevice(common.Device):
                 self._conns.pop(address)
 
         finally:
-            mlog.debug('closing remote device %s', address)
+            self._log.debug('closing remote device %s', address)
             group.close()
             await aio.uncancellable(cleanup())
 
@@ -188,11 +192,11 @@ class Iec103MasterDevice(common.Device):
         try:
             while True:
                 await conn.time_sync()
-                mlog.debug('time sync')
+                self._log.debug('time sync')
                 await asyncio.sleep(delay)
 
         except ConnectionError:
-            mlog.debug('connection closed')
+            self._log.debug('connection closed')
 
         finally:
             conn.close()
@@ -205,7 +209,8 @@ class Iec103MasterDevice(common.Device):
                 events.append(event)
 
         except Exception as e:
-            mlog.warning('data %s ignored due to: %s', data, e, exc_info=e)
+            self._log.warning('data %s ignored due to: %s',
+                              data, e, exc_info=e)
 
         if events:
             await self._eventer_client.register(events)
@@ -285,12 +290,13 @@ class Iec103MasterDevice(common.Device):
                 conn.send_command(asdu, io, value), timeout=command_timeout)
 
         except ConnectionError:
-            mlog.warning('command %s %s %s to %s failed: connection closed',
-                         asdu, io, value, address)
+            self._log.warning(
+                'command %s %s %s to %s failed: connection closed',
+                asdu, io, value, address)
             return
 
         except asyncio.TimeoutError:
-            mlog.warning(
+            self._log.warning(
                 'command %s %s %s to %s timeout', asdu, io, value, address)
             return
 
@@ -306,7 +312,8 @@ class Iec103MasterDevice(common.Device):
     def _process_interrogation(self, event, address, asdu):
         conn = self._conns.get(address)
         if not conn or not conn.is_open:
-            mlog.warning("event %s ignored due to connection closed", event)
+            self._log.warning("event %s ignored due to connection closed",
+                              event)
             return
 
         self._remote_groups[address].spawn(
@@ -318,12 +325,14 @@ class Iec103MasterDevice(common.Device):
                                    timeout=interrogate_timeout)
 
         except ConnectionError:
-            mlog.warning('interrogation on %s to %s failed: connection closed',
-                         asdu, address)
+            self._log.warning(
+                'interrogation on %s to %s failed: connection closed',
+                asdu, address)
             return
 
         except asyncio.TimeoutError:
-            mlog.warning('interrogation on %s to %s timeout', asdu, address)
+            self._log.warning('interrogation on %s to %s timeout',
+                              asdu, address)
             return
 
         event = _create_event(

@@ -88,7 +88,8 @@ def get_conf(remote_addresses=[],
              poll_class1_delay=1,
              time_sync_delay=None):
     reconnect_delay = 0.01
-    return {'port': '/dev/ttyS0',
+    return {'name': '',
+            'port': '/dev/ttyS0',
             'baudrate': 9600,
             'bytesize': 'EIGHTBITS',
             'parity': 'NONE',
@@ -309,7 +310,8 @@ async def serial_conns(monkeypatch):
                      xonxoff: bool = False,
                      rtscts: bool = False,
                      dsrdtr: bool = False,
-                     silent_interval: float = 0):
+                     silent_interval: float = 0,
+                     name=None):
         nonlocal valid_args
         args = {'port': port,
                 'baudrate': baudrate,
@@ -335,6 +337,11 @@ async def serial_conns(monkeypatch):
         @property
         def async_group(self):
             return self._async_group
+
+        @property
+        def info(self):
+            return serial.EndpointInfo(name=None,
+                                       port='')
 
         async def read(self, size):
             data = collections.deque()
