@@ -146,7 +146,8 @@ def connection_conf(slave_addr):
                                    'bit_offset': 0,
                                    'bit_count': 3}]}]},
 
-    {'connection': {'modbus_type': 'RTU',
+    {'name': 'name',
+     'connection': {'modbus_type': 'RTU',
                     'transport': {'type': 'SERIAL',
                                   'port': '/dev/ttyS0',
                                   'baudrate': 9600,

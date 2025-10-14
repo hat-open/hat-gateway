@@ -4,6 +4,7 @@ $defs:
     client:
         type: object
         required:
+            - name
             - remote_address
             - ssl
             - system_id
@@ -18,6 +19,8 @@ $defs:
             - message_encoding
             - message_timeout
         properties:
+            name:
+                type: string
             remote_address:
                 type: object
                 required:

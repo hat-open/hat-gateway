@@ -4,8 +4,11 @@ $defs:
     device:
         type: object
         required:
+            - name
             - remote_devices
         properties:
+            name:
+                type: string
             remote_devices:
                 type: array
                 items:

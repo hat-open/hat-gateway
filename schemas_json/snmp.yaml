@@ -9,6 +9,7 @@ $defs:
                 - $ref: "hat-gateway://snmp.yaml#/$defs/managers/v3"
           - type: object
             required:
+                - name
                 - remote_host
                 - remote_port
                 - connect_delay
@@ -19,6 +20,10 @@ $defs:
                 - polling_oids
                 - string_hex_oids
             properties:
+                name:
+                    type: string
+                    description: |
+                        Device name
                 remote_host:
                     type: string
                     description: |
@@ -69,11 +74,16 @@ $defs:
     trap_listener:
         type: object
         required:
+            - name
             - local_host
             - local_port
             - users
             - remote_devices
         properties:
+            name:
+                type: string
+                description: |
+                    Device name
             local_host:
                 type: string
                 description: |

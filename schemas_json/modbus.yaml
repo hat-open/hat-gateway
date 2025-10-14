@@ -6,9 +6,12 @@ $defs:
         type: object
         title: Modbus master
         required:
+            - name
             - connection
             - remote_devices
         properties:
+            name:
+                type: string
             connection:
                 type: object
                 required:

@@ -4,6 +4,7 @@ $defs:
     master:
         type: object
         required:
+            - name
             - port
             - baudrate
             - bytesize
@@ -14,6 +15,8 @@ $defs:
             - reconnect_delay
             - remote_devices
         properties:
+            name:
+                type: string
             port:
                 type: string
             baudrate:

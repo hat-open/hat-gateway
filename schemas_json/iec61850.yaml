@@ -4,6 +4,7 @@ $defs:
     client:
         type: object
         required:
+            - name
             - connection
             - value_types
             - datasets
@@ -12,6 +13,8 @@ $defs:
             - commands
             - changes
         properties:
+            name:
+                type: string
             connection:
                 type: object
                 required:
