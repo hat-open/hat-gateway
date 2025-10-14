@@ -36,11 +36,13 @@ async def create(conf: common.DeviceConf,
     device._buffers = {}
     device._data_msgs = {}
     device._data_buffers = {}
+    device._log = common.create_device_logger_adapter(mlog, conf['name'])
 
     init_buffers(buffers_conf=conf['buffers'],
                  buffers=device._buffers)
 
-    await init_data(data_conf=conf['data'],
+    await init_data(log=device._log,
+                    data_conf=conf['data'],
                     data_msgs=device._data_msgs,
                     data_buffers=device._data_buffers,
                     buffers=device._buffers,
@@ -66,7 +68,8 @@ async def create(conf: common.DeviceConf,
         stopbits=serial.StopBits[conf['stopbits']],
         xonxoff=conf['flow_control']['xonxoff'],
         rtscts=conf['flow_control']['rtscts'],
-        dsrdtr=conf['flow_control']['dsrdtr'])
+        dsrdtr=conf['flow_control']['dsrdtr'],
+        name=conf['name'])
 
     try:
         for device_conf in conf['devices']:
@@ -115,7 +118,8 @@ def init_buffers(buffers_conf: json.Data,
         buffers[buffer_conf['name']] = Buffer(buffer_conf['size'])
 
 
-async def init_data(data_conf: json.Data,
+async def init_data(log: logging.Logger,
+                    data_conf: json.Data,
                     data_msgs: dict[common.DataKey, iec101.DataMsg],
                     data_buffers: dict[common.DataKey, Buffer],
                     buffers: dict[str, Buffer],
@@ -146,7 +150,7 @@ async def init_data(data_conf: json.Data,
             data_msgs[data_key] = data_msg_from_event(data_key, event)
 
         except Exception as e:
-            mlog.debug('skipping initial data: %s', e, exc_info=e)
+            log.debug('skipping initial data: %s', e, exc_info=e)
 
 
 class Iec101SlaveDevice(common.Device):
@@ -161,7 +165,7 @@ class Iec101SlaveDevice(common.Device):
                 await self._process_event(event)
 
             except Exception as e:
-                mlog.warning('error processing event: %s', e, exc_info=e)
+                self._log.warning('error processing event: %s', e, exc_info=e)
 
     async def _connection_loop(self, device_conf):
         conn = None
@@ -173,12 +177,14 @@ class Iec101SlaveDevice(common.Device):
                     'addr': device_conf['address'],
                     'response_timeout': device_conf['response_timeout'],
                     'send_retry_count': device_conf['send_retry_count'],
-                    'status_delay': device_conf['status_delay']}
+                    'status_delay': device_conf['status_delay'],
+                    'name': self._conf['name']}
 
             elif self._conf['link_type'] == 'UNBALANCED':
                 conn_args = {
                     'addr': device_conf['address'],
-                    'keep_alive_timeout': device_conf['keep_alive_timeout']}
+                    'keep_alive_timeout': device_conf['keep_alive_timeout'],
+                    'name': self._conf['name']}
 
             else:
                 raise ValueError('unsupported link type')
@@ -188,8 +194,8 @@ class Iec101SlaveDevice(common.Device):
                     conn = await self._link.open_connection(**conn_args)
 
                 except Exception as e:
-                    mlog.error('connection error for address %s: %s',
-                               device_conf['address'], e, exc_info=e)
+                    self._log.error('connection error for address %s: %s',
+                                    device_conf['address'], e, exc_info=e)
                     await asyncio.sleep(device_conf['reconnect_delay'])
                     continue
 
@@ -235,10 +241,10 @@ class Iec101SlaveDevice(common.Device):
                 await conn.async_close()
 
         except Exception as e:
-            mlog.warning('connection loop error: %s', e, exc_info=e)
+            self._log.warning('connection loop error: %s', e, exc_info=e)
 
         finally:
-            mlog.debug('closing connection')
+            self._log.debug('closing connection')
             self.close()
 
             if conn:
@@ -251,10 +257,10 @@ class Iec101SlaveDevice(common.Device):
                 await conn.send(msgs, sent_cb=sent_cb)
 
         except ConnectionError:
-            mlog.debug('connection close')
+            self._log.debug('connection close')
 
         except Exception as e:
-            mlog.warning('connection send loop error: %s', e, exc_info=e)
+            self._log.warning('connection send loop error: %s', e, exc_info=e)
 
         finally:
             conn.close()
@@ -266,18 +272,19 @@ class Iec101SlaveDevice(common.Device):
 
                 for msg in msgs:
                     try:
-                        mlog.debug('received message: %s', msg)
+                        self._log.debug('received message: %s', msg)
                         await self._process_msg(conn_id, msg)
 
                     except Exception as e:
-                        mlog.warning('error processing message: %s',
-                                     e, exc_info=e)
+                        self._log.warning('error processing message: %s',
+                                          e, exc_info=e)
 
         except ConnectionError:
-            mlog.debug('connection close')
+            self._log.debug('connection close')
 
         except Exception as e:
-            mlog.warning('connection receive loop error: %s', e, exc_info=e)
+            self._log.warning('connection receive loop error: %s',
+                              e, exc_info=e)
 
         finally:
             conn.close()
