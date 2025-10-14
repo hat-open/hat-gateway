@@ -36,6 +36,7 @@ async def create(conf: common.DeviceConf,
     device._buffers = {}
     device._data_msgs = {}
     device._data_buffers = {}
+    device._log = common.create_device_logger_adapter(mlog, conf['name'])
 
     iec101_slave.init_buffers(buffers_conf=conf['buffers'],
                               buffers=device._buffers)
@@ -59,7 +60,8 @@ async def create(conf: common.DeviceConf,
         test_timeout=conf['test_timeout'],
         send_window_size=conf['send_window_size'],
         receive_window_size=conf['receive_window_size'],
-        ssl=ssl_ctx)
+        ssl=ssl_ctx,
+        name=conf['name'])
 
     try:
         await device._register_connections()
@@ -87,16 +89,16 @@ class Iec104SlaveDevice(common.Device):
     async def process_events(self, events: Collection[hat.event.common.Event]):
         for event in events:
             try:
-                mlog.debug('received event: %s', event)
+                self._log.debug('received event: %s', event)
                 await self._process_event(event)
 
             except Exception as e:
-                mlog.warning('error processing event: %s', e, exc_info=e)
+                self._log.warning('error processing event: %s', e, exc_info=e)
 
     async def _on_connection(self, conn):
         if (self._max_connections is not None and
                 len(self._conns) >= self._max_connections):
-            mlog.info('max connections exceeded - rejecting connection')
+            self._log.info('max connections exceeded - rejecting connection')
             conn.close()
             return
 
@@ -105,7 +107,7 @@ class Iec104SlaveDevice(common.Device):
                 ssl.init_security(self._conf['security'], conn)
 
             except Exception as e:
-                mlog.error('init security error: %s', exc_info=e)
+                self._log.error('init security error: %s', exc_info=e)
                 conn.close()
                 return
 
@@ -129,21 +131,21 @@ class Iec104SlaveDevice(common.Device):
 
                     for msg in msgs:
                         try:
-                            mlog.debug('received message: %s', msg)
+                            self._log.debug('received message: %s', msg)
                             await self._process_msg(conn_id, conn, msg)
 
                         except Exception as e:
-                            mlog.warning('error processing message: %s',
-                                         e, exc_info=e)
+                            self._log.warning('error processing message: %s',
+                                              e, exc_info=e)
 
         except ConnectionError:
-            mlog.debug('connection close')
+            self._log.debug('connection close')
 
         except Exception as e:
-            mlog.warning('connection error: %s', e, exc_info=e)
+            self._log.warning('connection error: %s', e, exc_info=e)
 
         finally:
-            mlog.debug('closing connection')
+            self._log.debug('closing connection')
             conn.close()
 
             with contextlib.suppress(Exception):
@@ -360,24 +362,23 @@ class Iec104SlaveDevice(common.Device):
         await conn.send([res])
 
     def _send_data_msg(self, conn, buffer, event_id, data_msg):
-        self.async_group.spawn(_send_data_msg, conn, buffer, event_id,
-                               data_msg)
+        self.async_group.spawn(self._async_send_data_msg, conn, buffer,
+                               event_id, data_msg)
 
+    async def _async_send_data_msg(self, conn, buffer, event_id, data_msg):
+        try:
+            if buffer:
+                await conn.send([data_msg], wait_ack=True)
+                buffer.remove(event_id)
 
-async def _send_data_msg(conn, buffer, event_id, data_msg):
-    try:
-        if buffer:
-            await conn.send([data_msg], wait_ack=True)
-            buffer.remove(event_id)
+            else:
+                await conn.send([data_msg])
 
-        else:
-            await conn.send([data_msg])
+        except ConnectionError:
+            pass
 
-    except ConnectionError:
-        pass
-
-    except Exception as e:
-        mlog.warning('send data message error: %s', e, exc_info=e)
+        except Exception as e:
+            self._log.warning('send data message error: %s', e, exc_info=e)
 
 
 def _cmd_msg_to_event(event_type_prefix, conn_id, msg):

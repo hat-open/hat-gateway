@@ -31,6 +31,7 @@ class Iec104MasterDevice(common.Device):
         self._event_type_prefix = event_type_prefix
         self._conn = None
         self._async_group = aio.Group()
+        self._log = common.create_device_logger_adapter(mlog, conf['name'])
 
         ssl_ctx = (
             ssl.create_ssl_ctx(conf['security'], ssl.SslProtocol.TLS_CLIENT)
@@ -46,29 +47,28 @@ class Iec104MasterDevice(common.Device):
         msgs = collections.deque()
         for event in events:
             try:
-                mlog.debug('received event: %s', event)
+                self._log.debug('received event: %s', event)
                 msg = _msg_from_event(self._event_type_prefix, event)
                 msgs.append(msg)
 
             except Exception as e:
-                mlog.warning('error processing event: %s',
-                             e, exc_info=e)
+                self._log.warning('error processing event: %s', e, exc_info=e)
                 continue
 
         if not msgs:
             return
 
         if not self._conn or not self._conn.is_open:
-            mlog.warning('connection closed: %s events ignored',
-                         len(msgs))
+            self._log.warning('connection closed: %s events ignored',
+                              len(msgs))
             return
 
         try:
             await self._conn.send(msgs)
-            mlog.debug('%s messages sent', len(msgs))
+            self._log.debug('%s messages sent', len(msgs))
 
         except ConnectionError as e:
-            mlog.warning('error sending messages: %s', e, exc_info=e)
+            self._log.warning('error sending messages: %s', e, exc_info=e)
 
     async def _connection_loop(self, conf, ssl_ctx):
 
@@ -92,7 +92,8 @@ class Iec104MasterDevice(common.Device):
                             test_timeout=conf['test_timeout'],
                             send_window_size=conf['send_window_size'],
                             receive_window_size=conf['receive_window_size'],
-                            ssl=ssl_ctx)
+                            ssl=ssl_ctx,
+                            name=conf['name'])
 
                         if conf['security']:
                             try:
@@ -106,7 +107,8 @@ class Iec104MasterDevice(common.Device):
                         break
 
                     except Exception as e:
-                        mlog.warning('connection failed: %s', e, exc_info=e)
+                        self._log.warning('connection failed: %s',
+                                          e, exc_info=e)
 
                 else:
                     await self._register_status('DISCONNECTED')
@@ -127,10 +129,10 @@ class Iec104MasterDevice(common.Device):
             pass
 
         except Exception as e:
-            mlog.error('connection loop error: %s', e, exc_info=e)
+            self._log.error('connection loop error: %s', e, exc_info=e)
 
         finally:
-            mlog.debug('closing connection loop')
+            self._log.debug('closing connection loop')
             self.close()
             await aio.uncancellable(cleanup())
 
@@ -141,13 +143,13 @@ class Iec104MasterDevice(common.Device):
                     msgs = await conn.receive()
 
                 except iec104.AsduTypeError as e:
-                    mlog.warning("asdu type error: %s", e)
+                    self._log.warning("asdu type error: %s", e)
                     continue
 
                 events = collections.deque()
                 for msg in msgs:
                     try:
-                        mlog.debug('received message: %s', msg)
+                        self._log.debug('received message: %s', msg)
                         if isinstance(msg, iec104.ClockSyncMsg):
                             continue
 
@@ -155,24 +157,24 @@ class Iec104MasterDevice(common.Device):
                         events.append(event)
 
                     except Exception as e:
-                        mlog.warning('error processing message: %s',
-                                     e, exc_info=e)
+                        self._log.warning('error processing message: %s',
+                                          e, exc_info=e)
                         continue
 
                 if not events:
                     continue
 
                 await self._eventer_client.register(events)
-                mlog.debug('%s events registered', len(events))
+                self._log.debug('%s events registered', len(events))
 
         except ConnectionError:
-            mlog.debug('connection closed')
+            self._log.debug('connection closed')
 
         except Exception as e:
-            mlog.error('receive loop error: %s', e, exc_info=e)
+            self._log.error('receive loop error: %s', e, exc_info=e)
 
         finally:
-            mlog.debug('closing receive loop')
+            self._log.debug('closing receive loop')
             conn.close()
 
     async def _time_sync_loop(self, conn, time_sync_delay):
@@ -191,18 +193,18 @@ class Iec104MasterDevice(common.Device):
                 await conn.send([msg])
 
                 await conn.drain()
-                mlog.debug('time sync sent %s', time_iec104_now)
+                self._log.debug('time sync sent %s', time_iec104_now)
 
                 await asyncio.sleep(time_sync_delay)
 
         except ConnectionError:
-            mlog.debug('connection closed')
+            self._log.debug('connection closed')
 
         except Exception as e:
-            mlog.error('time sync loop error: %s', e, exc_info=e)
+            self._log.error('time sync loop error: %s', e, exc_info=e)
 
         finally:
-            mlog.debug('closing time sync loop')
+            self._log.debug('closing time sync loop')
             conn.close()
 
     async def _register_status(self, status):
@@ -212,7 +214,7 @@ class Iec104MasterDevice(common.Device):
             payload=hat.event.common.EventPayloadJson(status))
 
         await self._eventer_client.register([event])
-        mlog.debug('registered status %s', status)
+        self._log.debug('registered status %s', status)
 
 
 info: common.DeviceInfo = common.DeviceInfo(
