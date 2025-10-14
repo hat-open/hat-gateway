@@ -26,6 +26,7 @@ async def create(conf: common.DeviceConf,
     device._eventer_client = eventer_client
     device._event_type_prefix = event_type_prefix
     device._remote_devices = collections.defaultdict(collections.deque)
+    device._log = mlog
 
     for remote_device_conf in conf['remote_devices']:
         version = snmp.Version[remote_device_conf['version']]
@@ -77,6 +78,8 @@ async def create(conf: common.DeviceConf,
         v3_trap_cb=device._on_v3_trap,
         v3_inform_cb=device._on_v3_inform,
         users=users)
+
+    device._log = _create_logger_adapter(conf['name'])
 
     return device
 
@@ -151,7 +154,14 @@ class SnmpTrapListenerDevice(common.Device):
             pass
 
         except Exception as e:
-            mlog.error("error processing data: %s", e, exc_info=e)
+            self._log.error("error processing data: %s", e, exc_info=e)
+
+
+def _create_logger_adapter(name):
+    extra = {'info': {'type': 'SnmpTrapListenerDevice',
+                      'name': name}}
+
+    return logging.LoggerAdapter(mlog, extra)
 
 
 class _RemoteDevice(typing.NamedTuple):
