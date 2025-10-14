@@ -19,15 +19,29 @@ async def create(conf: common.DeviceConf,
                  eventer_client: hat.event.eventer.Client,
                  event_type_prefix: common.EventTypePrefix
                  ) -> 'PingDevice':
-    device = PingDevice()
-    device._eventer_client = eventer_client
-    device._event_type_prefix = event_type_prefix
-    device._devices_status = {}
+    endpoint = await icmp.create_endpoint(name=conf['name'])
 
-    device._endpoint = await icmp.create_endpoint()
+    try:
+        device = PingDevice()
+        device._eventer_client = eventer_client
+        device._event_type_prefix = event_type_prefix
+        device._endpoint = endpoint
+        device._log = _create_logger_adapter(conf['name'], None)
 
-    for device_conf in conf['remote_devices']:
-        device.async_group.spawn(device._remote_device_loop, device_conf)
+        for device_conf in conf['remote_devices']:
+            remote_device = _RemoteDevice()
+            remote_device._conf = device_conf
+            remote_device._endpoint = endpoint
+            remote_device._device = device
+            remote_device._status = None
+            remote_device._log = _create_logger_adapter(conf['name'],
+                                                        device_conf['name'])
+
+            remote_device.async_group.spawn(remote_device._ping_loop)
+
+    except BaseException:
+        await aio.uncancellable(endpoint.async_close())
+        raise
 
     return device
 
@@ -41,61 +55,13 @@ class PingDevice(common.Device):
     def process_events(self, events: Collection[hat.event.common.Event]):
         pass
 
-    async def _remote_device_loop(self, device_conf):
-        name = device_conf['name']
-        try:
-            await self._register_status("NOT_AVAILABLE", name)
-            while True:
-                try:
-                    await self._ping_retry(device_conf)
-                    status = "AVAILABLE"
-                    mlog.debug('ping to %s successfull', device_conf['host'])
-
-                except Exception as e:
-                    mlog.debug("device %s not available: %s",
-                               device_conf['host'], e, exc_info=e)
-                    status = "NOT_AVAILABLE"
-
-                await self._register_status(status, name)
-                await asyncio.sleep(device_conf['ping_delay'])
-
-        except ConnectionError:
-            pass
-
-        except Exception as e:
-            mlog.error("device %s loop error: %s", name, e, exc_info=e)
-
-        finally:
-            self.close()
-            with contextlib.suppress(ConnectionError):
-                await self._register_status("NOT_AVAILABLE", name)
-
-    async def _ping_retry(self, device_conf):
-        retry_count = device_conf['retry_count']
-        for i in range(retry_count + 1):
-            try:
-                return await aio.wait_for(
-                    self._endpoint.ping(device_conf['host']),
-                    timeout=device_conf['ping_timeout'])
-
-            except Exception as e:
-                retry_msg = (f", retry {i}/{retry_count}" if i > 0 else "")
-                mlog.debug('no ping response%s: %s', retry_msg, e, exc_info=e)
-
-            await asyncio.sleep(device_conf['retry_delay'])
-
-        raise Exception(f"no ping response after {retry_count} retries")
-
-    async def _register_status(self, status, name):
-        old_status = self._devices_status.get(name)
-        if old_status == status:
-            return
-        mlog.debug('remote device %s status %s', name, status)
-        self._devices_status[name] = status
-        await self._eventer_client.register([hat.event.common.RegisterEvent(
-            type=(*self._event_type_prefix, 'gateway', 'status', name),
-            source_timestamp=None,
-            payload=hat.event.common.EventPayloadJson(status))])
+    async def register_status(self, remote_name, status):
+        await self._eventer_client.register([
+            hat.event.common.RegisterEvent(
+                type=(*self._event_type_prefix, 'gateway', 'status',
+                      remote_name),
+                source_timestamp=None,
+                payload=hat.event.common.EventPayloadJson(status))])
 
 
 info = common.DeviceInfo(
@@ -103,3 +69,72 @@ info = common.DeviceInfo(
     create=create,
     json_schema_id="hat-gateway://ping.yaml#/$defs/device",
     json_schema_repo=common.json_schema_repo)
+
+
+def _create_logger_adapter(name, remote_name):
+    extra = {'info': {'type': 'PingDevice',
+                      'name': name,
+                      'remote_name': remote_name}}
+
+    return logging.LoggerAdapter(mlog, extra)
+
+
+class _RemoteDevice(aio.Resource):
+
+    @property
+    def async_group(self):
+        return self._endpoint.async_group
+
+    async def _ping_loop(self):
+        try:
+            await self._set_status("NOT_AVAILABLE")
+            while True:
+                try:
+                    await self._ping_retry()
+                    status = "AVAILABLE"
+                    self._log.debug('ping successfull')
+
+                except Exception as e:
+                    self._log.debug("device not available: %s", e, exc_info=e)
+                    status = "NOT_AVAILABLE"
+
+                await self._set_status(status)
+                await asyncio.sleep(self._conf['ping_delay'])
+
+        except ConnectionError:
+            pass
+
+        except Exception as e:
+            mlog.error("ping loop error: %s", e, exc_info=e)
+
+        finally:
+            self.close()
+            with contextlib.suppress(ConnectionError):
+                await self._set_status("NOT_AVAILABLE")
+
+    async def _ping_retry(self):
+        retry_count = self._conf['retry_count']
+        for i in range(retry_count + 1):
+            try:
+                return await aio.wait_for(
+                    self._endpoint.ping(self._conf['host']),
+                    timeout=self._conf['ping_timeout'])
+
+            except Exception as e:
+                if self._log.isEnabledFor(logging.DEBUG):
+                    retry_msg = f", retry {i}/{retry_count}" if i > 0 else ""
+                    mlog.debug('no ping response%s: %s',
+                               retry_msg, e, exc_info=e)
+
+            await asyncio.sleep(self._conf['retry_delay'])
+
+        raise Exception(f"no ping response after {retry_count} retries")
+
+    async def _set_status(self, status):
+        if self._status == status:
+            return
+
+        mlog.debug('remote device status %s', status)
+        self._status = status
+
+        await self._device.register_status(self._conf['name'], status)

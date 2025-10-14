@@ -76,7 +76,9 @@ async def patch_endpoint(monkeypatch):
     @contextlib.contextmanager
     def patch_endpoint(create_cb=None, ping_cb=None):
 
-        async def create_endpoint(local_addr='0.0.0.0'):
+        async def create_endpoint(local_addr='0.0.0.0',
+                                  *,
+                                  name=None):
             if create_cb:
                 await aio.call(create_cb, local_addr)
 
@@ -90,7 +92,8 @@ async def patch_endpoint(monkeypatch):
 
 
 async def test_create(patch_endpoint):
-    conf = {'remote_devices': []}
+    conf = {'name': '',
+            'remote_devices': []}
 
     with patch_endpoint():
         eventer_client = EventerClient()
@@ -106,7 +109,8 @@ async def test_create(patch_endpoint):
 @pytest.mark.parametrize('remote_device_count', [1, 2, 5])
 async def test_status_available(patch_endpoint, remote_device_count):
     ping_queue = aio.Queue()
-    conf = {'remote_devices': [{'name': f'name {i}',
+    conf = {'name': '',
+            'remote_devices': [{'name': f'name {i}',
                                 'host': f'host {i}',
                                 'ping_delay': 0.01,
                                 'ping_timeout': 1,
@@ -162,7 +166,8 @@ async def test_status_change(patch_endpoint):
     ping_counter = itertools.count(0)
     name = 'name'
     host = 'host'
-    conf = {'remote_devices': [{'name': name,
+    conf = {'name': '',
+            'remote_devices': [{'name': name,
                                 'host': host,
                                 'ping_delay': 0.01,
                                 'ping_timeout': 1,
@@ -200,7 +205,8 @@ async def test_status_change(patch_endpoint):
 async def test_ping_timeout(patch_endpoint):
     name = 'name'
     ping_timeout = 0.01
-    conf = {'remote_devices': [{'name': name,
+    conf = {'name': '',
+            'remote_devices': [{'name': name,
                                 'host': 'host',
                                 'ping_delay': 0.01,
                                 'ping_timeout': ping_timeout,
@@ -232,7 +238,8 @@ async def test_ping_timeout(patch_endpoint):
 async def test_not_available_after_close(patch_endpoint):
     name = 'name'
     ping_delay = 0.01
-    conf = {'remote_devices': [{'name': name,
+    conf = {'name': '',
+            'remote_devices': [{'name': name,
                                 'host': 'host',
                                 'ping_delay': ping_delay,
                                 'ping_timeout': 1,
