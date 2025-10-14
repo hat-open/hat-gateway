@@ -130,6 +130,7 @@ def addr():
 @pytest.fixture
 def conf(addr):
     return {
+        'name': '',
         'local_host': addr.host,
         'local_port': addr.port,
         'users': [{'name': user.name,

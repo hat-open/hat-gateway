@@ -36,6 +36,7 @@ class SnmpManagerDevice(common.Device):
         self._string_hex_oids = set(_oid_from_str(oid_str)
                                     for oid_str in conf['string_hex_oids'])
         self._async_group = aio.Group()
+        self._log = _create_logger_adapter(conf['name'])
 
         self.async_group.spawn(self._connection_loop)
 
@@ -49,28 +50,28 @@ class SnmpManagerDevice(common.Device):
                 await self._process_event(event)
 
             except Exception as e:
-                mlog.warning('event processing error: %s', e, exc_info=e)
+                self._log.warning('event processing error: %s', e, exc_info=e)
 
     async def _connection_loop(self):
         try:
             while True:
                 await self._register_status('CONNECTING')
-                mlog.debug('connecting to %s:%s',
-                           self._conf['remote_host'],
-                           self._conf['remote_port'])
+                self._log.debug('connecting to %s:%s',
+                                self._conf['remote_host'],
+                                self._conf['remote_port'])
 
                 try:
                     try:
                         self._manager = await _create_manager(self._conf)
 
                     except Exception as e:
-                        mlog.warning('creating manager failed %s', e,
-                                     exc_info=e)
+                        self._log.warning('creating manager failed %s', e,
+                                          exc_info=e)
 
                     if self._manager:
-                        mlog.debug('connected to %s:%s',
-                                   self._conf['remote_host'],
-                                   self._conf['remote_port'])
+                        self._log.debug('connected to %s:%s',
+                                        self._conf['remote_host'],
+                                        self._conf['remote_port'])
                         self._manager.async_group.spawn(self._polling_loop)
                         await self._manager.wait_closed()
 
@@ -84,10 +85,10 @@ class SnmpManagerDevice(common.Device):
                 await asyncio.sleep(connect_delay)
 
         except Exception as e:
-            mlog.error('connection loop error: %s', e, exc_info=e)
+            self._log.error('connection loop error: %s', e, exc_info=e)
 
         finally:
-            mlog.debug('closing device')
+            self._log.debug('closing device')
             self.close()
             if self._manager:
                 await aio.uncancellable(self._manager.async_close())
@@ -104,8 +105,9 @@ class SnmpManagerDevice(common.Device):
                                               oid=oid)
 
                     except Exception as e:
-                        mlog.warning('connection closing, error response: %s',
-                                     e, exc_info=e)
+                        self._log.warning(
+                            'connection closing, error response: %s',
+                            e, exc_info=e)
                         return
 
                     await self._register_status('CONNECTED')
@@ -116,7 +118,7 @@ class SnmpManagerDevice(common.Device):
                     cause = ('CHANGE' if oid in self._cache
                              else 'INTERROGATE')
                     self._cache[oid] = resp
-                    mlog.debug('polling oid %s', oid)
+                    self._log.debug('polling oid %s', oid)
                     try:
                         event = self._response_to_read_event(resp=resp,
                                                              oid=oid,
@@ -124,8 +126,8 @@ class SnmpManagerDevice(common.Device):
                                                              session_id=None)
 
                     except Exception as e:
-                        mlog.warning('response %s ignored due to: %s',
-                                     resp, e, exc_info=e)
+                        self._log.warning('response %s ignored due to: %s',
+                                          resp, e, exc_info=e)
                         continue
 
                     await self._eventer_client.register([event])
@@ -133,10 +135,10 @@ class SnmpManagerDevice(common.Device):
                 await asyncio.sleep(self._conf['polling_delay'])
 
         except Exception as e:
-            mlog.error('polling loop error: %s', e, exc_info=e)
+            self._log.error('polling loop error: %s', e, exc_info=e)
 
         finally:
-            mlog.debug('closing manager')
+            self._log.debug('closing manager')
             self._manager.close()
 
     async def _process_event(self, event):
@@ -159,7 +161,7 @@ class SnmpManagerDevice(common.Device):
             raise Exception('event type not supported')
 
     async def _process_read_event(self, event, oid):
-        mlog.debug('read request for oid %s', oid)
+        self._log.debug('read request for oid %s', oid)
         req = snmp.GetDataReq(names=[oid])
         try:
             resp = await self._send(req)
@@ -168,7 +170,7 @@ class SnmpManagerDevice(common.Device):
             self._manager.close()
             raise
 
-        mlog.debug('read response for oid %s: %s', oid, resp)
+        self._log.debug('read response for oid %s: %s', oid, resp)
         session_id = event.payload.data['session_id']
 
         try:
@@ -178,7 +180,7 @@ class SnmpManagerDevice(common.Device):
                                                  session_id=session_id)
 
         except Exception as e:
-            mlog.warning('response ignored due to: %s', e, exc_info=e)
+            self._log.warning('response ignored due to: %s', e, exc_info=e)
             return
 
         await self._eventer_client.register([event])
@@ -186,21 +188,21 @@ class SnmpManagerDevice(common.Device):
     async def _process_write_event(self, event, oid):
         set_data = _event_data_to_snmp_data(data=event.payload.data['data'],
                                             oid=oid)
-        mlog.debug('write request for oid %s: %s', oid, set_data)
+        self._log.debug('write request for oid %s: %s', oid, set_data)
         try:
             resp = await asyncio.wait_for(
                 self._manager.send(snmp.SetDataReq(data=[set_data])),
                 timeout=self._conf['request_timeout'])
 
         except asyncio.TimeoutError:
-            mlog.warning('set data request %s timeout', set_data)
+            self._log.warning('set data request %s timeout', set_data)
             return
 
         session_id = event.payload.data['session_id']
         success = _is_write_response_success(resp=resp,
                                              oid=oid)
-        mlog.debug('write for oid %s %s',
-                   oid, ('succeeded' if success else 'failed'))
+        self._log.debug('write for oid %s %s',
+                        oid, ('succeeded' if success else 'failed'))
         event = hat.event.common.RegisterEvent(
             type=(*self._event_type_prefix, 'gateway', 'write',
                   _oid_to_str(oid)),
@@ -218,8 +220,8 @@ class SnmpManagerDevice(common.Device):
                     timeout=self._conf['request_timeout'])
 
             except asyncio.TimeoutError:
-                mlog.warning('request %s/%s timeout', i,
-                             self._conf['request_retry_count'])
+                self._log.warning('request %s/%s timeout', i,
+                                  self._conf['request_retry_count'])
                 await asyncio.sleep(self._conf['request_retry_delay'])
 
         raise Exception('request retries exceeded')
@@ -234,7 +236,7 @@ class SnmpManagerDevice(common.Device):
             payload=hat.event.common.EventPayloadJson(status))
         await self._eventer_client.register([event])
 
-        mlog.debug("device status %s -> %s", self._status, status)
+        self._log.debug("device status %s -> %s", self._status, status)
         self._status = status
 
     def _response_to_read_event(self, resp, oid, cause, session_id):
@@ -258,20 +260,29 @@ info = common.DeviceInfo(
     json_schema_repo=common.json_schema_repo)
 
 
+def _create_logger_adapter(name):
+    extra = {'info': {'type': 'SnmpManagerDevice',
+                      'name': name}}
+
+    return logging.LoggerAdapter(mlog, extra)
+
+
 async def _create_manager(conf):
     if conf['version'] == 'V1':
         return await snmp.create_v1_manager(
             remote_addr=udp.Address(
                 host=conf['remote_host'],
                 port=conf['remote_port']),
-            community=conf['community'])
+            community=conf['community'],
+            name=conf['name'])
 
     if conf['version'] == 'V2C':
         return await snmp.create_v2c_manager(
             remote_addr=udp.Address(
                 host=conf['remote_host'],
                 port=conf['remote_port']),
-            community=conf['community'])
+            community=conf['community'],
+            name=conf['name'])
 
     if conf['version'] == 'V3':
         return await aio.wait_for(
@@ -291,7 +302,8 @@ async def _create_manager(conf):
                     priv_type=(snmp.PrivType[conf['privacy']['type']]
                                if conf['privacy'] else None),
                     priv_password=(conf['privacy']['password']
-                                   if conf['privacy'] else None))),
+                                   if conf['privacy'] else None)),
+                name=conf['name']),
             timeout=conf['request_timeout'])
 
     raise Exception('unknown version')
