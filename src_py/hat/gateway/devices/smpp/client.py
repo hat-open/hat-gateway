@@ -29,6 +29,7 @@ class SmppClientDevice(common.Device):
         self._event_type_prefix = event_type_prefix
         self._async_group = aio.Group()
         self._msg_queue = aio.Queue()
+        self._log = common.create_device_logger_adapter(mlog, conf['name'])
 
         self.async_group.spawn(self._connection_loop)
 
@@ -39,7 +40,7 @@ class SmppClientDevice(common.Device):
     async def process_events(self, events: Collection[hat.event.common.Event]):
         for event in events:
             try:
-                mlog.debug('received event: %s', event)
+                self._log.debug('received event: %s', event)
                 msg = _msg_from_event(
                     event_type_prefix=self._event_type_prefix,
                     message_encoding=self._conf['message_encoding'],
@@ -51,8 +52,7 @@ class SmppClientDevice(common.Device):
                 await self._msg_queue.put(msg)
 
             except Exception as e:
-                mlog.warning('error processing event: %s',
-                             e, exc_info=e)
+                self._log.warning('error processing event: %s', e, exc_info=e)
 
     async def _connection_loop(self):
         conn = None
@@ -83,7 +83,7 @@ class SmppClientDevice(common.Device):
                         self._conf['connect_timeout'])
 
                 except Exception as e:
-                    mlog.warning('connection failed: %s', e, exc_info=e)
+                    self._log.warning('connection failed: %s', e, exc_info=e)
                     await asyncio.sleep(self._conf['reconnect_delay'])
                     continue
 
@@ -112,10 +112,10 @@ class SmppClientDevice(common.Device):
             pass
 
         except Exception as e:
-            mlog.error('connection loop error: %s', e, exc_info=e)
+            self._log.error('connection loop error: %s', e, exc_info=e)
 
         finally:
-            mlog.debug('closing connection loop')
+            self._log.debug('closing connection loop')
             self.close()
             await aio.uncancellable(cleanup())
 
@@ -128,26 +128,26 @@ class SmppClientDevice(common.Device):
             while True:
                 msg = await msg_queue.get()
 
-                mlog.debug('sending message to %s', msg.address)
+                self._log.debug('sending message to %s', msg.address)
                 msg_id = await conn.send_message(dst_addr=msg.address,
                                                  msg=msg.message,
                                                  short_message=short_message,
                                                  priority=priority,
                                                  data_coding=data_coding)
 
-                mlog.debug('message sent with id %s', msg_id.hex())
+                self._log.debug('message sent with id %s', msg_id.hex())
 
         except ConnectionError:
-            mlog.debug('connection closed')
+            self._log.debug('connection closed')
 
         except asyncio.TimeoutError:
-            mlog.debug('send timeout')
+            self._log.debug('send timeout')
 
         except Exception as e:
-            mlog.error('send loop error: %s', e, exc_info=e)
+            self._log.error('send loop error: %s', e, exc_info=e)
 
         finally:
-            mlog.debug('closing send loop')
+            self._log.debug('closing send loop')
             conn.close()
 
     async def _register_status(self, status):
@@ -157,7 +157,7 @@ class SmppClientDevice(common.Device):
             payload=hat.event.common.EventPayloadJson(status))
 
         await self._eventer_client.register([event])
-        mlog.debug('registered status %s', status)
+        self._log.debug('registered status %s', status)
 
 
 info: common.DeviceInfo = common.DeviceInfo(

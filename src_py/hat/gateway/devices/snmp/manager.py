@@ -36,7 +36,7 @@ class SnmpManagerDevice(common.Device):
         self._string_hex_oids = set(_oid_from_str(oid_str)
                                     for oid_str in conf['string_hex_oids'])
         self._async_group = aio.Group()
-        self._log = _create_logger_adapter(conf['name'])
+        self._log = common.create_device_logger_adapter(mlog, conf['name'])
 
         self.async_group.spawn(self._connection_loop)
 
@@ -258,13 +258,6 @@ info = common.DeviceInfo(
     create=SnmpManagerDevice,
     json_schema_id="hat-gateway://snmp.yaml#/$defs/manager",
     json_schema_repo=common.json_schema_repo)
-
-
-def _create_logger_adapter(name):
-    extra = {'info': {'type': 'SnmpManagerDevice',
-                      'name': name}}
-
-    return logging.LoggerAdapter(mlog, extra)
 
 
 async def _create_manager(conf):

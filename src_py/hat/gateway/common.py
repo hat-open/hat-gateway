@@ -3,6 +3,7 @@
 from collections.abc import Collection
 import abc
 import importlib.resources
+import logging
 import typing
 
 from hat import aio
@@ -81,3 +82,12 @@ def import_device_info(py_module_str: str) -> DeviceInfo:
         raise Exception('invalid device implementation')
 
     return info
+
+
+def create_device_logger_adapter(logger: logging.Logger,
+                                 name: str
+                                 ) -> logging.LoggerAdapter:
+    extra = {'info': {'type': 'Device',
+                      'name': name}}
+
+    return logging.LoggerAdapter(logger, extra)
