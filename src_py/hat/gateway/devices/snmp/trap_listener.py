@@ -79,7 +79,7 @@ async def create(conf: common.DeviceConf,
         v3_inform_cb=device._on_v3_inform,
         users=users)
 
-    device._log = _create_logger_adapter(conf['name'])
+    device._log = common.create_device_logger_adapter(mlog, conf['name'])
 
     return device
 
@@ -155,13 +155,6 @@ class SnmpTrapListenerDevice(common.Device):
 
         except Exception as e:
             self._log.error("error processing data: %s", e, exc_info=e)
-
-
-def _create_logger_adapter(name):
-    extra = {'info': {'type': 'SnmpTrapListenerDevice',
-                      'name': name}}
-
-    return logging.LoggerAdapter(mlog, extra)
 
 
 class _RemoteDevice(typing.NamedTuple):

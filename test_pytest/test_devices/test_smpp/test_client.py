@@ -98,7 +98,8 @@ def create_conf(port):
                     data_coding=smpp.DataCoding.DEFAULT,
                     message_encoding='utf-8',
                     message_timeout=1):
-        return {'remote_address': {'host': '127.0.0.1',
+        return {'name': '',
+                'remote_address': {'host': '127.0.0.1',
                                    'port': port},
                 'ssl': False,
                 'system_id': system_id,

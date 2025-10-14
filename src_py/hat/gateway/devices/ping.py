@@ -26,7 +26,7 @@ async def create(conf: common.DeviceConf,
         device._eventer_client = eventer_client
         device._event_type_prefix = event_type_prefix
         device._endpoint = endpoint
-        device._log = _create_logger_adapter(conf['name'], None)
+        device._log = common.create_device_logger_adapter(mlog, conf['name'])
 
         for device_conf in conf['remote_devices']:
             remote_device = _RemoteDevice()
@@ -34,8 +34,8 @@ async def create(conf: common.DeviceConf,
             remote_device._endpoint = endpoint
             remote_device._device = device
             remote_device._status = None
-            remote_device._log = _create_logger_adapter(conf['name'],
-                                                        device_conf['name'])
+            remote_device._log = _create_remote_device_logger_adapter(
+                conf['name'], device_conf['name'])
 
             remote_device.async_group.spawn(remote_device._ping_loop)
 
@@ -71,8 +71,8 @@ info = common.DeviceInfo(
     json_schema_repo=common.json_schema_repo)
 
 
-def _create_logger_adapter(name, remote_name):
-    extra = {'info': {'type': 'PingDevice',
+def _create_remote_device_logger_adapter(name, remote_name):
+    extra = {'info': {'type': 'PingRemoteDevice',
                       'name': name,
                       'remote_name': remote_name}}
 
