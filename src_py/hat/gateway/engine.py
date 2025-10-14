@@ -106,7 +106,7 @@ class Engine(aio.Resource):
 class _DeviceProxy(aio.Resource):
 
     def __init__(self,
-                 conf: json.Data,
+                 conf: common.DeviceConf,
                  eventer_client: hat.event.eventer.Client,
                  event_type_prefix: common.EventTypePrefix,
                  async_group: aio.Group,
@@ -120,6 +120,7 @@ class _DeviceProxy(aio.Resource):
         self._events_queue_size = events_queue_size
         self._events_queue = None
         self._enable_event = asyncio.Event()
+        self._log = common.create_device_logger_adapter(mlog, conf['name'])
 
         self.async_group.spawn(self._run)
 
@@ -145,8 +146,8 @@ class _DeviceProxy(aio.Resource):
 
     async def process_events(self, events: Collection[hat.event.common.Event]):
         if self._events_queue is None:
-            mlog.warning("device not enabled - ignoring %s events",
-                         len(events))
+            self._log.warning("device not enabled - ignoring %s events",
+                              len(events))
             return
 
         await self._events_queue.put(events)
@@ -189,7 +190,7 @@ class _DeviceProxy(aio.Resource):
                     await aio.uncancellable(self._close_device(device))
 
         except Exception as e:
-            mlog.error("device proxy run error: %s", e, exc_info=e)
+            self._log.error("device proxy run error: %s", e, exc_info=e)
 
         finally:
             self.close()
