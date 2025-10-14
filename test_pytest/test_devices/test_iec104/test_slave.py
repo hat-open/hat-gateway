@@ -248,7 +248,8 @@ def create_conf(port):
                     security=None,
                     buffers=[],
                     data=[]):
-        return {'local_host': '127.0.0.1',
+        return {'name': '',
+                'local_host': '127.0.0.1',
                 'local_port': port,
                 'remote_hosts': remote_hosts,
                 'max_connections': max_connections,
