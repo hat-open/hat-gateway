@@ -41,7 +41,8 @@ async def create(conf: common.DeviceConf,
     iec101_slave.init_buffers(buffers_conf=conf['buffers'],
                               buffers=device._buffers)
 
-    await iec101_slave.init_data(data_conf=conf['data'],
+    await iec101_slave.init_data(log=device._log,
+                                 data_conf=conf['data'],
                                  data_msgs=device._data_msgs,
                                  data_buffers=device._data_buffers,
                                  buffers=device._buffers,
