@@ -283,7 +283,8 @@ def create_conf(port):
                     data=[],
                     commands=[],
                     changes=[]):
-        return {'connection': {'host': '127.0.0.1',
+        return {'name': '',
+                'connection': {'host': '127.0.0.1',
                                'port': port,
                                'connect_timeout': connect_timeout,
                                'reconnect_delay': reconnect_delay,
