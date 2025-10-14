@@ -152,6 +152,8 @@ async def create(conf: common.DeviceConf,
     device._cmd_value_types = dict(
         _get_cmd_value_types(conf, value_types_61850))
 
+    device._log = common.create_device_logger_adapter(mlog, conf['name'])
+
     device._async_group = aio.Group()
     device._async_group.spawn(device._connection_loop)
     device._loop = asyncio.get_running_loop()
@@ -189,8 +191,8 @@ class Iec61850ClientDevice(common.Device):
                     raise Exception('unsupported event type')
 
         except Exception as e:
-            mlog.warning('error processing event %s: %s',
-                         event.type, e, exc_info=e)
+            self._log.warning('error processing event %s: %s',
+                              event.type, e, exc_info=e)
 
     async def _connection_loop(self):
 
@@ -204,8 +206,8 @@ class Iec61850ClientDevice(common.Device):
             while True:
                 await self._register_status('CONNECTING')
                 try:
-                    mlog.debug('connecting to %s:%s',
-                               conn_conf['host'], conn_conf['port'])
+                    self._log.debug('connecting to %s:%s',
+                                    conn_conf['host'], conn_conf['port'])
                     self._conn = await aio.wait_for(
                         iec61850.connect(
                             addr=tcp.Address(conn_conf['host'],
@@ -230,16 +232,17 @@ class Iec61850ClientDevice(common.Device):
                             remote_ae_qualifier=conn_conf.get(
                                 'remote_ae_qualifier'),
                             local_detail_calling=conn_conf.get(
-                                'local_detail_calling')),
+                                'local_detail_calling'),
+                            name=self._conf['name']),
                         conn_conf['connect_timeout'])
 
                 except Exception as e:
-                    mlog.warning('connnection failed: %s', e, exc_info=e)
+                    self._log.warning('connnection failed: %s', e, exc_info=e)
                     await self._register_status('DISCONNECTED')
                     await asyncio.sleep(conn_conf['reconnect_delay'])
                     continue
 
-                mlog.debug('connected')
+                self._log.debug('connected')
                 await self._register_status('CONNECTED')
 
                 initialized = False
@@ -250,7 +253,7 @@ class Iec61850ClientDevice(common.Device):
                     initialized = True
 
                 except Exception as e:
-                    mlog.warning(
+                    self._log.warning(
                         'initialization failed: %s, closing connection',
                         e, exc_info=e)
                     self._conn.close()
@@ -265,10 +268,10 @@ class Iec61850ClientDevice(common.Device):
                     await asyncio.sleep(conn_conf['reconnect_delay'])
 
         except Exception as e:
-            mlog.error('connection loop error: %s', e, exc_info=e)
+            self._log.error('connection loop error: %s', e, exc_info=e)
 
         finally:
-            mlog.debug('closing connection loop')
+            self._log.debug('closing connection loop')
             self.close()
             await aio.uncancellable(cleanup())
 
@@ -311,7 +314,7 @@ class Iec61850ClientDevice(common.Device):
                 self._conf['connection']['response_timeout'])
 
         except (asyncio.TimeoutError, ConnectionError) as e:
-            mlog.warning('send command failed: %s', e, exc_info=e)
+            self._log.warning('send command failed: %s', e, exc_info=e)
             if term_future and not term_future.done():
                 term_future.cancel()
             return
@@ -347,7 +350,7 @@ class Iec61850ClientDevice(common.Device):
             await self._register_events([event])
 
         except asyncio.TimeoutError:
-            mlog.warning('command termination timeout')
+            self._log.warning('command termination timeout')
 
         finally:
             del self._terminations[cmd_session_id]
@@ -371,11 +374,12 @@ class Iec61850ClientDevice(common.Device):
                 self._conf['connection']['response_timeout'])
 
         except asyncio.TimeoutError:
-            mlog.warning('write data response timeout')
+            self._log.warning('write data response timeout')
             return
 
         except ConnectionError as e:
-            mlog.warning('connection error on write data: %s', e, exc_info=e)
+            self._log.warning('connection error on write data: %s',
+                              e, exc_info=e)
             return
 
         session_id = event.payload.data['session_id']
@@ -394,8 +398,8 @@ class Iec61850ClientDevice(common.Device):
                 self._rcbs_entry_ids[report.report_id] = report.entry_id
 
         except Exception as e:
-            mlog.warning('report %s ignored: %s',
-                         report.report_id, e, exc_info=e)
+            self._log.warning('report %s ignored: %s',
+                              report.report_id, e, exc_info=e)
 
     def _events_from_report(self, report):
         report_id = report.report_id
@@ -444,7 +448,7 @@ class Iec61850ClientDevice(common.Device):
 
             value_type = self._dataset_values_ref_type[rv.ref]
             if value_type is None:
-                mlog.warning('report data ignored: unknown value type')
+                self._log.warning('report data ignored: unknown value type')
                 continue
 
             value_json = _value_to_json(rv.value, value_type)
@@ -496,7 +500,7 @@ class Iec61850ClientDevice(common.Device):
         cmd_session_id = _get_command_session_id(
             termination.ref, termination.cmd)
         if cmd_session_id not in self._terminations:
-            mlog.warning('unexpected termination dropped')
+            self._log.warning('unexpected termination dropped')
             return
 
         term_future = self._terminations[cmd_session_id]
@@ -509,7 +513,7 @@ class Iec61850ClientDevice(common.Device):
             logical_node=rcb_conf['ref']['logical_node'],
             type=iec61850.RcbType[rcb_conf['ref']['type']],
             name=rcb_conf['ref']['name'])
-        mlog.debug('initiating rcb %s', ref)
+        self._log.debug('initiating rcb %s', ref)
 
         get_attrs = collections.deque([iec61850.RcbAttrType.REPORT_ID])
         dataset_ref = _dataset_ref_from_conf(rcb_conf['dataset'])
@@ -551,7 +555,7 @@ class Iec61850ClientDevice(common.Device):
                         critical=True)
 
                 except Exception as e:
-                    mlog.warning('%s', e, exc_info=e)
+                    self._log.warning('%s', e, exc_info=e)
                     # try setting entry id to 0 in order to resynchronize
                     await self._set_rcb(
                         ref, [(iec61850.RcbAttrType.ENTRY_ID, b'\x00')])
@@ -578,7 +582,7 @@ class Iec61850ClientDevice(common.Device):
             ref, [(iec61850.RcbAttrType.REPORT_ENABLE, True)], critical=True)
         await self._set_rcb(
             ref, [(iec61850.RcbAttrType.GI, True)], critical=True)
-        mlog.debug('rcb %s initiated', ref)
+        self._log.debug('rcb %s initiated', ref)
 
     async def _set_rcb(self, ref, attrs, critical=False):
         try:
@@ -594,7 +598,7 @@ class Iec61850ClientDevice(common.Device):
                 raise Exception(f'set rcb {ref} failed') from e
 
             else:
-                mlog.warning('set rcb %s failed: %s', ref, e, exc_info=e)
+                self._log.warning('set rcb %s failed: %s', ref, e, exc_info=e)
 
     async def _create_dynamic_datasets(self):
         existing_ds_refs = set()
@@ -617,7 +621,7 @@ class Iec61850ClientDevice(common.Device):
                     exist_ds_value_refs = res
 
                 if ds_value_refs == list(exist_ds_value_refs):
-                    mlog.debug('dataset %s already exists', ds_ref)
+                    self._log.debug('dataset %s already exists', ds_ref)
                     continue
 
                 raise Exception('persisted dataset changed')
@@ -626,7 +630,7 @@ class Iec61850ClientDevice(common.Device):
             if res is not None:
                 raise Exception(f'create dataset {ds_ref} failed: {res}')
 
-            mlog.debug("dataset %s crated", ds_ref)
+            self._log.debug("dataset %s crated", ds_ref)
 
     async def _register_events(self, events):
         try:
@@ -646,7 +650,7 @@ class Iec61850ClientDevice(common.Device):
             payload=hat.event.common.EventPayloadJson(status))
         await self._register_events([event])
         self._conn_status = status
-        mlog.debug('registered status %s', status)
+        self._log.debug('registered status %s', status)
 
 
 def _value_ref_from_conf(value_ref_conf):
