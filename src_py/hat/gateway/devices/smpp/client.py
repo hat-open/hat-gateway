@@ -29,7 +29,7 @@ class SmppClientDevice(common.Device):
         self._event_type_prefix = event_type_prefix
         self._async_group = aio.Group()
         self._msg_queue = aio.Queue()
-        self._log = common.create_device_logger_adapter(mlog, conf['name'])
+        self._log = _create_logger_adapter(conf['name'])
 
         self.async_group.spawn(self._connection_loop)
 
@@ -185,3 +185,10 @@ def _msg_from_event(event_type_prefix, message_encoding, event):
 
     return _Msg(address=event.payload.data['address'],
                 message=event.payload.data['message'].encode(message_encoding))
+
+
+def _create_logger_adapter(name):
+    extra = {'meta': {'type': 'SmppClientDevice',
+                      'name': name}}
+
+    return logging.LoggerAdapter(mlog, extra)

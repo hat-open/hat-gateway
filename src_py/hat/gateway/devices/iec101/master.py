@@ -70,7 +70,7 @@ class Iec101MasterDevice(common.Device):
         self._remote_confs = {i['address']: i
                               for i in conf['remote_devices']}
         self._remote_groups = {}
-        self._log = common.create_device_logger_adapter(mlog, conf['name'])
+        self._log = _create_logger_adapter(conf['name'])
 
         self.async_group.spawn(self._link_loop)
         self.async_group.spawn(self._send_loop)
@@ -539,3 +539,10 @@ def _counter_interrogation_from_event(asdu_address, event):
         freeze=freeze,
         is_negative_confirm=False,
         cause=cause)
+
+
+def _create_logger_adapter(name):
+    extra = {'meta': {'type': 'Iec101MasterDevice',
+                      'name': name}}
+
+    return logging.LoggerAdapter(mlog, extra)

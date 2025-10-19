@@ -1,6 +1,6 @@
 """Modbus master device"""
 
-from hat.gateway import common
+from hat.gateway.devices.modbus.master import common
 from hat.gateway.devices.modbus.master.device import ModbusMasterDevice
 
 

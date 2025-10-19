@@ -73,7 +73,7 @@ class Iec103MasterDevice(common.Device):
                               for i in conf['remote_devices']}
         self._remote_groups = {}
         self._async_group = aio.Group()
-        self._log = common.create_device_logger_adapter(mlog, conf['name'])
+        self._log = _create_logger_adapter(conf['name'])
 
         self.async_group.spawn(self._create_link_master_loop)
 
@@ -431,3 +431,10 @@ def _create_event(event_type, payload, source_timestamp=None):
         type=event_type,
         source_timestamp=source_timestamp,
         payload=hat.event.common.EventPayloadJson(payload))
+
+
+def _create_logger_adapter(name):
+    extra = {'meta': {'type': 'Iec103MasterDevice',
+                      'name': name}}
+
+    return logging.LoggerAdapter(mlog, extra)

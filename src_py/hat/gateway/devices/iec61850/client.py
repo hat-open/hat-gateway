@@ -152,7 +152,7 @@ async def create(conf: common.DeviceConf,
     device._cmd_value_types = dict(
         _get_cmd_value_types(conf, value_types_61850))
 
-    device._log = common.create_device_logger_adapter(mlog, conf['name'])
+    device._log = _create_logger_adapter(conf['name'])
 
     device._async_group = aio.Group()
     device._async_group.spawn(device._connection_loop)
@@ -1121,3 +1121,10 @@ def _conf_ref_to_path(conf_ref):
             conf_ref['logical_node'],
             conf_ref['fc'],
             *conf_ref['names']]
+
+
+def _create_logger_adapter(name):
+    extra = {'meta': {'type': 'Iec61850ClientDevice',
+                      'name': name}}
+
+    return logging.LoggerAdapter(mlog, extra)

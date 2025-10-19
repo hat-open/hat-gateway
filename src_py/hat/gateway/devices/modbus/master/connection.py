@@ -10,7 +10,7 @@ from hat.drivers import modbus
 from hat.drivers import serial
 from hat.drivers import tcp
 
-from hat.gateway import common
+from hat.gateway.devices.modbus.master import common
 
 
 mlog = logging.getLogger(__name__)

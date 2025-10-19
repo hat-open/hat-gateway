@@ -31,7 +31,7 @@ class Iec104MasterDevice(common.Device):
         self._event_type_prefix = event_type_prefix
         self._conn = None
         self._async_group = aio.Group()
-        self._log = common.create_device_logger_adapter(mlog, conf['name'])
+        self._log = _create_logger_adapter(conf['name'])
 
         ssl_ctx = (
             ssl.create_ssl_ctx(conf['security'], ssl.SslProtocol.TLS_CLIENT)
@@ -379,3 +379,10 @@ def _cause_to_json(cls, cause):
 
 def _cause_from_json(cls, cause):
     return cls[cause] if isinstance(cause, str) else cause
+
+
+def _create_logger_adapter(name):
+    extra = {'meta': {'type': 'Iec104MasterDevice',
+                      'name': name}}
+
+    return logging.LoggerAdapter(mlog, extra)

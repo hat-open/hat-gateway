@@ -12,6 +12,7 @@ import typing
 from hat import aio
 from hat import json
 
+from hat.gateway.devices.modbus.master import common
 from hat.gateway.devices.modbus.master.connection import (DataType,
                                                           Error,
                                                           Connection)
@@ -66,7 +67,8 @@ class RemoteDevice:
         self._data_infos = {data_info.name: data_info
                             for data_info in _get_data_infos(conf)}
         self._data_groups = list(_group_data_infos(self._data_infos.values()))
-        self._log = _create_remote_device_logger_adapter(name, self._device_id)
+        self._log = common.create_remote_device_logger_adapter(mlog, name,
+                                                               self._device_id)
 
     @property
     def conn(self) -> Connection:
@@ -166,14 +168,6 @@ class RemoteDevice:
                                            or_mask=or_mask)
 
 
-def _create_remote_device_logger_adapter(name, device_id):
-    extra = {'info': {'type': 'ModbusMasterRemoteDevice',
-                      'name': name,
-                      'device_id': device_id}}
-
-    return logging.LoggerAdapter(mlog, extra)
-
-
 class _Reader(aio.Resource):
 
     def __init__(self, conn, name, device_id, timeout_poll_delay, data_groups,
@@ -184,7 +178,8 @@ class _Reader(aio.Resource):
         self._response_cb = response_cb
         self._status = None
         self._async_group = conn.async_group.create_subgroup()
-        self._log = _create_remote_device_logger_adapter(name, device_id)
+        self._log = common.create_remote_device_logger_adapter(mlog, name,
+                                                               device_id)
 
         self.async_group.spawn(self._read_loop, data_groups)
 

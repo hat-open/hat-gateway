@@ -7,7 +7,7 @@ from hat import aio
 import hat.event.common
 import hat.event.eventer
 
-from hat.gateway import common
+from hat.gateway.devices.modbus.master import common
 
 
 mlog = logging.getLogger(__name__)
