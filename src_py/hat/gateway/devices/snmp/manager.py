@@ -36,7 +36,7 @@ class SnmpManagerDevice(common.Device):
         self._string_hex_oids = set(_oid_from_str(oid_str)
                                     for oid_str in conf['string_hex_oids'])
         self._async_group = aio.Group()
-        self._log = common.create_device_logger_adapter(mlog, conf['name'])
+        self._log = _create_logger_adapter(conf['name'])
 
         self.async_group.spawn(self._connection_loop)
 
@@ -489,3 +489,10 @@ _error_oids = {
     (1, 3, 6, 1, 6, 3, 15, 1, 1, 6): 'DECRYPTION_ERRORS'}
 
 _conn_close_oids = {(1, 3, 6, 1, 6, 3, 15, 1, 1, 1)}
+
+
+def _create_logger_adapter(name):
+    extra = {'meta': {'type': 'SnmpManagerDevice',
+                      'name': name}}
+
+    return logging.LoggerAdapter(mlog, extra)

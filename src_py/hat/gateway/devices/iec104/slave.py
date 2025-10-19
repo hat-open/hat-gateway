@@ -36,7 +36,7 @@ async def create(conf: common.DeviceConf,
     device._buffers = {}
     device._data_msgs = {}
     device._data_buffers = {}
-    device._log = common.create_device_logger_adapter(mlog, conf['name'])
+    device._log = _create_logger_adapter(conf['name'])
 
     iec101_slave.init_buffers(buffers_conf=conf['buffers'],
                               buffers=device._buffers)
@@ -397,3 +397,10 @@ def _cmd_msg_from_event(cmd_key, event):
     time = common.time_from_source_timestamp(event.source_timestamp)
     return iec104.CommandMsg(**msg._asdict(),
                              time=time)
+
+
+def _create_logger_adapter(name):
+    extra = {'meta': {'type': 'Iec104SlaveDevice',
+                      'name': name}}
+
+    return logging.LoggerAdapter(mlog, extra)

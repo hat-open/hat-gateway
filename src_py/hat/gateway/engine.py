@@ -120,7 +120,7 @@ class _DeviceProxy(aio.Resource):
         self._events_queue_size = events_queue_size
         self._events_queue = None
         self._enable_event = asyncio.Event()
-        self._log = common.create_device_logger_adapter(mlog, conf['name'])
+        self._log = _create_device_proxy_logger_adapter(conf['name'])
 
         self.async_group.spawn(self._run)
 
@@ -207,3 +207,10 @@ class _DeviceProxy(aio.Resource):
                 type=(*self._event_type_prefix, 'gateway', 'running'),
                 source_timestamp=hat.event.common.now(),
                 payload=hat.event.common.EventPayloadJson(is_running))])
+
+
+def _create_device_proxy_logger_adapter(name):
+    extra = {'meta': {'type': 'DeviceProxy',
+                      'name': name}}
+
+    return logging.LoggerAdapter(mlog, extra)
