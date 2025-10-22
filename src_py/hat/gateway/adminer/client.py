@@ -106,6 +106,7 @@ class Client(aio.Resource):
 
                 if msg_data[0] == 'error':
                     future.set_exception(AdminerError(msg_data[1]))
+                    continue
 
                 future.set_result(msg_data[1])
 
