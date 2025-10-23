@@ -43,7 +43,7 @@ async def create(conf: common.DeviceConf,
     rcb_confs = {i['report_id']: i for i in conf['rcbs']}
     dataset_confs = {_dataset_ref_from_conf(ds_conf['ref']): ds_conf
                      for ds_conf in conf['datasets']}
-    value_ref_data_name = {}
+    value_ref_data_names = collections.defaultdict(collections.deque)
     data_value_types = {}
     for data_conf in conf['data']:
         data_v_ref = _value_ref_from_conf(data_conf['value'])
@@ -80,7 +80,7 @@ async def create(conf: common.DeviceConf,
                     (q_ref and _refs_match(q_ref, value_ref)) or
                     (t_ref and _refs_match(t_ref, value_ref)) or
                     (seld_ref and _refs_match(seld_ref, value_ref))):
-                value_ref_data_name[value_ref] = data_conf['name']
+                value_ref_data_names[value_ref].append(data_conf['name'])
 
     dataset_values_ref_type = {}
     for ds_conf in conf['datasets']:
@@ -125,7 +125,7 @@ async def create(conf: common.DeviceConf,
     device._terminations = {}
     device._reports_segments = {}
 
-    device._value_ref_data_name = value_ref_data_name
+    device._value_ref_data_names = value_ref_data_names
     device._data_value_types = data_value_types
     device._dataset_values_ref_type = dataset_values_ref_type
     device._command_ref_value_type = command_ref_value_type
@@ -439,23 +439,23 @@ class Iec61850ClientDevice(common.Device):
         data_values_json = collections.defaultdict(dict)
         data_reasons = collections.defaultdict(set)
         for rv in report_data:
-            if rv.ref not in self._value_ref_data_name:
+            if rv.ref not in self._value_ref_data_names:
                 continue
 
-            data_name = self._value_ref_data_name[rv.ref]
             value_type = self._dataset_values_ref_type[rv.ref]
             if value_type is None:
                 mlog.warning('report data ignored: unknown value type')
                 continue
 
             value_json = _value_to_json(rv.value, value_type)
-            value_path = [rv.ref.logical_device, rv.ref.logical_node,
-                          rv.ref.fc, *rv.ref.names]
-            data_values_json[data_name] = json.set_(
-                data_values_json[data_name], value_path, value_json)
-            if rv.reasons:
-                data_reasons[data_name].update(
-                    reason.name for reason in rv.reasons)
+            for data_name in self._value_ref_data_names[rv.ref]:
+                value_path = [rv.ref.logical_device, rv.ref.logical_node,
+                              rv.ref.fc, *rv.ref.names]
+                data_values_json[data_name] = json.set_(
+                    data_values_json[data_name], value_path, value_json)
+                if rv.reasons:
+                    data_reasons[data_name].update(
+                        reason.name for reason in rv.reasons)
 
         for data_name, values_json in data_values_json.items():
             payload = {'reasons': list(data_reasons[data_name])}

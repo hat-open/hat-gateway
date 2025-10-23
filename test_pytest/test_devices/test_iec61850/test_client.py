@@ -2752,6 +2752,184 @@ async def test_data_superset_report(addr, create_conf, value_type,
     await client.async_close()
 
 
+async def test_multiple_data_superset_report(addr, create_conf):
+    event_queue = aio.Queue()
+
+    report_id = 'report id'
+    dataset_ref = 'ds'
+    logical_device = 'ld'
+    logical_node = 'ln'
+    rcb_type = iec61850.RcbType.UNBUFFERED
+    value_ref = iec61850.DataRef(logical_device=logical_device,
+                                 logical_node=logical_node,
+                                 fc='fc',
+                                 names=('a', ))
+    rcb_ref = iec61850.RcbRef(logical_device=logical_device,
+                              logical_node=logical_node,
+                              type=rcb_type,
+                              name='rcb')
+
+    data_names = ['d1', 'd2', 'd3']
+    data_values = [1, 2, 3]
+    data_qualities = [
+        iec61850.Quality(
+            validity=iec61850.QualityValidity.GOOD,
+            details=set(),
+            source=iec61850.QualitySource.PROCESS,
+            test=False,
+            operator_blocked=False) for _ in range(3)]
+    data_timestamps = [
+        iec61850.Timestamp(
+            value=datetime.datetime.now(datetime.timezone.utc),
+            leap_second=False,
+            clock_failure=False,
+            not_synchronized=False,
+            accuracy=0) for _ in range(3)]
+    data_value_names = [['phsA', 'cVal', 'mag', 'f'],
+                        ['phsB', 'cVal', 'mag', 'f'],
+                        ['phsC', 'cVal', 'mag', 'f']]
+    data_quality_names = [['phsA', 'q'],
+                          ['phsB', 'q'],
+                          ['phsC', 'q']]
+    data_timestamp_names = [['phsA', 't'],
+                            ['phsB', 't'],
+                            ['phsC', 't']]
+
+    value_type = iec61850.StructValueType([
+        ('phsA', iec61850.StructValueType([
+            ('cVal', iec61850.AcsiValueType.VECTOR),
+            ('q', iec61850.AcsiValueType.QUALITY),
+            ('t', iec61850.AcsiValueType.TIMESTAMP)])),
+        ('phsB', iec61850.StructValueType([
+            ('cVal', iec61850.AcsiValueType.VECTOR),
+            ('q', iec61850.AcsiValueType.QUALITY),
+            ('t', iec61850.AcsiValueType.TIMESTAMP)])),
+        ('phsC', iec61850.StructValueType([
+            ('cVal', iec61850.AcsiValueType.VECTOR),
+            ('q', iec61850.AcsiValueType.QUALITY),
+            ('t', iec61850.AcsiValueType.TIMESTAMP)]))])
+
+    report_value = {
+        'phsA': {
+            'cVal': iec61850.Vector(
+               magnitude=iec61850.Analogue(f=data_values[0], i=None),
+               angle=None),
+            'q': data_qualities[0],
+            't': data_timestamps[0]},
+        'phsB': {
+            'cVal': iec61850.Vector(
+               magnitude=iec61850.Analogue(f=data_values[1], i=None),
+               angle=None),
+            'q': data_qualities[1],
+            't': data_timestamps[1]},
+        'phsC': {
+            'cVal': iec61850.Vector(
+               magnitude=iec61850.Analogue(f=data_values[2], i=None),
+               angle=None),
+            'q': data_qualities[2],
+            't': data_timestamps[2]}}
+
+    data_defs = [DataDef(ref=value_ref,
+                         value_type=value_type)]
+
+    data_conf = []
+    for (data_name,
+         value_names,
+         quality_names,
+         timestamp_names) in zip(data_names,
+                                 data_value_names,
+                                 data_quality_names,
+                                 data_timestamp_names):
+        data_conf.append(
+            {'name': data_name,
+             'report_id': report_id,
+             'value': {'logical_device': logical_device,
+                       'logical_node': logical_node,
+                       'fc': value_ref.fc,
+                       'names': [*value_ref.names, *value_names]},
+             'quality': {'logical_device': logical_device,
+                         'logical_node': logical_node,
+                         'fc': value_ref.fc,
+                         'names': [*value_ref.names, *quality_names]},
+             'timestamp': {'logical_device': logical_device,
+                           'logical_node': logical_node,
+                           'fc': value_ref.fc,
+                           'names': [*value_ref.names, *timestamp_names]}})
+
+    conf = create_conf(
+        value_types=[
+            {'logical_device': value_ref.logical_device,
+             'logical_node': value_ref.logical_node,
+             'fc': value_ref.fc,
+             'name': value_ref.names[0],
+             'type': value_type_to_json(value_type)}],
+        datasets=[{'ref': dataset_ref,
+                   'values': [{'logical_device': value_ref.logical_device,
+                               'logical_node': value_ref.logical_node,
+                               'fc': value_ref.fc,
+                               'names': list(value_ref.names)}],
+                   'dynamic': True}],
+        rcbs=[{'ref': {'logical_device': logical_device,
+                       'logical_node': logical_node,
+                       'type': rcb_type.name,
+                       'name': rcb_ref.name},
+               'report_id': report_id,
+               'dataset': dataset_ref}],
+        data=data_conf)
+
+    client = EventerClient(event_cb=event_queue.put_nowait)
+
+    server = await create_server(
+        addr=addr,
+        rcbs={
+            rcb_ref: {
+                iec61850.RcbAttrType.REPORT_ID: report_id,
+                iec61850.RcbAttrType.DATASET: iec61850.NonPersistedDatasetRef(
+                    dataset_ref)}})
+    device = await aio.call(info.create, conf, client, event_type_prefix)
+
+    event = await event_queue.get()
+    assert_status_event(event, 'CONNECTING')
+
+    event = await event_queue.get()
+    assert_status_event(event, 'CONNECTED')
+
+    report = iec61850.Report(
+        report_id=report_id,
+        sequence_number=None,
+        subsequence_number=None,
+        more_segments_follow=None,
+        dataset=None,
+        buffer_overflow=None,
+        conf_revision=None,
+        entry_time=None,
+        entry_id=None,
+        data=[iec61850.ReportData(
+            ref=value_ref,
+            value=report_value,
+            reasons={iec61850.Reason.DATA_CHANGE})])
+    await server.send_report(report, data_defs)
+
+    for (name,
+         value,
+         quality,
+         timestamp) in zip(data_names,
+                           data_values,
+                           data_qualities,
+                           data_timestamps):
+        data_event = await event_queue.get()
+        assert_data_event(event=data_event,
+                          name=name,
+                          reasons={iec61850.Reason.DATA_CHANGE},
+                          value=value,
+                          quality=quality,
+                          timestamp=timestamp)
+
+    await device.async_close()
+    await server.async_close()
+    await client.async_close()
+
+
 async def test_data_report_segmentation(addr, create_conf):
     event_queue = aio.Queue()
 
