@@ -1,0 +1,301 @@
+IEC 60870-5-101 devices
+=======================
+
+Together with IEC101 specific events, generic `enable` and `running` events
+are also supported.
+
+Supported data types (<data_type>):
+
+    * 'single'
+    * 'double'
+    * 'step_position'
+    * 'bitstring'
+    * 'normalized'
+    * 'scaled'
+    * 'floating'
+    * 'binary_counter'
+    * 'protection'
+    * 'protection_start'
+    * 'protection_command'
+    * 'status'
+
+Supported command types (<command_type>):
+
+    * 'single'
+    * 'double'
+    * 'regulating'
+    * 'normalized'
+    * 'scaled'
+    * 'floating'
+    * 'bitstring'
+
+
+Master device
+-------------
+
+IEC101 master device configuration is specified by
+``hat-gateway://iec101.yaml#/$defs/master``.
+
+According to :ref:`gateway specification <gateway>`, all IEC101 master device
+event types have prefix::
+
+    gateway/iec101_master/<device_name>/<source>/...
+
+.. todo::
+
+    * create master loop (open serial endpoint) (serial port reconnect delay)
+    * enable/disable remote device (query last state on enable device and
+      listen for changes)
+    * reconnect procedure when serial endpoint available and remote
+      device is enabled (remote device reconnect delay)
+    * iec101 messages are sent to device only as reaction to `system` events
+    * only "automatic" driver action is reconnect loop
+    * new `gateway` events are generated only as reaction to:
+        - receiving iec101 messages
+        - change of connection state
+    * messages with test flag are ignored
+    * time sync loop for each enabled remote device
+
+
+Gateway events
+''''''''''''''
+
+Events registered by gateway have event type starting with::
+
+    gateway/iec101_master/<device_name>/gateway/...
+
+Available gateway events are:
+
+    * .../status
+
+        Represents change in serial endpoint status. Upon enabling device,
+        new ``CONNECTING`` status should be registered, and ``CONNECTED``
+        once serial endpoint is opened. Once device is disabled,
+        ``DISCONNECTED`` status should be assumed regardless of last
+        registered `status` event (registration of ``DISCONNECTED`` status
+        event during device disabling is mandatory but should not be relied
+        upon).
+
+        Source timestamp is ``None``.
+
+        Payload is specified by
+        ``hat-gateway://iec101.yaml#/$defs/events/master/gateway/status``.
+
+    * .../remote_device/<device_address>/status
+
+        Represents change in remote device connection status. Once serial
+        endpoint is opened and remote device enabled, new ``CONNECTING``
+        status should be registered. Once device is disabled or remote
+        device is disabled, ``DISCONNECTED`` status should be
+        assumed regardless of last registered `status` event (registration
+        of ``DISCONNECTED`` status event during device disabling or remote
+        device disabling is mandatory but should not be relied upon).
+
+        Source timestamp is ``None``.
+
+        Payload is specified by
+        ``hat-gateway://iec101.yaml#/$defs/events/master/gateway/status``.
+
+    * .../remote_device/<device_address>/data/<data_type>/<asdu_address>/<io_address>
+
+        Represents received IEC101 data message.
+
+        Source timestamp is dependent on existence of IEC101 time.
+        If IEC101 time is not available, source timestamp is ``None``.
+
+        Payload is specified by
+        ``hat-gateway://iec101.yaml#/$defs/events/master/gateway/data``.
+
+    * .../remote_device/<device_address>/command/<command_type>/<asdu_address>/<io_address>
+
+        Represents received IEC101 command message.
+
+        Source timestamp is ``None``.
+
+        Payload is specified by
+        ``hat-gateway://iec101.yaml#/$defs/events/master/gateway/command``.
+
+    * .../remote_device/<device_address>/interrogation/<asdu_address>
+
+        Represents received IEC101 interrogation message.
+
+        Source timestamp is ``None``.
+
+        Payload is specified by
+        ``hat-gateway://iec101.yaml#/$defs/events/master/gateway/interrogation``.
+
+    * .../remote_device/<device_address>/counter_interrogation/<asdu_address>
+
+        Represents received IEC101 counter interrogation message.
+
+        Source timestamp is ``None``.
+
+        Payload is specified by
+        ``hat-gateway://iec101.yaml#/$defs/events/master/gateway/counter_interrogation``.
+
+
+System events
+'''''''''''''
+
+Events registered by other Hat components, which are consumed by gateway, have
+event type starting with::
+
+    gateway/iec101_master/<device_name>/system/...
+
+Available system events are:
+
+    * .../remote_device/<device_address>/enable
+
+        Represents request for enable/disable remote device.
+
+        Source timestamp is ``None``.
+
+        Payload is specified by
+        ``hat-gateway://iec101.yaml#/$defs/events/master/system/enable``.
+
+    * .../remote_device/<device_address>/command/<command_type>/<asdu_address>/<io_address>
+
+        Represents request for command execution.
+
+        Source timestamp is ``None``.
+
+        Payload is specified by
+        ``hat-gateway://iec101.yaml#/$defs/events/master/system/command``.
+
+    * .../remote_device/<device_address>/interrogation/<asdu_address>
+
+        Represents request for interrogation (interrogation activation).
+
+        Source timestamp is ``None``.
+
+        Payload is specified by
+        ``hat-gateway://iec101.yaml#/$defs/events/master/system/interrogation``.
+
+    * .../remote_device/<device_address>/counter_interrogation/<asdu_address>
+
+        Represents request for counter interrogation (interrogation
+        activation).
+
+        Source timestamp is ``None``.
+
+        Payload is specified by
+        ``hat-gateway://iec101.yaml#/$defs/events/master/system/counter_interrogation``.
+
+
+Slave device
+------------
+
+IEC101 slave device configuration is specified by
+``hat-gateway://iec101.yaml#/$defs/slave``.
+
+According to :ref:`gateway specification <gateway>`, all IEC101 slave device
+event types have prefix::
+
+    gateway/iec101_slave/<device_name>/<source>/...
+
+IEC101 slave device provides implementation of IEC101 slave which accepts
+multiple parallel remote master connections, one for each configured device
+address. Change of active master connections list is trigger for registration
+of new gateway 'connection' event containing current list's state.
+
+IEC101 slave device is configured with list of available data. Once device
+is enabled, device will query last system 'data' events corresponding to
+configured data. This local cache is continuously updated with latest data
+states based on received system 'data' events. All remote masters are
+notified with IEC101 data messages each time locally cached data state is
+changed. When slave receives IEC101 interrogation or counter interrogation
+message, it will immediately respond with IEC101 interrogation/data messages
+based on current state of local data cache. Interrogation deactivation
+is not supported (slave responds with negative confirmation).
+
+In addition to local cache of last data states, IEC101 slave device can be
+configured with arbitrary number of circular data buffers, each configured
+with limited size. Each data can be associated with single buffer. When
+system 'data' event, associated with configured data, is received, together
+with local cache update, data change is appended to the end of configured
+data buffer. Once buffer is full, new changes will overwrite oldest changes.
+Data change is removed from buffer when at least one remote master is notified
+with data change (slave sends data poll response with data change).
+When remote master connect to slave and new connection is established,
+slave will immediately schedule sending of IEC101 data messages for each
+buffered data change. Slave's initial query of system 'data' events is not
+buffered.
+
+In addition to sending IEC101 data messages and processing IEC101 interrogation
+and counter interrogation requests, slave supports IEC101 command messages.
+Command messages are transparently bidirectionally mapped to 'command' events.
+Each time slave receives IEC101 command request, it will register new
+gateway 'command' event which contains unique identification of master
+connection which sent command request. When new system 'command' event is
+received, it must contain identification of master connection which will
+be used for sending associated IEC101 command response.
+
+
+Gateway events
+''''''''''''''
+
+Events registered by gateway have event type starting with::
+
+    gateway/iec101_slave/<device_name>/gateway/...
+
+Available gateway events are:
+
+    * .../connections
+
+        Represents change in list of all active connections. When device
+        is disabled, empty list of connections is assumed (when device is
+        disabled, new `connections` event should be registered but user
+        should not depend on this behaviour).
+
+        Source timestamp is ``None``.
+
+        Payload is specified by
+        ``hat-gateway://iec101.yaml#/$defs/events/slave/gateway/connections``.
+
+    * .../command/<command_type>/<asdu_address>/<io_address>
+
+        Represents received IEC101 command message.
+
+        Source timestamp is dependent on existence of IEC101 time.
+        If IEC101 time is not available, source timestamp is ``None``.
+
+        Payload is specified by
+        ``hat-gateway://iec101.yaml#/$defs/events/slave/gateway/command``.
+
+
+System events
+'''''''''''''
+
+Events registered by other Hat components, which are consumed by gateway, have
+event type starting with::
+
+    gateway/iec101_slave/<device_name>/system/...
+
+Available system events are:
+
+    * .../data/<data_type>/<asdu_address>/<io_address>
+
+        Represents data change.
+
+        Source timestamp is dependent on existence of IEC101 time.
+        If IEC101 time is not available, source timestamp is ``None``.
+
+        Payload is specified by
+        ``hat-gateway://iec101.yaml#/$defs/events/slave/system/data``.
+
+    * .../command/<command_type>/<asdu_address>/<io_address>
+
+        Represents command response.
+
+        Source timestamp is dependent on existence of IEC101 time.
+        If IEC101 time is not available, source timestamp is ``None``.
+
+        Payload is specified by
+        ``hat-gateway://iec101.yaml#/$defs/events/slave/system/command``.
+
+
+Configurations and event payloads
+---------------------------------
+
+.. literalinclude:: ../../schemas_json/iec101.yaml
+    :language: yaml
