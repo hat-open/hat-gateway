@@ -71,6 +71,8 @@ async def test_get_log_conf(addr):
     with pytest.raises(hat.gateway.adminer.AdminerError, match='abc'):
         await task
 
+    assert client.is_open
+
     await client.async_close()
     await srv.async_close()
 
@@ -109,6 +111,8 @@ async def test_set_log_conf(addr):
 
     with pytest.raises(hat.gateway.adminer.AdminerError, match='abc'):
         await task
+
+    assert client.is_open
 
     await client.async_close()
     await srv.async_close()
