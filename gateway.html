@@ -1,0 +1,469 @@
+<!doctype html>
+<html class="no-js" lang="en" data-content_root="./">
+  <head><meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="search" title="Search" href="search.html"><link rel="next" title="Modbus devices" href="devices/modbus.html"><link rel="prev" title="hat-gateway - Communication gateway" href="index.html">
+
+    <!-- Generated with Sphinx 8.2.3 and Furo 2025.09.25 -->
+        <title>Gateway - hat-gateway documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=d111a655" />
+    <link rel="stylesheet" type="text/css" href="_static/styles/furo.css?v=580074bf" />
+    <link rel="stylesheet" type="text/css" href="_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="_static/styles/furo-extensions.css?v=8dab3a3b" />
+    <link rel="stylesheet" type="text/css" href="_static/hat.css?v=d90f72ce" />
+    
+    
+
+
+<style>
+  body {
+    --color-code-background: #f2f2f2;
+  --color-code-foreground: #1e1e1e;
+  
+  }
+  @media not print {
+    body[data-theme="dark"] {
+      --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+    }
+    @media (prefers-color-scheme: dark) {
+      body:not([data-theme="light"]) {
+        --color-code-background: #202020;
+  --color-code-foreground: #d0d0d0;
+  
+      }
+    }
+  }
+</style></head>
+  <body>
+    
+    <script>
+      document.body.dataset.theme = localStorage.getItem("theme") || "auto";
+    </script>
+    
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display: none;">
+  <symbol id="svg-toc" viewBox="0 0 24 24">
+    <title>Contents</title>
+    <svg stroke="currentColor" fill="currentColor" stroke-width="0" viewBox="0 0 1024 1024">
+      <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504-486H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0 632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 0 0 0 13.8z"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-menu" viewBox="0 0 24 24">
+    <title>Menu</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-menu">
+      <line x1="3" y1="12" x2="21" y2="12"></line>
+      <line x1="3" y1="6" x2="21" y2="6"></line>
+      <line x1="3" y1="18" x2="21" y2="18"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-arrow-right" viewBox="0 0 24 24">
+    <title>Expand</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="feather-chevron-right">
+      <polyline points="9 18 15 12 9 6"></polyline>
+    </svg>
+  </symbol>
+  <symbol id="svg-sun" viewBox="0 0 24 24">
+    <title>Light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="feather-sun">
+      <circle cx="12" cy="12" r="5"></circle>
+      <line x1="12" y1="1" x2="12" y2="3"></line>
+      <line x1="12" y1="21" x2="12" y2="23"></line>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+      <line x1="1" y1="12" x2="3" y2="12"></line>
+      <line x1="21" y1="12" x2="23" y2="12"></line>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon" viewBox="0 0 24 24">
+    <title>Dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-moon">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454z" />
+    </svg>
+  </symbol>
+  <symbol id="svg-sun-with-moon" viewBox="0 0 24 24">
+    <title>Auto light/dark, in light mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path style="opacity: 50%" d="M 5.411 14.504 C 5.471 14.504 5.532 14.504 5.591 14.504 C 3.639 16.319 4.383 19.569 6.931 20.352 C 7.693 20.586 8.512 20.551 9.25 20.252 C 8.023 23.207 4.056 23.725 2.11 21.184 C 0.166 18.642 1.702 14.949 4.874 14.536 C 5.051 14.512 5.231 14.5 5.411 14.5 L 5.411 14.504 Z"/>
+      <line x1="14.5" y1="3.25" x2="14.5" y2="1.25"/>
+      <line x1="14.5" y1="15.85" x2="14.5" y2="17.85"/>
+      <line x1="10.044" y1="5.094" x2="8.63" y2="3.68"/>
+      <line x1="19" y1="14.05" x2="20.414" y2="15.464"/>
+      <line x1="8.2" y1="9.55" x2="6.2" y2="9.55"/>
+      <line x1="20.8" y1="9.55" x2="22.8" y2="9.55"/>
+      <line x1="10.044" y1="14.006" x2="8.63" y2="15.42"/>
+      <line x1="19" y1="5.05" x2="20.414" y2="3.636"/>
+      <circle cx="14.5" cy="9.55" r="3.6"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-moon-with-sun" viewBox="0 0 24 24">
+    <title>Auto light/dark, in dark mode</title>
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round"
+      class="icon-custom-derived-from-feather-sun-and-tabler-moon">
+      <path d="M 8.282 7.007 C 8.385 7.007 8.494 7.007 8.595 7.007 C 5.18 10.184 6.481 15.869 10.942 17.24 C 12.275 17.648 13.706 17.589 15 17.066 C 12.851 22.236 5.91 23.143 2.505 18.696 C -0.897 14.249 1.791 7.786 7.342 7.063 C 7.652 7.021 7.965 7 8.282 7 L 8.282 7.007 Z"/>
+      <line style="opacity: 50%" x1="18" y1="3.705" x2="18" y2="2.5"/>
+      <line style="opacity: 50%" x1="18" y1="11.295" x2="18" y2="12.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="4.816" x2="14.464" y2="3.964"/>
+      <line style="opacity: 50%" x1="20.711" y1="10.212" x2="21.563" y2="11.063"/>
+      <line style="opacity: 50%" x1="14.205" y1="7.5" x2="13.001" y2="7.5"/>
+      <line style="opacity: 50%" x1="21.795" y1="7.5" x2="23" y2="7.5"/>
+      <line style="opacity: 50%" x1="15.316" y1="10.184" x2="14.464" y2="11.036"/>
+      <line style="opacity: 50%" x1="20.711" y1="4.789" x2="21.563" y2="3.937"/>
+      <circle style="opacity: 50%" cx="18" cy="7.5" r="2.169"/>
+    </svg>
+  </symbol>
+  <symbol id="svg-pencil" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-pencil-code">
+      <path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4" />
+      <path d="M13.5 6.5l4 4" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+  <symbol id="svg-eye" viewBox="0 0 24 24">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      stroke-width="1" stroke-linecap="round" stroke-linejoin="round" class="icon-tabler-eye-code">
+      <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+      <path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0" />
+      <path
+        d="M11.11 17.958c-3.209 -.307 -5.91 -2.293 -8.11 -5.958c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6c-.21 .352 -.427 .688 -.647 1.008" />
+      <path d="M20 21l2 -2l-2 -2" />
+      <path d="M17 17l-2 2l2 2" />
+    </svg>
+  </symbol>
+</svg>
+
+<input type="checkbox" class="sidebar-toggle" name="__navigation" id="__navigation" aria-label="Toggle site navigation sidebar">
+<input type="checkbox" class="sidebar-toggle" name="__toc" id="__toc" aria-label="Toggle table of contents sidebar">
+<label class="overlay sidebar-overlay" for="__navigation"></label>
+<label class="overlay toc-overlay" for="__toc"></label>
+
+<a class="skip-to-content muted-link" href="#furo-main-content">Skip to content</a>
+
+
+
+<div class="page">
+  <header class="mobile-header">
+    <div class="header-left">
+      <label class="nav-overlay-icon" for="__navigation">
+        <span class="icon"><svg><use href="#svg-menu"></use></svg></span>
+      </label>
+    </div>
+    <div class="header-center">
+      <a href="index.html"><div class="brand">hat-gateway  documentation</div></a>
+    </div>
+    <div class="header-right">
+      <div class="theme-toggle-container theme-toggle-header">
+        <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+          <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+          <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+          <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+          <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+        </button>
+      </div>
+      <label class="toc-overlay-icon toc-header-icon" for="__toc">
+        <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+      </label>
+    </div>
+  </header>
+  <aside class="sidebar-drawer">
+    <div class="sidebar-container">
+      
+      <div class="sidebar-sticky"><a class="sidebar-brand" href="index.html">
+  
+  <span class="sidebar-brand-text">hat-gateway  documentation</span>
+  
+</a><div class="sidebar-scroll"><div class="sidebar-tree">
+  <ul class="current">
+<li class="toctree-l1 current has-children current-page"><a class="current reference internal" href="#">Gateway</a><input aria-label="Toggle navigation of Gateway" checked="" class="toctree-checkbox" id="toctree-checkbox-1" name="toctree-checkbox-1" role="switch" type="checkbox"/><label for="toctree-checkbox-1"><span class="icon"><svg><use href="#svg-arrow-right"></use></svg></span></label><ul>
+<li class="toctree-l2"><a class="reference internal" href="devices/modbus.html">Modbus devices</a></li>
+<li class="toctree-l2"><a class="reference internal" href="devices/iec101.html">IEC 60870-5-101 devices</a></li>
+<li class="toctree-l2"><a class="reference internal" href="devices/iec103.html">IEC 60870-5-103 devices</a></li>
+<li class="toctree-l2"><a class="reference internal" href="devices/iec104.html">IEC 60870-5-104 devices</a></li>
+<li class="toctree-l2"><a class="reference internal" href="devices/iec61850.html">IEC61850 devices</a></li>
+<li class="toctree-l2"><a class="reference internal" href="devices/snmp.html">SNMP devices</a></li>
+<li class="toctree-l2"><a class="reference internal" href="devices/ping.html">Ping device</a></li>
+</ul>
+</li>
+</ul>
+
+</div></div>
+      </div>
+      
+    </div>
+  </aside>
+  <div class="main">
+    <div class="content">
+      <div class="article-container">
+        <a href="#" class="back-to-top muted-link">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+            <path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8v12z"></path>
+          </svg>
+          <span>Back to top</span>
+        </a>
+        <div class="content-icon-container">
+          
+
+<div class="theme-toggle-container theme-toggle-content">
+            <button class="theme-toggle" aria-label="Toggle Light / Dark / Auto color theme">
+              <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
+              <svg class="theme-icon-when-auto-dark"><use href="#svg-moon-with-sun"></use></svg>
+              <svg class="theme-icon-when-dark"><use href="#svg-moon"></use></svg>
+              <svg class="theme-icon-when-light"><use href="#svg-sun"></use></svg>
+            </button>
+          </div>
+          <label class="toc-overlay-icon toc-content-icon" for="__toc">
+            <span class="icon"><svg><use href="#svg-toc"></use></svg></span>
+          </label>
+        </div>
+        <article role="main" id="furo-main-content">
+          <section id="gateway">
+<span id="id1"></span><h1>Gateway<a class="headerlink" href="#gateway" title="Link to this heading">¶</a></h1>
+<p>Primary function of Gateway is to provide access to remote devices
+communicating with different protocols. Gateway connects to these remote
+devices and to the Event Server and serves as the intermediary between remote
+devices and other components. Once a remote device sends a message
+to Gateway, it will send the appropriate Event registration request to the
+Event Server. The same logic is applied in reverse - Gateway sends a message to
+a remote device once the Event server creates an appropriate Event. With
+this functionality, Gateway provides bidirectional translation between
+communication protocols and Event Server’s events.</p>
+<section id="running">
+<h2>Running<a class="headerlink" href="#running" title="Link to this heading">¶</a></h2>
+<p>By installing Gateway from <cite>hat-gateway</cite> package, executable <cite>hat-gateway</cite>
+becomes available and can be used for starting this component.</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>usage: hat-gateway [-h] [--conf PATH]
+
+options:
+  -h, --help   show this help message and exit
+  --conf PATH  configuration defined by hat-gateway://main.yaml (default
+               $XDG_CONFIG_HOME/hat/gateway.{yaml|yml|toml|json})
+</pre></div>
+</div>
+</section>
+<section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">¶</a></h2>
+<p>Gateway functionality can be defined according to following components:</p>
+<p class="plantuml">
+<img src="_images/plantuml-32606f77595ab7a75fff5334980c1f22a5b1534b.png" alt="component &quot;Event Server&quot; as EventServer
+
+folder &quot;Gateway&quot; {
+    component Engine
+    component &quot;Device 1&quot; &lt;&lt;Device&gt;&gt; as Device1
+    component &quot;Device 2&quot; &lt;&lt;Device&gt;&gt; as Device2
+    component &quot;Device 3&quot; &lt;&lt;Device&gt;&gt; as Device3
+}
+
+component &quot;Remote Device 1&quot; &lt;&lt;Remote Device&gt;&gt; as RemoteDevice1
+component &quot;Remote Device 2&quot; &lt;&lt;Remote Device&gt;&gt; as RemoteDevice2
+component &quot;Remote Device 3&quot; &lt;&lt;Remote Device&gt;&gt; as RemoteDevice3
+
+EventServer &lt;---&gt; Engine
+
+Engine o--- Device1
+Engine o--- Device2
+Engine o--- Device3
+
+Device1 &lt;---&gt; RemoteDevice1
+Device2 &lt;---&gt; RemoteDevice2
+Device3 &lt;---&gt; RemoteDevice3"/>
+</p>
+<p>Functionality is dependent on active connection to Event Server. Engine is
+created when connection with Event Server is established and destroyed if
+this connection is closed. If connection with Event Server is closed, Gateway
+will repeatedly try to establish new connection with currently active Event
+Server. If connection to Monitor Server could not be established or is closed,
+Gateway terminates it’s process execution.</p>
+<p>Gateway can also run independently of Monitor Server. In this case,
+Gateway connects to predefined Event Server address. If this connection could
+not be established or is broken, Gateway terminates it’s process execution.</p>
+<p>When connecting to Event Server, Gateway will use client name
+<code class="docutils literal notranslate"><span class="pre">gateway/&lt;name&gt;</span></code> where <cite>&lt;name&gt;</cite> represents configured component’s name.</p>
+</section>
+<section id="event-server-communication">
+<h2>Event Server communication<a class="headerlink" href="#event-server-communication" title="Link to this heading">¶</a></h2>
+<p>Communication between Event Server and Gateway is based on Gateway’s requests
+for event registrations and Event Server’s notification of newly created
+events. Additionally, Gateway can query previously registered events persisted
+by Event Server.</p>
+<p>All events, consumed and registered by Gateway’s request, have event type
+prefixed with:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">gateway</span><span class="o">/&lt;</span><span class="n">device_type</span><span class="o">&gt;/&lt;</span><span class="n">device_name</span><span class="o">&gt;/&lt;</span><span class="n">source</span><span class="o">&gt;/...</span>
+</pre></div>
+</div>
+<p>where:</p>
+<ul class="simple">
+<li><p><cite>&lt;device_type&gt;</cite> - device type identifier</p></li>
+<li><p><cite>&lt;device_name&gt;</cite> - device name identifier</p></li>
+<li><p><cite>&lt;source&gt;</cite> - <code class="docutils literal notranslate"><span class="pre">gateway</span></code> for events registered by Gateway and <code class="docutils literal notranslate"><span class="pre">system</span></code>
+for events registered by other components</p></li>
+</ul>
+<p>While establishing connection with Event Server, Gateway subscribes for events
+that match:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">gateway</span><span class="o">/&lt;</span><span class="n">device_type</span><span class="o">&gt;/&lt;</span><span class="n">device_name</span><span class="o">&gt;/</span><span class="n">system</span><span class="o">/*</span>
+</pre></div>
+</div>
+<p>where <cite>&lt;device_type&gt;/&lt;device_name&gt;</cite> are all configured devices.</p>
+<p>All devices, regardless of device type, support following events:</p>
+<ul class="simple">
+<li><p><cite>gateway/&lt;device_type&gt;/&lt;device_name&gt;/system/enable</cite></p>
+<ul>
+<li><p><cite>source timestamp</cite> - optional timestamp when component issued event
+register request</p></li>
+<li><p><cite>payload</cite> - JSON payload encoding boolean value which represents
+device’s enabled status</p></li>
+</ul>
+</li>
+<li><p><cite>gateway/&lt;device_type&gt;/&lt;device_name&gt;/gateway/running</cite></p>
+<ul>
+<li><p><cite>source timestamp</cite> - required timestamp when Device is successfully
+created (started) or destroyed (stopped)</p></li>
+<li><p><cite>payload</cite> - JSON payload encoding boolean value set to <code class="docutils literal notranslate"><span class="pre">true</span></code> when
+Device is successfully created (started) or destroyed (stopped)</p></li>
+</ul>
+</li>
+</ul>
+<p>All other Gateway events are specified in dependence of <cite>&lt;device_type&gt;</cite>.</p>
+</section>
+<section id="engine">
+<h2>Engine<a class="headerlink" href="#engine" title="Link to this heading">¶</a></h2>
+<p>Central part responsible for device orchestration. It is created when new
+connection with Event Server is established and destroyed when connection is
+closed. It’s main responsibility is managing lifetime of devices and
+providing custom device’s interface to event server.</p>
+<p>Device lifetime is dependent of last <cite>enable</cite> event state. During
+initialization, engine registers a new <cite>running</cite> events with payload <code class="docutils literal notranslate"><span class="pre">false</span></code>,
+queries last devices’ associated <cite>enable</cite> event and keeps monitoring for any
+new <cite>enable</cite> events. When device is enabled, engine creates new instance of
+device. Once device is successfully created, engine registers new <cite>running</cite>
+event with payload <code class="docutils literal notranslate"><span class="pre">true</span></code>. If at any time device is disabled, engine will
+destroy associated device instance and continue waiting for new <cite>enable</cite> event.
+When device is successfully destroyed, engine will try to register new
+<cite>running</cite> event with payload <code class="docutils literal notranslate"><span class="pre">false</span></code>. Once engine is destroyed, all devices
+are also destroyed.</p>
+</section>
+<section id="device">
+<h2>Device<a class="headerlink" href="#device" title="Link to this heading">¶</a></h2>
+<p>Devices provide abstraction for mapping custom communication protocols to
+Event Server’s events. Event mapping is uniquely defined according to
+each device type. Implementation of device logic interfaces with other
+devices and Gateway’s core logic so additional care should be taken during
+device implementation (Gateway doesn’t provide sandbox environment for
+execution of device logic).</p>
+<p>Devices available as part of <cite>hat-gateway</cite> package:</p>
+<blockquote>
+<div><div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="devices/modbus.html">Modbus devices</a></li>
+<li class="toctree-l1"><a class="reference internal" href="devices/iec101.html">IEC 60870-5-101 devices</a></li>
+<li class="toctree-l1"><a class="reference internal" href="devices/iec103.html">IEC 60870-5-103 devices</a></li>
+<li class="toctree-l1"><a class="reference internal" href="devices/iec104.html">IEC 60870-5-104 devices</a></li>
+<li class="toctree-l1"><a class="reference internal" href="devices/iec61850.html">IEC61850 devices</a></li>
+<li class="toctree-l1"><a class="reference internal" href="devices/snmp.html">SNMP devices</a></li>
+<li class="toctree-l1"><a class="reference internal" href="devices/ping.html">Ping device</a></li>
+</ul>
+</div>
+</div></blockquote>
+</section>
+<section id="implementation">
+<h2>Implementation<a class="headerlink" href="#implementation" title="Link to this heading">¶</a></h2>
+<p>Documentation is available as part of generated API reference:</p>
+<blockquote>
+<div><ul class="simple">
+<li><p><a class="reference external" href="py_api/hat/gateway.html">Python hat.gateway module</a></p></li>
+</ul>
+</div></blockquote>
+</section>
+</section>
+
+        </article>
+      </div>
+      <footer>
+        
+        <div class="related-pages">
+          <a class="next-page" href="devices/modbus.html">
+              <div class="page-info">
+                <div class="context">
+                  <span>Next</span>
+                </div>
+                <div class="title">Modbus devices</div>
+              </div>
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+            </a>
+          <a class="prev-page" href="index.html">
+              <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
+              <div class="page-info">
+                <div class="context">
+                  <span>Previous</span>
+                </div>
+                
+                <div class="title">Home</div>
+                
+              </div>
+            </a>
+        </div>
+        <div class="bottom-of-page">
+          <div class="left-details">
+            <div class="copyright">
+                Copyright &#169; 2020-2025, Hat Open AUTHORS
+            </div>
+            Made with 
+            <a href="https://github.com/pradyunsg/furo">Furo</a>
+            
+          </div>
+          <div class="right-details">
+            
+          </div>
+        </div>
+        
+      </footer>
+    </div>
+    <aside class="toc-drawer">
+      
+      
+      <div class="toc-sticky toc-scroll">
+        <div class="toc-title-container">
+          <span class="toc-title">
+            On this page
+          </span>
+        </div>
+        <div class="toc-tree-container">
+          <div class="toc-tree">
+            <ul>
+<li><a class="reference internal" href="#">Gateway</a><ul>
+<li><a class="reference internal" href="#running">Running</a></li>
+<li><a class="reference internal" href="#overview">Overview</a></li>
+<li><a class="reference internal" href="#event-server-communication">Event Server communication</a></li>
+<li><a class="reference internal" href="#engine">Engine</a></li>
+<li><a class="reference internal" href="#device">Device</a></li>
+<li><a class="reference internal" href="#implementation">Implementation</a></li>
+</ul>
+</li>
+</ul>
+
+          </div>
+        </div>
+      </div>
+      
+      
+    </aside>
+  </div>
+</div><script src="_static/documentation_options.js?v=5929fcd5"></script>
+    <script src="_static/doctools.js?v=9bcbadda"></script>
+    <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="_static/scripts/furo.js?v=46bd48cc"></script>
+    </body>
+</html>
