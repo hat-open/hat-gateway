@@ -34,7 +34,7 @@ async def connect(addr: tcp.Address,
     try:
         client.async_group.spawn(client._receive_loop)
 
-    except BaseException:
+    except Exception:
         await aio.uncancellable(client.async_close())
         raise
 
