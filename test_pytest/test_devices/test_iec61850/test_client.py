@@ -641,6 +641,51 @@ async def test_rcb_report_id_invalid(addr, create_conf, rcb_type):
 
 
 @pytest.mark.parametrize('rcb_type', iec61850.RcbType)
+async def test_rcb_report_id_empty(addr, create_conf, rcb_type):
+    rcb_queue = aio.Queue()
+
+    rcb_ref = iec61850.RcbRef(logical_device='ld',
+                              logical_node='ln',
+                              type=rcb_type,
+                              name='rcb')
+    report_id = (f"{rcb_ref.logical_device}/"
+                 f"{rcb_ref.logical_node}${rcb_ref.type.value}${rcb_ref.name}")
+
+    conf = create_conf(datasets=[{'ref': 'ds',
+                                  'values': [],
+                                  'dynamic': True}],
+                       rcbs=[{'ref': {'logical_device': rcb_ref.logical_device,
+                                      'logical_node': rcb_ref.logical_node,
+                                      'type': rcb_type.name,
+                                      'name': rcb_ref.name},
+                              'report_id': report_id,
+                              'dataset': 'ds'}])
+    client = EventerClient()
+
+    server = await create_server(
+        addr=addr,
+        rcbs={
+            rcb_ref: {
+                iec61850.RcbAttrType.REPORT_ID: '',
+                iec61850.RcbAttrType.DATASET: iec61850.NonPersistedDatasetRef(
+                    'ds')}},
+        rcb_cb=create_queue_cb(rcb_queue))
+    device = await aio.call(info.create, conf, client, event_type_prefix)
+
+    async def wait_gi():
+        while True:
+            _, attr_type, __ = await rcb_queue.get()
+            if attr_type == iec61850.RcbAttrType.GI:
+                return
+
+    await aio.wait_for(wait_gi(), 0.1)
+
+    await device.async_close()
+    await server.async_close()
+    await client.async_close()
+
+
+@pytest.mark.parametrize('rcb_type', iec61850.RcbType)
 async def test_rcb_dataset_invalid(addr, create_conf, rcb_type):
     rcb_queue = aio.Queue()
 

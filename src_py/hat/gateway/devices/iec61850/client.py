@@ -1106,7 +1106,7 @@ def _validate_get_rcb_response(get_rcb_resp, rcb_conf):
                 rcb_ref = rcb_conf['ref']
                 report_id = (f"{rcb_ref['logical_device']}/"
                              f"{rcb_ref['logical_node']}$"
-                             f"{iec61850.RcbRef[rcb_ref['type']].value}$"
+                             f"{iec61850.RcbType[rcb_ref['type']].value}$"
                              f"{rcb_ref['name']}")
 
             if rcb_conf['report_id'] != report_id:
