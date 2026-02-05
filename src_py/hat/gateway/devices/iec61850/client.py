@@ -1099,15 +1099,24 @@ def _validate_get_rcb_response(get_rcb_resp, rcb_conf):
         if isinstance(v, iec61850.ServiceError):
             raise Exception(f"get {k.name} failed: {v}")
 
-        if (k == iec61850.RcbAttrType.REPORT_ID and
-                v != rcb_conf['report_id']):
-            raise Exception(f"rcb report id {v} different from "
-                            f"configured {rcb_conf['report_id']}")
+        if k == iec61850.RcbAttrType.REPORT_ID:
+            if v:
+                report_id = v
+            else:
+                rcb_ref = rcb_conf['ref']
+                report_id = (f"{rcb_ref['logical_device']}/"
+                             f"{rcb_ref['logical_node']}$"
+                             f"{iec61850.RcbRef[rcb_ref['type']].value}$"
+                             f"{rcb_ref['name']}")
+
+            if rcb_conf['report_id'] != report_id:
+                raise Exception(f"rcb report id {report_id} different from "
+                                f"configured {rcb_conf['report_id']}")
 
         if (k == iec61850.RcbAttrType.DATASET and
                 v != _dataset_ref_from_conf(rcb_conf['dataset'])):
             raise Exception(f"rcb dataset {v} different from "
-                            f"configured {rcb_conf['report_id']}")
+                            f"configured {rcb_conf['dataset']}")
 
         if (k == iec61850.RcbAttrType.CONF_REVISION and
                 v != rcb_conf['conf_revision']):
