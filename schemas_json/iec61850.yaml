@@ -156,13 +156,13 @@ $defs:
                     type: object
                     required:
                         - name
-                        - report_id
+                        - rcb
                         - value
                     properties:
                         name:
                             type: string
-                        report_id:
-                            type: string
+                        rcb:
+                            $ref: "hat-gateway://iec61850.yaml#/$defs/refs/rcb"
                         value:
                             $ref: "hat-gateway://iec61850.yaml#/$defs/refs/value"
                         quality:

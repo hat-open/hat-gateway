@@ -40,42 +40,42 @@ async def create(conf: common.DeviceConf,
         value_types_61850[ref] = _vtype_61850_from_vtype_conf(vt['type'])
         value_types[ref] = _vtype_from_vtype_conf(vt['type'])
 
-    rcb_confs = {i['report_id']: i for i in conf['rcbs']}
-    dataset_confs = {_dataset_ref_from_conf(ds_conf['ref']): ds_conf
+    rcb_confs = {_rcb_ref_from_json(i['ref']): i for i in conf['rcbs']}
+    dataset_confs = {_dataset_ref_from_json(ds_conf['ref']): ds_conf
                      for ds_conf in conf['datasets']}
     value_ref_data_names = collections.defaultdict(collections.deque)
     data_value_types = {}
     for data_conf in conf['data']:
-        data_v_ref = _value_ref_from_conf(data_conf['value'])
+        data_v_ref = _value_ref_from_json(data_conf['value'])
         data_value_types[data_v_ref] = _value_type_from_ref(
             value_types, data_v_ref)
 
-        q_ref = (_value_ref_from_conf(data_conf['quality'])
+        q_ref = (_value_ref_from_json(data_conf['quality'])
                  if data_conf.get('quality') else None)
         if data_conf.get('quality'):
             q_type = _value_type_from_ref(value_types, q_ref)
             if q_type != iec61850.AcsiValueType.QUALITY:
                 raise Exception(f"invalid quality type {q_ref}")
 
-        t_ref = (_value_ref_from_conf(data_conf['timestamp'])
+        t_ref = (_value_ref_from_json(data_conf['timestamp'])
                  if data_conf.get('timestamp') else None)
         if t_ref:
             t_type = _value_type_from_ref(value_types, t_ref)
             if t_type != iec61850.AcsiValueType.TIMESTAMP:
                 raise Exception(f"invalid timestamp type {t_ref}")
 
-        seld_ref = (_value_ref_from_conf(data_conf['selected'])
+        seld_ref = (_value_ref_from_json(data_conf['selected'])
                     if data_conf.get('selected') else None)
         if seld_ref:
             seld_type = _value_type_from_ref(value_types, seld_ref)
             if seld_type != iec61850.BasicValueType.BOOLEAN:
                 raise Exception(f"invalid selected type {seld_ref}")
 
-        rcb_conf = rcb_confs[data_conf['report_id']]
-        ds_ref = _dataset_ref_from_conf(rcb_conf['dataset'])
+        rcb_conf = rcb_confs[_rcb_ref_from_json(data_conf['rcb'])]
+        ds_ref = _dataset_ref_from_json(rcb_conf['dataset'])
         ds_conf = dataset_confs[ds_ref]
         for value_conf in ds_conf['values']:
-            value_ref = _value_ref_from_conf(value_conf)
+            value_ref = _value_ref_from_json(value_conf)
             if (_refs_match(data_v_ref, value_ref) or
                     (q_ref and _refs_match(q_ref, value_ref)) or
                     (t_ref and _refs_match(t_ref, value_ref)) or
@@ -85,7 +85,7 @@ async def create(conf: common.DeviceConf,
     dataset_values_ref_type = {}
     for ds_conf in conf['datasets']:
         for val_ref_conf in ds_conf['values']:
-            value_ref = _value_ref_from_conf(val_ref_conf)
+            value_ref = _value_ref_from_json(val_ref_conf)
             value_type = _value_type_from_ref(value_types, value_ref)
             dataset_values_ref_type[value_ref] = value_type
 
@@ -97,12 +97,13 @@ async def create(conf: common.DeviceConf,
 
     change_ref_value_type = {}
     for change_conf in conf['changes']:
-        value_ref = _value_ref_from_conf(change_conf['ref'])
+        value_ref = _value_ref_from_json(change_conf['ref'])
         value_type = _value_type_from_ref(value_types, value_ref)
         change_ref_value_type[value_ref] = value_type
 
     entry_id_event_types = [
-        (*event_type_prefix, 'gateway', 'entry_id', i['report_id'])
+        (*event_type_prefix, 'gateway', 'entry_id',
+            _report_id_from_rcb_conf(i))
         for i in conf['rcbs'] if i['ref']['type'] == 'BUFFERED']
     if entry_id_event_types:
         result = await eventer_client.query(
@@ -134,17 +135,18 @@ async def create(conf: common.DeviceConf,
     device._command_name_confs = {i['name']: i for i in conf['commands']}
     device._command_name_ctl_nums = {i['name']: 0 for i in conf['commands']}
     device._change_name_value_refs = {
-        i['name']: _value_ref_from_conf(i['ref']) for i in conf['changes']}
-    device._rcb_type = {rcb_conf['report_id']: rcb_conf['ref']['type']
-                        for rcb_conf in conf['rcbs']}
+        i['name']: _value_ref_from_json(i['ref']) for i in conf['changes']}
+    device._rcb_type = {
+        _report_id_from_rcb_conf(rcb_conf): rcb_conf['ref']['type']
+        for rcb_conf in conf['rcbs']}
     device._persist_dyn_datasets = set(_get_persist_dyn_datasets(conf))
     device._dyn_datasets_values = dict(_get_dyn_datasets_values(conf))
     device._report_data_refs = collections.defaultdict(collections.deque)
     for rcb_conf in device._conf['rcbs']:
-        report_id = rcb_conf['report_id']
-        ds_ref = _dataset_ref_from_conf(rcb_conf['dataset'])
+        report_id = _report_id_from_rcb_conf(rcb_conf)
+        ds_ref = _dataset_ref_from_json(rcb_conf['dataset'])
         for value_conf in dataset_confs[ds_ref]['values']:
-            value_ref = _value_ref_from_conf(value_conf)
+            value_ref = _value_ref_from_json(value_conf)
             device._report_data_refs[report_id].append(value_ref)
 
     device._dataset_change_value_types = dict(
@@ -467,7 +469,7 @@ class Iec61850ClientDevice(common.Device):
             value_path = _conf_ref_to_path(data_conf['value'])
             value_json = json.get(values_json, value_path)
             if value_json is not None:
-                value_ref = _value_ref_from_conf(data_conf['value'])
+                value_ref = _value_ref_from_json(data_conf['value'])
                 value_type = self._data_value_types[value_ref]
                 payload['value'] = _value_json_to_event_json(
                     value_json, value_type)
@@ -516,7 +518,7 @@ class Iec61850ClientDevice(common.Device):
         self._log.debug('initiating rcb %s', ref)
 
         get_attrs = collections.deque([iec61850.RcbAttrType.REPORT_ID])
-        dataset_ref = _dataset_ref_from_conf(rcb_conf['dataset'])
+        dataset_ref = _dataset_ref_from_json(rcb_conf['dataset'])
         if dataset_ref not in self._dyn_datasets_values:
             get_attrs.append(iec61850.RcbAttrType.DATASET)
         if 'conf_revision' in rcb_conf:
@@ -543,7 +545,8 @@ class Iec61850ClientDevice(common.Device):
                 critical=True)
 
         if ref.type == iec61850.RcbType.BUFFERED:
-            entry_id = self._rcbs_entry_ids.get(rcb_conf['report_id'])
+            entry_id = self._rcbs_entry_ids.get(
+                _report_id_from_rcb_conf(rcb_conf))
             if rcb_conf.get('purge_buffer') or entry_id is None:
                 await self._set_rcb(
                     ref, [(iec61850.RcbAttrType.PURGE_BUFFER, True)])
@@ -653,7 +656,7 @@ class Iec61850ClientDevice(common.Device):
         self._log.debug('registered status %s', status)
 
 
-def _value_ref_from_conf(value_ref_conf):
+def _value_ref_from_json(value_ref_conf):
     return iec61850.DataRef(
         logical_device=value_ref_conf['logical_device'],
         logical_node=value_ref_conf['logical_node'],
@@ -661,12 +664,20 @@ def _value_ref_from_conf(value_ref_conf):
         names=tuple(value_ref_conf['names']))
 
 
-def _dataset_ref_from_conf(ds_conf):
+def _dataset_ref_from_json(ds_conf):
     if isinstance(ds_conf, str):
         return iec61850.NonPersistedDatasetRef(ds_conf)
 
     elif isinstance(ds_conf, dict):
         return iec61850.PersistedDatasetRef(**ds_conf)
+
+
+def _rcb_ref_from_json(rcb_ref_conf):
+    return iec61850.RcbRef(
+        logical_device=rcb_ref_conf['logical_device'],
+        logical_node=rcb_ref_conf['logical_node'],
+        type=iec61850.RcbType[rcb_ref_conf['type']],
+        name=rcb_ref_conf['name'])
 
 
 def _refs_match(ref1, ref2):
@@ -695,7 +706,7 @@ def _get_persist_dyn_datasets(conf):
         if not ds_conf['dynamic']:
             continue
 
-        ds_ref = _dataset_ref_from_conf(ds_conf['ref'])
+        ds_ref = _dataset_ref_from_json(ds_conf['ref'])
         if isinstance(ds_ref, iec61850.PersistedDatasetRef):
             yield ds_ref
 
@@ -705,8 +716,8 @@ def _get_dyn_datasets_values(conf):
         if not ds_conf['dynamic']:
             continue
 
-        ds_ref = _dataset_ref_from_conf(ds_conf['ref'])
-        yield ds_ref, [_value_ref_from_conf(val_conf)
+        ds_ref = _dataset_ref_from_json(ds_conf['ref'])
+        yield ds_ref, [_value_ref_from_json(val_conf)
                        for val_conf in ds_conf['values']]
 
 
@@ -829,12 +840,12 @@ def _value_type_from_ref(value_types, ref):
 def _get_dataset_change_value_types(conf, value_types):
     for ds_conf in conf['datasets']:
         for val_ref_conf in ds_conf['values']:
-            value_ref = _value_ref_from_conf(val_ref_conf)
+            value_ref = _value_ref_from_json(val_ref_conf)
             value_type = _value_type_from_ref(value_types, value_ref)
             yield value_ref, value_type
 
     for change_conf in conf['changes']:
-        value_ref = _value_ref_from_conf(change_conf['ref'])
+        value_ref = _value_ref_from_json(change_conf['ref'])
         value_type = _value_type_from_ref(value_types, value_ref)
         yield value_ref, value_type
 
@@ -1099,22 +1110,13 @@ def _validate_get_rcb_response(get_rcb_resp, rcb_conf):
         if isinstance(v, iec61850.ServiceError):
             raise Exception(f"get {k.name} failed: {v}")
 
-        if k == iec61850.RcbAttrType.REPORT_ID:
-            if v:
-                report_id = v
-            else:
-                rcb_ref = rcb_conf['ref']
-                report_id = (f"{rcb_ref['logical_device']}/"
-                             f"{rcb_ref['logical_node']}$"
-                             f"{iec61850.RcbType[rcb_ref['type']].value}$"
-                             f"{rcb_ref['name']}")
-
-            if rcb_conf['report_id'] != report_id:
-                raise Exception(f"rcb report id {report_id} different from "
-                                f"configured {rcb_conf['report_id']}")
+        if (k == iec61850.RcbAttrType.REPORT_ID and
+                v != rcb_conf['report_id']):
+            raise Exception(f"rcb report id {v} different from "
+                            f"configured {rcb_conf['report_id']}")
 
         if (k == iec61850.RcbAttrType.DATASET and
-                v != _dataset_ref_from_conf(rcb_conf['dataset'])):
+                v != _dataset_ref_from_json(rcb_conf['dataset'])):
             raise Exception(f"rcb dataset {v} different from "
                             f"configured {rcb_conf['dataset']}")
 
@@ -1130,6 +1132,18 @@ def _conf_ref_to_path(conf_ref):
             conf_ref['logical_node'],
             conf_ref['fc'],
             *conf_ref['names']]
+
+
+def _report_id_from_rcb_conf(rcb_conf):
+    return (rcb_conf['report_id'] if rcb_conf['report_id'] else
+            _report_id_from_rcb_ref(rcb_conf['ref']))
+
+
+def _report_id_from_rcb_ref(rcb_ref):
+    return (f"{rcb_ref['logical_device']}/"
+            f"{rcb_ref['logical_node']}$"
+            f"{iec61850.RcbType[rcb_ref['type']].value}$"
+            f"{rcb_ref['name']}")
 
 
 def _create_logger_adapter(name):
