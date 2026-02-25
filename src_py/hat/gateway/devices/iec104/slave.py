@@ -1,6 +1,7 @@
 """IEC 60870-5-104 slave device"""
 
 from collections.abc import Collection
+import collections
 import contextlib
 import functools
 import itertools
@@ -263,26 +264,42 @@ class Iec104SlaveDevice(common.Device):
 
     async def _process_interrogation_msg(self, conn_id, conn, msg):
         if msg.cause == iec104.CommandReqCause.ACTIVATION:
-            res = msg._replace(
-                cause=iec104.CommandResCause.ACTIVATION_CONFIRMATION,
-                is_negative_confirm=False)
-            await conn.send([res])
+            asdu_data_msgs = collections.defaultdict(collections.deque)
 
-            data_msgs = [
-                data_msg._replace(
-                    is_test=msg.is_test,
-                    cause=iec104.DataResCause.INTERROGATED_STATION)
-                for data_msg in self._data_msgs.values()
-                if (data_msg and
-                    (msg.asdu_address == 0xFFFF or
-                     msg.asdu_address == data_msg.asdu_address) and
-                    not isinstance(data_msg.data, iec104.BinaryCounterData))]
-            await conn.send(data_msgs)
+            for data_key, data_msg in self._data_msgs.items():
+                if data_key.data_type == common.DataType.BINARY_COUNTER:
+                    continue
 
-            res = msg._replace(
-                cause=iec104.CommandResCause.ACTIVATION_TERMINATION,
-                is_negative_confirm=False)
-            await conn.send([res])
+                if (msg.asdu_address != 0xFFFF and
+                        msg.asdu_address != data_key.asdu_address):
+                    continue
+
+                asdu_data_msgs[data_key.asdu_address].append(data_msg)
+
+            if msg.asdu_address != 0xFFFF:
+                asdu_data_msgs[msg.asdu_address].append(None)
+
+            for asdu_address, data_msgs in asdu_data_msgs.items():
+                res = msg._replace(
+                    asdu_address=asdu_address,
+                    cause=iec104.CommandResCause.ACTIVATION_CONFIRMATION,
+                    is_negative_confirm=False)
+                await self._send(conn_id, [res])
+
+                msgs = [
+                    data_msg._replace(
+                        is_test=msg.is_test,
+                        cause=iec104.DataResCause.INTERROGATED_STATION)
+                    for data_msg in data_msgs
+                    if data_msg]
+                if msgs:
+                    await self._send(conn_id, msgs)
+
+                res = msg._replace(
+                    asdu_address=asdu_address,
+                    cause=iec104.CommandResCause.ACTIVATION_TERMINATION,
+                    is_negative_confirm=False)
+                await self._send(conn_id, [res])
 
         elif msg.cause == iec104.CommandReqCause.DEACTIVATION:
             res = msg._replace(
@@ -297,26 +314,42 @@ class Iec104SlaveDevice(common.Device):
 
     async def _process_counter_interrogation_msg(self, conn_id, conn, msg):
         if msg.cause == iec104.CommandReqCause.ACTIVATION:
-            res = msg._replace(
-                cause=iec104.CommandResCause.ACTIVATION_CONFIRMATION,
-                is_negative_confirm=False)
-            await conn.send([res])
+            asdu_data_msgs = collections.defaultdict(collections.deque)
 
-            data_msgs = [
-                data_msg._replace(
-                    is_test=msg.is_test,
-                    cause=iec104.DataResCause.INTERROGATED_COUNTER)
-                for data_msg in self._data_msgs.values()
-                if (data_msg and
-                    (msg.asdu_address == 0xFFFF or
-                     msg.asdu_address == data_msg.asdu_address) and
-                    isinstance(data_msg.data, iec104.BinaryCounterData))]
-            await conn.send(data_msgs)
+            for data_key, data_msg in self._data_msgs.items():
+                if data_key.data_type != common.DataType.BINARY_COUNTER:
+                    continue
 
-            res = msg._replace(
-                cause=iec104.CommandResCause.ACTIVATION_TERMINATION,
-                is_negative_confirm=False)
-            await conn.send([res])
+                if (msg.asdu_address != 0xFFFF and
+                        msg.asdu_address != data_key.asdu_address):
+                    continue
+
+                asdu_data_msgs[data_key.asdu_address].append(data_msg)
+
+            if msg.asdu_address != 0xFFFF:
+                asdu_data_msgs[msg.asdu_address].append(None)
+
+            for asdu_address, data_msgs in asdu_data_msgs.items():
+                res = msg._replace(
+                    asdu_address=asdu_address,
+                    cause=iec104.CommandResCause.ACTIVATION_CONFIRMATION,
+                    is_negative_confirm=False)
+                await self._send(conn_id, [res])
+
+                msgs = [
+                    data_msg._replace(
+                        is_test=msg.is_test,
+                        cause=iec104.DataResCause.INTERROGATED_COUNTER)
+                    for data_msg in data_msgs
+                    if data_msg]
+                if msgs:
+                    await self._send(conn_id, msgs)
+
+                res = msg._replace(
+                    asdu_address=asdu_address,
+                    cause=iec104.CommandResCause.ACTIVATION_TERMINATION,
+                    is_negative_confirm=False)
+                await self._send(conn_id, [res])
 
         elif msg.cause == iec104.CommandReqCause.DEACTIVATION:
             res = msg._replace(
