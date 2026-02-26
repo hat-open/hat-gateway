@@ -36,6 +36,8 @@ async def create(conf: common.DeviceConf,
     device._buffers = {}
     device._data_msgs = {}
     device._data_buffers = {}
+    device._broadcast_asdu_address = _get_broadcast_asdu_address(
+        iec101.AsduAddressSize[conf['asdu_address_size']])
     device._log = _create_logger_adapter(conf['name'])
 
     init_buffers(buffers_conf=conf['buffers'],
@@ -392,13 +394,13 @@ class Iec101SlaveDevice(common.Device):
                 if data_key.data_type == common.DataType.BINARY_COUNTER:
                     continue
 
-                if (msg.asdu_address != 0xFFFF and
+                if (msg.asdu_address != self._broadcast_asdu_address and
                         msg.asdu_address != data_key.asdu_address):
                     continue
 
                 asdu_data_msgs[data_key.asdu_address].append(data_msg)
 
-            if msg.asdu_address != 0xFFFF:
+            if msg.asdu_address != self._broadcast_asdu_address:
                 asdu_data_msgs[msg.asdu_address].append(None)
 
             for asdu_address, data_msgs in asdu_data_msgs.items():
@@ -442,13 +444,13 @@ class Iec101SlaveDevice(common.Device):
                 if data_key.data_type != common.DataType.BINARY_COUNTER:
                     continue
 
-                if (msg.asdu_address != 0xFFFF and
+                if (msg.asdu_address != self._broadcast_asdu_address and
                         msg.asdu_address != data_key.asdu_address):
                     continue
 
                 asdu_data_msgs[data_key.asdu_address].append(data_msg)
 
-            if msg.asdu_address != 0xFFFF:
+            if msg.asdu_address != self._broadcast_asdu_address:
                 asdu_data_msgs[msg.asdu_address].append(None)
 
             for asdu_address, data_msgs in asdu_data_msgs.items():
@@ -585,6 +587,16 @@ def cmd_msg_from_event(cmd_key: common.CommandKey,
                              command=command,
                              is_negative_confirm=is_negative_confirm,
                              cause=cause)
+
+
+def _get_broadcast_asdu_address(asdu_address_size):
+    if asdu_address_size == iec101.AsduAddressSize.ONE:
+        return 0xFF
+
+    if asdu_address_size == iec101.AsduAddressSize.TWO:
+        return 0xFFFF
+
+    raise ValueError('unsupported asdu address size')
 
 
 def _create_logger_adapter(name):
