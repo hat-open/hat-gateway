@@ -4,7 +4,10 @@ Modbus devices
 According to :ref:`gateway specification <gateway>`, all modbus device event
 types have prefix::
 
-    gateway/modbus_master/<device_name>/<source>/...
+    gateway/<device_type>/<device_name>/<source>/...
+
+where `<device_type>` is ``modbus_master`` in case of modbus master device or
+``modbus_slave`` in case of modbus slave device.
 
 Together with modbus specific events, generic `enable` and `running` events
 are also supported.
@@ -187,6 +190,64 @@ Available system events are:
 
         Payload is defined by
         ``hat-gateway://modbus.yaml#/$defs/events/master/system/write``.
+
+
+Modbus slave
+------------
+
+Modbus slave device configuration is specified by
+``hat-gateway://modbus.yaml#/$defs/slave``.
+
+
+.. todo::
+
+    ...
+
+
+Gateway events
+''''''''''''''
+
+Events registered by gateway have event type starting with::
+
+    gateway/modbus_slave/<device_name>/gateway/...
+
+Available gateway events are:
+
+    * .../connections
+
+        Represents change in list of all active connections. When device
+        is disabled, empty list of connections is assumed (when device is
+        disabled, new `connections` event should be registered but user
+        should not depend on this behaviour).
+
+        Payload is defined by
+        ``hat-gateway://modbus.yaml#/$defs/events/slave/gateway/connections``.
+
+    * .../write/<data_name>
+
+        Represents received Modbus write request.
+
+        Payload is defined by
+        ``hat-gateway://modbus.yaml#/$defs/events/slave/gateway/write``.
+
+
+System events
+'''''''''''''
+
+Events registered by other Hat components, which are consumed by gateway, have
+event type starting with::
+
+    gateway/modbus_slave/<device_name>/system/...
+
+Available system events are:
+
+    * .../data/<data_name>
+
+        Represents data change.
+
+        Payload is defined by
+        ``hat-gateway://modbus.yaml#/$defs/events/slave/system/data``.
+
 
 
 Configurations and event payloads

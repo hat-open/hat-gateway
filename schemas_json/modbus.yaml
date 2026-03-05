@@ -222,6 +222,173 @@ $defs:
                                             Number of bits used for
                                             encoding/decoding value (not
                                             including offset bits)
+    slave:
+        type: object
+        required:
+            - name
+            - modbus_type
+            - transport
+            - data
+        properties:
+            name:
+                type: string
+            modbus_type:
+                description: |
+                    Modbus message encoding type
+                enum:
+                    - TCP
+                    - RTU
+                    - ASCII
+            transport:
+                oneOf:
+                  - type: object
+                    required:
+                        - type
+                        - local_host
+                        - local_port
+                        - remote_hosts
+                        - max_connections
+                        - keep_alive_timeout
+                    properties:
+                        type:
+                            const: TCP
+                        local_host:
+                            type: string
+                            description: |
+                                Local host name
+                        local_port:
+                            type: integer
+                            description: |
+                                Local host TCP port
+                            default: 502
+                        remote_hosts:
+                            type:
+                                - array
+                                - "null"
+                            description: |
+                                if null, all remote hosts are allowed
+                            items:
+                                type: string
+                        max_connections:
+                            type:
+                                - "null"
+                                - integer
+                        keep_alive_timeout:
+                            type:
+                                - number
+                                - "null"
+                  - type: object
+                    required:
+                        - type
+                        - port
+                        - baudrate
+                        - bytesize
+                        - parity
+                        - stopbits
+                        - flow_control
+                        - silent_interval
+                        - keep_alive_timeout
+                    properties:
+                        type:
+                            const: SERIAL
+                        port:
+                            type: string
+                            description: |
+                                Serial port name (e.g. /dev/ttyS0)
+                        baudrate:
+                            type: integer
+                            description: |
+                                Baud rate (e.g. 9600)
+                        bytesize:
+                            description: |
+                                Number of data bits
+                            enum:
+                                - FIVEBITS
+                                - SIXBITS
+                                - SEVENBITS
+                                - EIGHTBITS
+                        parity:
+                            description: |
+                                Parity checking
+                            enum:
+                                - NONE
+                                - EVEN
+                                - ODD
+                                - MARK
+                                - SPACE
+                        stopbits:
+                            description: |
+                                Number of stop bits
+                            enum:
+                                - ONE
+                                - ONE_POINT_FIVE
+                                - TWO
+                        flow_control:
+                            type: object
+                            required:
+                                - xonxoff
+                                - rtscts
+                                - dsrdtr
+                            properties:
+                                xonxoff:
+                                    type: boolean
+                                    description: |
+                                        Enable software flow control
+                                rtscts:
+                                    type: boolean
+                                    description: |
+                                        Enable hardware (RTS/CTS) flow control
+                                dsrdtr:
+                                    type: boolean
+                                    description: |
+                                        Enable hardware (DSR/DTR) flow control
+                        silent_interval:
+                            type: number
+                            description: |
+                                Serial communication silet interval
+                        keep_alive_timeout:
+                            type: number
+            data:
+                type: array
+                items:
+                    type: object
+                    required:
+                        - name
+                        - device_id
+                        - data_type
+                        - start_address
+                        - bit_offset
+                        - bit_count
+                    properties:
+                        name:
+                            type: string
+                            description: |
+                                Data point name
+                        device_id:
+                            type: integer
+                        data_type:
+                            description: |
+                                Modbus register type
+                            enum:
+                                - COIL
+                                - DISCRETE_INPUT
+                                - HOLDING_REGISTER
+                                - INPUT_REGISTER
+                                - QUEUE
+                        start_address:
+                            type: integer
+                            description: |
+                                Starting address of modbus register
+                        bit_offset:
+                            type: integer
+                            description: |
+                                Bit offset (number of bits skipped)
+                        bit_count:
+                            type: integer
+                            description: |
+                                Number of bits used for
+                                encoding/decoding value (not
+                                including offset bits)
     events:
         master:
             gateway:
@@ -285,5 +452,69 @@ $defs:
                     properties:
                         request_id:
                             type: string
+                        value:
+                            type: integer
+        slave:
+            gateway:
+                connections:
+                    type: array
+                    items:
+                        oneOf:
+                          - type: object
+                            required:
+                                - type
+                                - connection_id
+                            properties:
+                                type:
+                                    const: SERIAL
+                                connection_id:
+                                    type: integer
+                          - type: object
+                            required:
+                                - type
+                                - connection_id
+                                - local
+                                - remote
+                            properties:
+                                type:
+                                    const: TCP
+                                connection_id:
+                                    type: integer
+                                local:
+                                    type: object
+                                    required:
+                                        - host
+                                        - port
+                                    properties:
+                                        host:
+                                            type: string
+                                        port:
+                                            type: integer
+                                remote:
+                                    type: object
+                                    required:
+                                        - host
+                                        - port
+                                    properties:
+                                        host:
+                                            type: string
+                                        port:
+                                            type: integer
+                write:
+                    type: object
+                    required:
+                        - connection_id
+                        - value
+                    properties:
+                        connection:
+                            type: integer
+                        value:
+                            type: integer
+            system:
+                data:
+                    type: object
+                    required:
+                        - value
+                    properties:
                         value:
                             type: integer
