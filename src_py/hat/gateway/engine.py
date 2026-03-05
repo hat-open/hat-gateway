@@ -146,8 +146,8 @@ class _DeviceProxy(aio.Resource):
 
     async def process_events(self, events: Collection[hat.event.common.Event]):
         if self._events_queue is None:
-            self._log.warning("device not enabled - ignoring %s events",
-                              len(events))
+            self._log.debug("device not enabled - ignoring %s events",
+                            len(events))
             return
 
         await self._events_queue.put(events)
