@@ -760,27 +760,41 @@ async def test_interrogation(create_conf, create_connection, is_test, time,
                                   cause=iec104.CommandReqCause.ACTIVATION)
     await conn.send([req])
 
-    msgs = await conn.receive()
-    assert len(msgs) == 1
-    res = req._replace(cause=iec104.CommandResCause.ACTIVATION_CONFIRMATION)
-    assert_msg_equal(msgs[0], res)
+    device_asdus = set(i.asdu_address for i in data
+                       if not isinstance(i.data, iec104.BinaryCounterData))
+    interrogated_asdus = ([asdu_address] if asdu_address != 0xFFFF
+                          else device_asdus)
 
-    for i in data:
-        if isinstance(i.data, iec104.BinaryCounterData):
-            continue
-        if asdu_address != 0xFFFF and asdu_address != i.asdu_address:
-            continue
+    while interrogated_asdus:
+        msgs = await conn.receive()
+        assert len(msgs) == 1
+        responded_asdu = msgs[0].asdu_address
+        assert responded_asdu in interrogated_asdus
+        res = req._replace(
+            cause=iec104.CommandResCause.ACTIVATION_CONFIRMATION,
+            asdu_address=responded_asdu)
+        assert_msg_equal(msgs[0], res)
+
+        for i in data:
+            if isinstance(i.data, iec104.BinaryCounterData):
+                continue
+            if i.asdu_address != responded_asdu:
+                continue
+
+            msgs = await conn.receive()
+            assert len(msgs) == 1
+            res = i._replace(is_test=is_test,
+                             cause=iec104.DataResCause.INTERROGATED_STATION)
+            assert_msg_equal(msgs[0], res)
 
         msgs = await conn.receive()
         assert len(msgs) == 1
-        res = i._replace(is_test=is_test,
-                         cause=iec104.DataResCause.INTERROGATED_STATION)
+        res = req._replace(
+            cause=iec104.CommandResCause.ACTIVATION_TERMINATION,
+            asdu_address=responded_asdu)
         assert_msg_equal(msgs[0], res)
 
-    msgs = await conn.receive()
-    assert len(msgs) == 1
-    res = req._replace(cause=iec104.CommandResCause.ACTIVATION_TERMINATION)
-    assert_msg_equal(msgs[0], res)
+        interrogated_asdus.remove(responded_asdu)
 
     await conn.async_close()
     await device.async_close()
@@ -854,27 +868,40 @@ async def test_counter_interrogation(create_conf, create_connection, is_test,
         cause=iec104.CommandReqCause.ACTIVATION)
     await conn.send([req])
 
-    msgs = await conn.receive()
-    assert len(msgs) == 1
-    res = req._replace(cause=iec104.CommandResCause.ACTIVATION_CONFIRMATION)
-    assert_msg_equal(msgs[0], res)
+    device_asdus = set(i.asdu_address for i in data
+                       if isinstance(i.data, iec104.BinaryCounterData))
+    interrogated_asdus = ([asdu_address] if asdu_address != 0xFFFF
+                          else device_asdus)
 
-    for i in data:
-        if not isinstance(i.data, iec104.BinaryCounterData):
-            continue
-        if asdu_address != 0xFFFF and asdu_address != i.asdu_address:
-            continue
+    while interrogated_asdus:
+        msgs = await conn.receive()
+        assert len(msgs) == 1
+        responded_asdu = msgs[0].asdu_address
+        assert responded_asdu in interrogated_asdus
+        res = req._replace(
+            cause=iec104.CommandResCause.ACTIVATION_CONFIRMATION,
+            asdu_address=responded_asdu)
+        assert_msg_equal(msgs[0], res)
+
+        for i in data:
+            if not isinstance(i.data, iec104.BinaryCounterData):
+                continue
+            if i.asdu_address != responded_asdu:
+                continue
+
+            msgs = await conn.receive()
+            assert len(msgs) == 1
+            res = i._replace(is_test=is_test,
+                             cause=iec104.DataResCause.INTERROGATED_COUNTER)
+            assert_msg_equal(msgs[0], res)
 
         msgs = await conn.receive()
         assert len(msgs) == 1
-        res = i._replace(is_test=is_test,
-                         cause=iec104.DataResCause.INTERROGATED_COUNTER)
+        res = req._replace(cause=iec104.CommandResCause.ACTIVATION_TERMINATION,
+                           asdu_address=responded_asdu)
         assert_msg_equal(msgs[0], res)
 
-    msgs = await conn.receive()
-    assert len(msgs) == 1
-    res = req._replace(cause=iec104.CommandResCause.ACTIVATION_TERMINATION)
-    assert_msg_equal(msgs[0], res)
+        interrogated_asdus.remove(responded_asdu)
 
     await conn.async_close()
     await device.async_close()
