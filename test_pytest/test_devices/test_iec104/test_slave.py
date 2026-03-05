@@ -959,3 +959,55 @@ async def test_buffer(create_conf, create_connection, is_test, asdu_address,
     await conn.async_close()
     await device.async_close()
     await eventer_client.async_close()
+
+
+async def test_max_connections(create_conf, create_connection):
+    max_connections = 3
+
+    conns = collections.deque()
+    event_queue = aio.Queue()
+
+    conf = create_conf(max_connections=3)
+
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
+    device = await create_device(conf, eventer_client)
+
+    event = await event_queue.get()
+    assert_connection_event(event, len(conns))
+
+    assert event_queue.empty()
+
+    for i in range(max_connections):
+        conn = await create_connection()
+        assert conn.is_open
+        conns.append(conn)
+        event = await event_queue.get()
+
+    # after max_connections is exceeded connections are no more accepted
+    with pytest.raises(ConnectionError):
+        await create_connection()
+    assert event_queue.empty()
+
+    # after 1 connection closed, 1 new connection is accepted
+    conn = conns.pop()
+    await conn.async_close()
+    event = await event_queue.get()
+
+    conn = await create_connection()
+    assert conn.is_open
+    conns.append(conn)
+    event = await event_queue.get()
+
+    with pytest.raises(ConnectionError):
+        await create_connection()
+    assert event_queue.empty()
+
+    while conns:
+        conn = conns.pop()
+        await conn.async_close()
+        event = await event_queue.get()
+
+    assert event_queue.empty()
+
+    await device.async_close()
+    await eventer_client.async_close()

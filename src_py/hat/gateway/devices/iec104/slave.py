@@ -98,10 +98,19 @@ class Iec104SlaveDevice(common.Device):
                 self._log.warning('error processing event: %s', e, exc_info=e)
 
     async def _on_connection(self, conn):
+        remote_host = conn.info.remote_addr.host
+        if (self._remote_hosts is not None and
+                remote_host not in self._remote_hosts):
+            conn.close()
+            self._log.warning('connection closed: remote host %s not allowed',
+                              remote_host)
+            return
+
         if (self._max_connections is not None and
                 len(self._conns) >= self._max_connections):
-            self._log.info('max connections exceeded - rejecting connection')
             conn.close()
+            self._log.debug('connection closed: max connections exceeded '
+                            '(remote host %s)', remote_host)
             return
 
         if self._conf['security']:
@@ -116,11 +125,6 @@ class Iec104SlaveDevice(common.Device):
         conn_id = next(self._next_conn_ids)
 
         try:
-            if self._remote_hosts is not None:
-                remote_host = conn.info.remote_addr.host
-                if remote_host not in self._remote_hosts:
-                    raise Exception(f'remote host {remote_host} not allowed')
-
             self._conns[conn_id] = conn
             await self._register_connections()
 
