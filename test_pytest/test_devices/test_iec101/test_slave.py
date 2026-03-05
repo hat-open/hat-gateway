@@ -257,7 +257,7 @@ async def create_master_link(link_type, conf):
         dsrdtr=conf['flow_control']['dsrdtr'])
 
 
-async def create_master_conn(master_link, remote_address):
+async def create_master_conn(master_link, remote_address, conf):
     response_timeout = 0.01
     if isinstance(master_link, link.BalancedLink):
         conn_args = {
@@ -279,8 +279,8 @@ async def create_master_conn(master_link, remote_address):
     return iec101.Connection(
         conn=conn,
         cause_size=iec101.CauseSize.TWO,
-        asdu_address_size=iec101.AsduAddressSize.TWO,
-        io_address_size=iec101.IoAddressSize.THREE)
+        asdu_address_size=iec101.AsduAddressSize[conf['asdu_address_size']],
+        io_address_size=iec101.IoAddressSize[conf['io_address_size']])
 
 
 def test_device_type():
@@ -324,7 +324,7 @@ async def test_connections(serial_conns, link_type, conn_count):
 
     master_link = await create_master_link(link_type, conf)
     for i, addr in enumerate(addresses):
-        master_conn = await create_master_conn(master_link, addr)
+        master_conn = await create_master_conn(master_link, addr, conf)
 
         event = await event_queue.get()
         assert_connections_event(event, addresses[:i+1])
@@ -349,7 +349,7 @@ async def test_keep_alive_timeout(serial_conns):
     assert_connections_event(event, [])
 
     master_link = await create_master_link(link_type, conf)
-    master_conn = await create_master_conn(master_link, address)
+    master_conn = await create_master_conn(master_link, address, conf)
 
     event = await event_queue.get()
     assert_connections_event(event, [address])
@@ -421,7 +421,7 @@ async def test_interrogate(serial_conns, link_type):
     exp_gi_resp_events = new_events + query_events[data_count // 2:]
 
     master_link = await create_master_link(link_type, conf)
-    master_conn = await create_master_conn(master_link, address)
+    master_conn = await create_master_conn(master_link, address, conf)
 
     msg = iec101.InterrogationMsg(
         is_test=False,
@@ -464,6 +464,190 @@ async def test_interrogate(serial_conns, link_type):
     await eventer_client.async_close()
 
 
+@pytest.mark.parametrize("interogated_asdu", [1, 2, 5, 0xFFFF])
+@pytest.mark.parametrize('link_type', ['BALANCED', 'UNBALANCED'])
+async def test_interrogated_asdu(serial_conns, link_type, interogated_asdu):
+    address = 123
+    device_asdus = [1, 2, 3]
+    data_count = 10
+
+    conf = get_conf(link_type, [address],
+                    data=[{'data_type': 'SINGLE',
+                           'asdu_address': asdu_address,
+                           'io_address': i,
+                           'buffer': None}
+                          for asdu_address in device_asdus
+                          for i in range(data_count)])
+
+    quality = {'invalid': False,
+               'not_topical': False,
+               'substituted': False,
+               'blocked': False}
+    query_events = [create_data_event('SINGLE', asdu_address, i,
+                                      {'value': 'ON',
+                                       'quality': quality})
+                    for asdu_address in device_asdus
+                    for i in range(data_count)]
+
+    def on_query(params):
+        return hat.event.common.QueryResult(query_events, False)
+
+    eventer_client = EventerClient(query_cb=on_query)
+    device = await create_device(conf, eventer_client)
+
+    master_link = await create_master_link(link_type, conf)
+    master_conn = await create_master_conn(master_link, address, conf)
+
+    msg = iec101.InterrogationMsg(
+        is_test=False,
+        originator_address=0,
+        asdu_address=interogated_asdu,
+        request=0,
+        is_negative_confirm=False,
+        cause=iec101.CommandReqCause.ACTIVATION)
+    await master_conn.send([msg])
+
+    exp_interrogated_asdus = ([interogated_asdu]
+                              if interogated_asdu != 0xFFFF else device_asdus)
+
+    while exp_interrogated_asdus:
+        msgs = await master_conn.receive()
+        gi_resp_msg = msgs[0]
+        responded_asdu = gi_resp_msg.asdu_address
+        assert responded_asdu in exp_interrogated_asdus
+        assert isinstance(gi_resp_msg, iec101.InterrogationMsg)
+        assert (gi_resp_msg.cause ==
+                iec101.CommandResCause.ACTIVATION_CONFIRMATION)
+        assert gi_resp_msg.asdu_address == responded_asdu
+        assert not gi_resp_msg.is_negative_confirm
+
+        for data_event in query_events:
+            data_asdu = int(data_event.type[len(event_type_prefix) + 3])
+            data_io = int(data_event.type[len(event_type_prefix) + 4])
+            if data_asdu != responded_asdu:
+                continue
+
+            msgs = await master_conn.receive()
+            gi_data_msg = msgs[0]
+            assert isinstance(gi_data_msg, iec101.DataMsg)
+            assert gi_data_msg.is_test == data_event.payload.data['is_test']
+            assert (gi_data_msg.cause ==
+                    iec101.DataResCause.INTERROGATED_STATION)
+            assert gi_data_msg.data.value.name == \
+                data_event.payload.data['data']['value']
+            assert gi_data_msg.asdu_address == data_asdu
+            assert gi_data_msg.io_address == data_io
+            assert gi_data_msg.time is None
+
+        msgs = await master_conn.receive()
+        gi_resp_msg = msgs[0]
+        assert isinstance(gi_resp_msg, iec101.InterrogationMsg)
+        assert (gi_resp_msg.cause ==
+                iec101.CommandResCause.ACTIVATION_TERMINATION)
+        assert gi_resp_msg.asdu_address == responded_asdu
+        assert not gi_resp_msg.is_negative_confirm
+
+        exp_interrogated_asdus.remove(responded_asdu)
+
+    await master_conn.async_close()
+    await master_link.async_close()
+    await device.async_close()
+    await eventer_client.async_close()
+
+
+@pytest.mark.parametrize("interogated_asdu, asdu_size", [
+    (0xFF, "ONE"),
+    (0xFFFF, "TWO")])
+@pytest.mark.parametrize('link_type', ['BALANCED', 'UNBALANCED'])
+async def test_interrogate_broadcast(serial_conns, link_type, interogated_asdu,
+                                     asdu_size):
+    address = 123
+    device_asdus = [1, 2, 3]
+    data_count = 10
+
+    conf = get_conf(link_type, [address],
+                    data=[{'data_type': 'SINGLE',
+                           'asdu_address': asdu_address,
+                           'io_address': i,
+                           'buffer': None}
+                          for asdu_address in device_asdus
+                          for i in range(data_count)])
+    conf['asdu_address_size'] = asdu_size
+
+    quality = {'invalid': False,
+               'not_topical': False,
+               'substituted': False,
+               'blocked': False}
+    query_events = [create_data_event('SINGLE', asdu_address, i,
+                                      {'value': 'ON',
+                                       'quality': quality})
+                    for asdu_address in device_asdus
+                    for i in range(data_count)]
+
+    def on_query(params):
+        return hat.event.common.QueryResult(query_events, False)
+
+    eventer_client = EventerClient(query_cb=on_query)
+    device = await create_device(conf, eventer_client)
+
+    master_link = await create_master_link(link_type, conf)
+    master_conn = await create_master_conn(master_link, address, conf)
+
+    msg = iec101.InterrogationMsg(
+        is_test=False,
+        originator_address=0,
+        asdu_address=interogated_asdu,
+        request=0,
+        is_negative_confirm=False,
+        cause=iec101.CommandReqCause.ACTIVATION)
+    await master_conn.send([msg])
+
+    exp_interrogated_asdus = set(device_asdus)
+    while exp_interrogated_asdus:
+        msgs = await master_conn.receive()
+        gi_resp_msg = msgs[0]
+        responded_asdu = gi_resp_msg.asdu_address
+        assert responded_asdu in exp_interrogated_asdus
+        assert isinstance(gi_resp_msg, iec101.InterrogationMsg)
+        assert (gi_resp_msg.cause ==
+                iec101.CommandResCause.ACTIVATION_CONFIRMATION)
+        assert gi_resp_msg.asdu_address == responded_asdu
+        assert not gi_resp_msg.is_negative_confirm
+
+        for data_event in query_events:
+            data_asdu = int(data_event.type[len(event_type_prefix) + 3])
+            data_io = int(data_event.type[len(event_type_prefix) + 4])
+            if data_asdu != responded_asdu:
+                continue
+
+            msgs = await master_conn.receive()
+            gi_data_msg = msgs[0]
+            assert isinstance(gi_data_msg, iec101.DataMsg)
+            assert gi_data_msg.is_test == data_event.payload.data['is_test']
+            assert (gi_data_msg.cause ==
+                    iec101.DataResCause.INTERROGATED_STATION)
+            assert gi_data_msg.data.value.name == \
+                data_event.payload.data['data']['value']
+            assert gi_data_msg.asdu_address == data_asdu
+            assert gi_data_msg.io_address == data_io
+            assert gi_data_msg.time is None
+
+        msgs = await master_conn.receive()
+        gi_resp_msg = msgs[0]
+        assert isinstance(gi_resp_msg, iec101.InterrogationMsg)
+        assert (gi_resp_msg.cause ==
+                iec101.CommandResCause.ACTIVATION_TERMINATION)
+        assert gi_resp_msg.asdu_address == responded_asdu
+        assert not gi_resp_msg.is_negative_confirm
+
+        exp_interrogated_asdus.remove(responded_asdu)
+
+    await master_conn.async_close()
+    await master_link.async_close()
+    await device.async_close()
+    await eventer_client.async_close()
+
+
 @pytest.mark.parametrize('link_type', ['BALANCED', 'UNBALANCED'])
 async def test_interrogate_deactivation(serial_conns, link_type):
     address = 123
@@ -488,7 +672,7 @@ async def test_interrogate_deactivation(serial_conns, link_type):
     device = await create_device(conf, eventer_client)
 
     master_link = await create_master_link(link_type, conf)
-    master_conn = await create_master_conn(master_link, address)
+    master_conn = await create_master_conn(master_link, address, conf)
 
     msg = iec101.InterrogationMsg(
         is_test=False,
@@ -537,8 +721,9 @@ async def test_interrogate_deactivation(serial_conns, link_type):
     await eventer_client.async_close()
 
 
+@pytest.mark.parametrize('interrogated_asdu', [1, 2, 5, 0xFFFF])
 @pytest.mark.parametrize('link_type', ['BALANCED', 'UNBALANCED'])
-async def test_counter_interrogate(serial_conns, link_type):
+async def test_counter_interrogate(serial_conns, link_type, interrogated_asdu):
     address = 123
 
     conf = get_conf(link_type,
@@ -550,6 +735,10 @@ async def test_counter_interrogate(serial_conns, link_type):
                           {'data_type': 'BINARY_COUNTER',
                            'asdu_address': 1,
                            'io_address': 2,
+                           'buffer': None},
+                          {'data_type': 'BINARY_COUNTER',
+                           'asdu_address': 2,
+                           'io_address': 1,
                            'buffer': None}])
 
     non_counter_event = create_data_event('SINGLE', 1, 1,
@@ -558,61 +747,74 @@ async def test_counter_interrogate(serial_conns, link_type):
                                                        'not_topical': False,
                                                        'substituted': False,
                                                        'blocked': False}})
-    counter_event = create_data_event('BINARY_COUNTER', 1, 2,
-                                      {'value': 123,
-                                       'quality': {'invalid': False,
-                                                   'adjusted': False,
-                                                   'overflow': False,
-                                                   'sequence': False}})
+    counter_events = [create_data_event('BINARY_COUNTER', 1, 2,
+                                        {'value': 123,
+                                         'quality': {'invalid': False,
+                                                     'adjusted': False,
+                                                     'overflow': False,
+                                                     'sequence': False}}),
+                      create_data_event('BINARY_COUNTER', 2, 1,
+                                        {'value': 321,
+                                         'quality': {'invalid': False,
+                                                     'adjusted': False,
+                                                     'overflow': False,
+                                                     'sequence': False}})]
 
     def on_query(params):
-        events = [non_counter_event, counter_event]
+        events = [non_counter_event, *counter_events]
         return hat.event.common.QueryResult(events, False)
 
     eventer_client = EventerClient(query_cb=on_query)
     device = await create_device(conf, eventer_client)
 
     master_link = await create_master_link(link_type, conf)
-    master_conn = await create_master_conn(master_link, address)
+    master_conn = await create_master_conn(master_link, address, conf)
 
     msg = iec101.CounterInterrogationMsg(
         is_test=False,
         originator_address=0,
-        asdu_address=1,
+        asdu_address=interrogated_asdu,
         request=0,
         freeze=iec101.FreezeCode.READ,
         is_negative_confirm=False,
         cause=iec101.CommandReqCause.ACTIVATION)
     await master_conn.send([msg])
 
-    msgs = await master_conn.receive()
-    gi_resp_msg = msgs[0]
-    assert isinstance(gi_resp_msg, iec101.CounterInterrogationMsg)
-    assert gi_resp_msg.cause == iec101.CommandResCause.ACTIVATION_CONFIRMATION
-    assert not gi_resp_msg.is_negative_confirm
+    for counter_event in counter_events:
+        asdu = int(counter_event.type[len(event_type_prefix) + 3])
+        if interrogated_asdu != 0xFFFF and interrogated_asdu != asdu:
+            continue
 
-    msgs = await master_conn.receive()
-    data_msg = msgs[0]
+        msgs = await master_conn.receive()
+        gi_resp_msg = msgs[0]
+        assert isinstance(gi_resp_msg, iec101.CounterInterrogationMsg)
+        assert (gi_resp_msg.cause ==
+                iec101.CommandResCause.ACTIVATION_CONFIRMATION)
+        assert not gi_resp_msg.is_negative_confirm
 
-    assert isinstance(data_msg, iec101.DataMsg)
-    assert data_msg.is_test == counter_event.payload.data['is_test']
-    assert data_msg.cause == iec101.DataResCause.INTERROGATED_COUNTER
-    assert isinstance(data_msg.data.value, iec101.BinaryCounterValue)
-    assert data_msg.data.value.value == \
-        counter_event.payload.data['data']['value']
-    assert data_msg.asdu_address == int(
-        counter_event.type[len(event_type_prefix) + 3])
-    assert data_msg.io_address == int(
-        counter_event.type[len(event_type_prefix) + 4])
-    assert_quality(counter_event.payload.data['data']['quality'],
-                   data_msg.data.quality)
-    assert data_msg.time is None
+        msgs = await master_conn.receive()
+        data_msg = msgs[0]
 
-    msgs = await master_conn.receive()
-    gi_resp_msg = msgs[0]
-    assert isinstance(gi_resp_msg, iec101.CounterInterrogationMsg)
-    assert gi_resp_msg.cause == iec101.CommandResCause.ACTIVATION_TERMINATION
-    assert not gi_resp_msg.is_negative_confirm
+        assert isinstance(data_msg, iec101.DataMsg)
+        assert data_msg.is_test == counter_event.payload.data['is_test']
+        assert data_msg.cause == iec101.DataResCause.INTERROGATED_COUNTER
+        assert isinstance(data_msg.data.value, iec101.BinaryCounterValue)
+        assert data_msg.data.value.value == \
+            counter_event.payload.data['data']['value']
+        assert data_msg.asdu_address == int(
+            counter_event.type[len(event_type_prefix) + 3])
+        assert data_msg.io_address == int(
+            counter_event.type[len(event_type_prefix) + 4])
+        assert_quality(counter_event.payload.data['data']['quality'],
+                       data_msg.data.quality)
+        assert data_msg.time is None
+
+        msgs = await master_conn.receive()
+        gi_resp_msg = msgs[0]
+        assert isinstance(gi_resp_msg, iec101.CounterInterrogationMsg)
+        assert (gi_resp_msg.cause ==
+                iec101.CommandResCause.ACTIVATION_TERMINATION)
+        assert not gi_resp_msg.is_negative_confirm
 
     await master_conn.async_close()
     await master_link.async_close()
@@ -795,7 +997,7 @@ async def test_data(serial_conns, link_type, data_type, event_data,
     device = await create_device(conf, eventer_client)
 
     master_link = await create_master_link(link_type, conf)
-    master_conn = await create_master_conn(master_link, address)
+    master_conn = await create_master_conn(master_link, address, conf)
 
     await wait_connected_connections_event(event_queue, [address])
 
@@ -845,7 +1047,7 @@ async def test_data_bulk(serial_conns, link_type):
     device = await create_device(conf, eventer_client)
 
     master_link = await create_master_link(link_type, conf)
-    master_conn = await create_master_conn(master_link, address)
+    master_conn = await create_master_conn(master_link, address, conf)
 
     await wait_connected_connections_event(event_queue, [address])
 
@@ -943,7 +1145,7 @@ async def test_command(serial_conns, link_type,
     device = await create_device(conf, eventer_client)
 
     master_link = await create_master_link(link_type, conf)
-    master_conn = await create_master_conn(master_link, address)
+    master_conn = await create_master_conn(master_link, address, conf)
 
     await wait_connected_connections_event(event_queue, [address])
 
@@ -1021,7 +1223,7 @@ async def test_command_wrong_conn_id(serial_conns, link_type):
     device = await create_device(conf, eventer_client)
 
     master_link = await create_master_link(link_type, conf)
-    master_conn = await create_master_conn(master_link, address)
+    master_conn = await create_master_conn(master_link, address, conf)
 
     await wait_connected_connections_event(event_queue, [address])
 
@@ -1108,7 +1310,7 @@ async def test_buffer(serial_conns, link_type):
     await aio.call(device.process_events, data_events)
 
     master_link = await create_master_link(link_type, conf)
-    master_conn1 = await create_master_conn(master_link, address1)
+    master_conn1 = await create_master_conn(master_link, address1, conf)
 
     for data_event in buffered_data_events:
         msgs = await master_conn1.receive()
@@ -1129,7 +1331,7 @@ async def test_buffer(serial_conns, link_type):
         await aio.wait_for(master_conn1.receive(), 0.01)
 
     # check buffer is empty for another master
-    master_conn2 = await create_master_conn(master_link, address2)
+    master_conn2 = await create_master_conn(master_link, address2, conf)
     with pytest.raises(asyncio.TimeoutError):
         await aio.wait_for(master_conn2.receive(), 0.01)
 
@@ -1179,7 +1381,7 @@ async def test_buffer_size(serial_conns, link_type):
     await aio.call(device.process_events, data_events)
 
     master_link = await create_master_link(link_type, conf)
-    master_conn = await create_master_conn(master_link, address)
+    master_conn = await create_master_conn(master_link, address, conf)
 
     # ordered notification of data from buffers is assumed
     exp_buffered_events = itertools.chain(buffered_events['b1'][-100:],
@@ -1227,7 +1429,7 @@ async def test_data_on_multi_masters(serial_conns, link_type):
     master_link = await create_master_link(link_type, conf)
     master_conns = []
     for addr in addresses:
-        conn = await create_master_conn(master_link, addr)
+        conn = await create_master_conn(master_link, addr, conf)
         master_conns.append(conn)
 
     await wait_connected_connections_event(event_queue, addresses)
@@ -1265,7 +1467,7 @@ async def test_command_on_multi_masters(serial_conns, link_type):
     master_link = await create_master_link(link_type, conf)
     master_conns = []
     for addr in addresses:
-        conn = await create_master_conn(master_link, addr)
+        conn = await create_master_conn(master_link, addr, conf)
         master_conns.append(conn)
 
     conns_event = await wait_connected_connections_event(
