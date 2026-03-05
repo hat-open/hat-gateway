@@ -284,7 +284,7 @@ class Iec104SlaveDevice(common.Device):
                     asdu_address=asdu_address,
                     cause=iec104.CommandResCause.ACTIVATION_CONFIRMATION,
                     is_negative_confirm=False)
-                await self._send(conn_id, [res])
+                await conn.send([res])
 
                 msgs = [
                     data_msg._replace(
@@ -293,13 +293,13 @@ class Iec104SlaveDevice(common.Device):
                     for data_msg in data_msgs
                     if data_msg]
                 if msgs:
-                    await self._send(conn_id, msgs)
+                    await conn.send(msgs)
 
                 res = msg._replace(
                     asdu_address=asdu_address,
                     cause=iec104.CommandResCause.ACTIVATION_TERMINATION,
                     is_negative_confirm=False)
-                await self._send(conn_id, [res])
+                await conn.send([res])
 
         elif msg.cause == iec104.CommandReqCause.DEACTIVATION:
             res = msg._replace(

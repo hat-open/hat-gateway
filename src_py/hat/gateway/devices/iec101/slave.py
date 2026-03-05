@@ -1,4 +1,4 @@
-"""IEC 60870-5-104 slave device"""
+"""IEC 60870-5-101 slave device"""
 
 from collections.abc import Collection, Iterable
 import asyncio
