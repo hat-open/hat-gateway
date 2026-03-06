@@ -223,9 +223,9 @@ Available gateway events are:
         Payload is defined by
         ``hat-gateway://modbus.yaml#/$defs/events/slave/gateway/connections``.
 
-    * .../write/<data_name>
+    * .../write
 
-        Represents received Modbus write request.
+        Represents single Modbus write request.
 
         Payload is defined by
         ``hat-gateway://modbus.yaml#/$defs/events/slave/gateway/write``.
@@ -247,6 +247,13 @@ Available system events are:
 
         Payload is defined by
         ``hat-gateway://modbus.yaml#/$defs/events/slave/system/data``.
+
+    * .../write
+
+        Represents single Modbus write response.
+
+        Payload is defined by
+        ``hat-gateway://modbus.yaml#/$defs/events/slave/system/write``.
 
 
 

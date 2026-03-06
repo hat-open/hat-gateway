@@ -503,13 +503,26 @@ $defs:
                 write:
                     type: object
                     required:
+                        - request_id
                         - connection_id
                         - value
                     properties:
-                        connection:
+                        request_id:
+                            type: string
+                        connection_id:
                             type: integer
-                        value:
-                            type: integer
+                        data:
+                            type: array
+                            items:
+                                type: object
+                                required:
+                                    - name
+                                    - value
+                                properties:
+                                    name:
+                                        type: string
+                                    value:
+                                        type: integer
             system:
                 data:
                     type: object
@@ -518,3 +531,20 @@ $defs:
                     properties:
                         value:
                             type: integer
+                write:
+                    type: object
+                    required:
+                        - request_id
+                        - result
+                    properties:
+                        request_id:
+                            type: string
+                        result:
+                            enum:
+                                - SUCCESS
+                                - INVALID_FUNCTION_CODE
+                                - INVALID_DATA_ADDRESS
+                                - INVALID_DATA_VALUE
+                                - FUNCTION_ERROR
+                                - GATEWAY_PATH_UNAVAILABLE
+                                - GATEWAY_TARGET_DEVICE_FAILED_TO_RESPOND
