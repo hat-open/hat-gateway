@@ -505,7 +505,7 @@ $defs:
                     required:
                         - request_id
                         - connection_id
-                        - value
+                        - data
                     properties:
                         request_id:
                             type: string
