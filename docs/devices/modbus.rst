@@ -23,7 +23,7 @@ Because of different data encoding schemas, single user defined data values
 can occupy only parts of modbus registers or span across multiple registers.
 To accommodate these different encoding rules, modbus gateway devices represent
 single data point values as list of bits, encoded as single unsigned integer,
-with legth specified by configuration parameters.
+with length specified by configuration parameters.
 
 Among other parameters, each data specifies:
 
@@ -218,7 +218,7 @@ Available gateway events are:
         Represents change in list of all active connections. When device
         is disabled, empty list of connections is assumed (when device is
         disabled, new `connections` event should be registered but user
-        should not depend on this behaviour).
+        should not depend on this behavior).
 
         Payload is defined by
         ``hat-gateway://modbus.yaml#/$defs/events/slave/gateway/connections``.
