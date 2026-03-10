@@ -118,7 +118,7 @@ $defs:
                                 silent_interval:
                                     type: number
                                     description: |
-                                        Serial communication silet interval
+                                        Serial communication silent interval
                     connect_timeout:
                         type: number
                         description: |
@@ -345,7 +345,7 @@ $defs:
                         silent_interval:
                             type: number
                             description: |
-                                Serial communication silet interval
+                                Serial communication silent interval
                         keep_alive_timeout:
                             type: number
             data:
