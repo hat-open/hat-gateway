@@ -349,30 +349,14 @@ async def test_initiate_on_query_overlap(transport_conf, slave_addr):
         (modbus.DataType.COIL, 0, 0, 1, 1,
          modbus.DataType.COIL, 0, 1, [1]),
         (modbus.DataType.COIL, 0, 0, 2, 3,
-         modbus.DataType.COIL, 0, 1, [1]),
+         modbus.DataType.COIL, 0, 2, [1, 1]),
         (modbus.DataType.COIL, 0, 0, 2, 3,
          modbus.DataType.COIL, 1, 1, [1]),
-        (modbus.DataType.COIL, 0, 0, 2, 3,
-         modbus.DataType.COIL, 0, 2, [1, 1]),
-        (modbus.DataType.COIL, 0, 0, 3, 7,
-         modbus.DataType.COIL, 0, 3, [1, 1, 1]),
-        # read read more than configured
-        (modbus.DataType.COIL, 0, 0, 1, 1,
-         modbus.DataType.COIL, 0, 2, [1, 0]),
-        (modbus.DataType.COIL, 1, 0, 1, 1,
-         modbus.DataType.COIL, 0, 3, [0, 1, 0]),
-        (modbus.DataType.COIL, 0, 0, 2, 3,
-         modbus.DataType.COIL, 2, 1, [0]),
-        (modbus.DataType.COIL, 0, 0, 2, 3,
-         modbus.DataType.COIL, 1, 2, [1, 0]),
-        # read from undefined address
-        (modbus.DataType.COIL, 0, 0, 1, 1,
-         modbus.DataType.COIL, 1, 1, [0]),
+        (modbus.DataType.COIL, 0, 3, 2, 3,
+         modbus.DataType.COIL, 3, 2, [1, 1]),
 
         (modbus.DataType.DISCRETE_INPUT, 123, 2, 2, 3,
          modbus.DataType.DISCRETE_INPUT, 125, 2, [1, 1]),
-        (modbus.DataType.DISCRETE_INPUT, 123, 2, 2, 3,
-         modbus.DataType.DISCRETE_INPUT, 124, 2, [1, 0]),
 
         (modbus.DataType.HOLDING_REGISTER, 0, 0, 16, 0x1234,
          modbus.DataType.HOLDING_REGISTER, 0, 1, [0x1234]),
@@ -380,35 +364,61 @@ async def test_initiate_on_query_overlap(transport_conf, slave_addr):
          modbus.DataType.HOLDING_REGISTER, 0, 2, [0x1234, 0x5678]),
         (modbus.DataType.HOLDING_REGISTER, 0, 0, 32, 0x12345678,
          modbus.DataType.HOLDING_REGISTER, 1, 1, [0x5678]),
+        (modbus.DataType.HOLDING_REGISTER, 0, 0, 8, 0x12,
+         modbus.DataType.HOLDING_REGISTER, 0, 1, [0x1200]),
+        (modbus.DataType.HOLDING_REGISTER, 0, 8, 8, 0x12,
+         modbus.DataType.HOLDING_REGISTER, 0, 1, [0x0012]),
+        (modbus.DataType.HOLDING_REGISTER, 0, 0, 1, 1,
+         modbus.DataType.HOLDING_REGISTER, 0, 1, [0x8000]),
         (modbus.DataType.HOLDING_REGISTER, 0, 8, 32, 0x12345678,
          modbus.DataType.HOLDING_REGISTER, 1, 1, [0x3456]),
+        # TODO verify if this case is valid due to offset and bit_count
         (modbus.DataType.HOLDING_REGISTER, 0, 8, 32, 0x12345678,
          modbus.DataType.HOLDING_REGISTER, 1, 2, [0x3456, 0x7800]),
 
-        (modbus.DataType.INPUT_REGISTER, 0, 0, 32, 0x12345678,
-         modbus.DataType.INPUT_REGISTER, 0, 2, [0x1234, 0x5678]),
+        (modbus.DataType.INPUT_REGISTER, 0, 0, 64, 0x123456789abc,
+         modbus.DataType.INPUT_REGISTER, 0, 3, [0x1234, 0x5678, 0x9abc]),
 
-        # invalid value for configured data are ignored
+        # read out of configured memory
+        (modbus.DataType.COIL, 0, 0, 1, 1,
+         modbus.DataType.COIL, 1, 1, modbus.Error.INVALID_DATA_ADDRESS),
+        (modbus.DataType.COIL, 0, 0, 1, 1,
+         modbus.DataType.COIL, 0, 2, modbus.Error.INVALID_DATA_ADDRESS),
+        (modbus.DataType.DISCRETE_INPUT, 123, 2, 2, 3,
+         modbus.DataType.DISCRETE_INPUT, 124, 2,
+         modbus.Error.INVALID_DATA_ADDRESS),
+        (modbus.DataType.HOLDING_REGISTER, 0, 0, 16, 0x1234,
+         modbus.DataType.HOLDING_REGISTER, 1, 1,
+         modbus.Error.INVALID_DATA_ADDRESS),
+        (modbus.DataType.HOLDING_REGISTER, 0, 0, 16, 0x1234,
+         modbus.DataType.HOLDING_REGISTER, 0, 2,
+         modbus.Error.INVALID_DATA_ADDRESS),
+
+        # event with invalid value for configured data is ignored
         (modbus.DataType.COIL, 0, 0, 1, 3,
          modbus.DataType.COIL, 0, 1, [0]),
         (modbus.DataType.COIL, 0, 0, 3, 15,
          modbus.DataType.COIL, 0, 3, [0, 0, 0]),
         (modbus.DataType.HOLDING_REGISTER, 0, 0, 16, 0x12345,
          modbus.DataType.HOLDING_REGISTER, 0, 1, [0]),
+        (modbus.DataType.HOLDING_REGISTER, 0, 0, 32, 0x123456789,
+         modbus.DataType.HOLDING_REGISTER, 0, 2, [0, 0]),
         (modbus.DataType.HOLDING_REGISTER, 0, 0, 8, 0x1234,
          modbus.DataType.HOLDING_REGISTER, 0, 1, [0]),
 
         # wrong read data type
         (modbus.DataType.COIL, 0, 0, 1, 1,
-         modbus.DataType.DISCRETE_INPUT, 0, 1, [0]),
+         modbus.DataType.DISCRETE_INPUT, 0, 1,
+         modbus.Error.INVALID_DATA_ADDRESS),
         (modbus.DataType.HOLDING_REGISTER, 0, 0, 16, 0xFFFF,
-         modbus.DataType.COIL, 0, 1, [0]),
+         modbus.DataType.INPUT_REGISTER, 0, 1,
+         modbus.Error.INVALID_DATA_ADDRESS),
         (modbus.DataType.HOLDING_REGISTER, 0, 0, 16, 0xFFFF,
-         modbus.DataType.INPUT_REGISTER, 0, 1, [0]),
+         modbus.DataType.COIL, 0, 1, modbus.Error.INVALID_DATA_ADDRESS),
     ])
 async def test_read(transport_conf, slave_addr, data_type, start_address,
                     bit_offset, bit_count, event_value, read_data_type,
-                    read_start_address, read_quantity, read_value):
+                    read_start_address, read_quantity, read_result):
     start_address = 0
     conf = {'name': 'name',
             'modbus_type': 'TCP',
@@ -443,22 +453,22 @@ async def test_read(transport_conf, slave_addr, data_type, start_address,
                          {'value': event_value})
     await aio.call(device.process_events, [event])
 
-    master_read_value = await master.read(
+    master_read_result = await master.read(
         device_id=1,
         data_type=read_data_type,
         start_address=read_start_address,
         quantity=read_quantity)
-    assert master_read_value == read_value
+    assert master_read_result == read_result
 
     await master.async_close()
     await device.async_close()
 
 
+@pytest.mark.parametrize('read_device_id', [0, 13])
 @pytest.mark.parametrize('data_type', modbus.DataType)
 async def test_read_invalid_device_id(transport_conf, slave_addr,
-                                      data_type):
+                                      data_type, read_device_id):
     device_id = 1
-    invalid_device_id = 13
     start_address = 0
     conf = {'name': 'name',
             'modbus_type': 'TCP',
@@ -479,7 +489,7 @@ async def test_read_invalid_device_id(transport_conf, slave_addr,
 
     with pytest.raises(asyncio.TimeoutError):
         await aio.wait_for(master.read(
-            device_id=invalid_device_id,
+            device_id=read_device_id,
             data_type=data_type,
             start_address=start_address,
             quantity=1), timeout=0.05)
@@ -488,24 +498,23 @@ async def test_read_invalid_device_id(transport_conf, slave_addr,
     await device.async_close()
 
 
-@pytest.mark.parametrize('data_type, bit_count, write_values, event_value', [
-    (modbus.DataType.COIL, 1, [1], 1),
-    (modbus.DataType.COIL, 3, [1, 1, 1], 7),
-    (modbus.DataType.HOLDING_REGISTER, 16, [0], 0),
-    (modbus.DataType.HOLDING_REGISTER, 16, [0xFFFF], 65535),
-    (modbus.DataType.HOLDING_REGISTER, 32, [0x1234, 0x5678], 305419896)])
-@pytest.mark.parametrize('event_write_result, master_write_result', [
-    ('SUCCESS', None),
-    ('INVALID_FUNCTION_CODE', modbus.Error.INVALID_FUNCTION_CODE),
-    ('INVALID_DATA_ADDRESS', modbus.Error.INVALID_DATA_ADDRESS),
-    ('INVALID_DATA_VALUE', modbus.Error.INVALID_DATA_VALUE),
-    ('FUNCTION_ERROR', modbus.Error.FUNCTION_ERROR),
-    ('GATEWAY_PATH_UNAVAILABLE', modbus.Error.GATEWAY_PATH_UNAVAILABLE),
-    ('GATEWAY_TARGET_DEVICE_FAILED_TO_RESPOND',
-        modbus.Error.GATEWAY_TARGET_DEVICE_FAILED_TO_RESPOND)])
+@pytest.mark.parametrize(
+    'data_type, bit_count, write_values, gw_event_value', [
+     (modbus.DataType.COIL, 1, [1], 1),
+     (modbus.DataType.COIL, 3, [1, 1, 1], 7),
+     (modbus.DataType.HOLDING_REGISTER, 16, [0], 0),
+     (modbus.DataType.HOLDING_REGISTER, 16, [0xFFFF], 65535),
+     (modbus.DataType.HOLDING_REGISTER, 32, [0x1234, 0x5678], 305419896),
+     # data assigned to part of the registers and write to whole registers
+     (modbus.DataType.HOLDING_REGISTER, 8, [0x1234], 0x12),
+     (modbus.DataType.HOLDING_REGISTER, 24, [0x1234, 0x5678], 0x123456),
+     ])
+@pytest.mark.parametrize('system_event_success, master_write_result', [
+    (True, None),
+    (False, modbus.Error.FUNCTION_ERROR)])
 async def test_write(transport_conf, slave_addr, data_type, bit_count,
-                     write_values, event_value,
-                     event_write_result, master_write_result):
+                     write_values, gw_event_value,
+                     system_event_success, master_write_result):
     event_queue = aio.Queue()
     device_id = 1
     data_name = 'd1'
@@ -542,12 +551,12 @@ async def test_write(transport_conf, slave_addr, data_type, bit_count,
     assert write_req_event.payload.data['connection_id'] == connection_id
     assert len(write_req_event.payload.data['data']) == 1
     assert write_req_event.payload.data['data'][0] == {'name': data_name,
-                                                       'value': event_value}
+                                                       'value': gw_event_value}
 
     write_resp_event = create_event(
         (*event_type_prefix, 'system', 'write'),
         {'request_id': write_req_event.payload.data['request_id'],
-         'result': event_write_result})
+         'success': system_event_success})
     await aio.call(device.process_events, [write_resp_event])
 
     write_res = await write_res_future
