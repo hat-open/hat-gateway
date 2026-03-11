@@ -1,3 +1,4 @@
+import asyncio
 import itertools
 
 import pytest
@@ -78,6 +79,8 @@ def assert_connections_event(event, no_conns, slave_addr, master_addr=None):
                    for conn in event.payload.data)
 
     assert len(set(i['connection_id'] for i in event.payload.data)) == no_conns
+
+    assert event.source_timestamp is None
 
 
 def create_event(event_type, payload_data):
@@ -186,6 +189,7 @@ async def test_status(transport_conf, slave_addr):
     for _ in range(3):
         master = await modbus.create_tcp_master(
             modbus.ModbusType.TCP, slave_addr)
+        assert master.info.remote_addr == slave_addr
         masters.add(master)
 
         event = await event_queue.get()
@@ -235,8 +239,7 @@ async def test_query_data(transport_conf, slave_addr):
     await device.async_close()
 
 
-async def test_initiate_on_queried_data(transport_conf, slave_addr):
-    # TODO assert queried events are applied on registers by event_id order
+async def test_initiate_on_query(transport_conf, slave_addr):
     conf = {'name': 'name',
             'modbus_type': 'TCP',
             'transport': transport_conf,
@@ -274,6 +277,70 @@ async def test_initiate_on_queried_data(transport_conf, slave_addr):
     await device.async_close()
 
 
+async def test_initiate_on_query_overlap(transport_conf, slave_addr):
+    # assert queried events are applied in event_id order when they overlap
+    conf = {'name': 'name',
+            'modbus_type': 'TCP',
+            'transport': transport_conf,
+            'data': [
+                {'name': 'd1',
+                 'device_id': 1,
+                 'data_type': 'COIL',
+                 'start_address': 0,
+                 'bit_offset': 0,
+                 'bit_count': 2},
+                {'name': 'd2',
+                 'device_id': 1,
+                 'data_type': 'COIL',
+                 'start_address': 0,
+                 'bit_offset': 0,
+                 'bit_count': 2},
+                {'name': 'd3',
+                 'device_id': 1,
+                 'data_type': 'COIL',
+                 'start_address': 0,
+                 'bit_offset': 0,
+                 'bit_count': 2}]}
+
+    event1 = hat.event.common.Event(
+        id=hat.event.common.EventId(1, 1, 1),
+        type=(*event_type_prefix, 'system', 'data', 'd1'),
+        timestamp=hat.event.common.now(),
+        source_timestamp=None,
+        payload=hat.event.common.EventPayloadJson({'value': 1}))
+    event2 = hat.event.common.Event(
+        id=hat.event.common.EventId(1, 1, 2),
+        type=(*event_type_prefix, 'system', 'data', 'd1'),
+        timestamp=hat.event.common.now(),
+        source_timestamp=None,
+        payload=hat.event.common.EventPayloadJson({'value': 2}))
+    event3 = hat.event.common.Event(
+        id=hat.event.common.EventId(1, 1, 3),
+        type=(*event_type_prefix, 'system', 'data', 'd1'),
+        timestamp=hat.event.common.now(),
+        source_timestamp=None,
+        payload=hat.event.common.EventPayloadJson({'value': 3}))
+
+    def on_query(params):
+        return hat.event.common.QueryResult([event3, event2, event1], False)
+
+    eventer_client = EventerClient(query_cb=on_query)
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
+
+    master = await modbus.create_tcp_master(modbus.ModbusType.TCP, slave_addr)
+
+    master_read_value = await master.read(
+        device_id=1,
+        data_type=modbus.DataType.COIL,
+        start_address=0,
+        quantity=2)
+    assert master_read_value == [1, 1]
+
+    await master.async_close()
+    await device.async_close()
+
+
 @pytest.mark.parametrize(
     'data_type, start_address, bit_offset, bit_count, event_value, '
     'read_data_type, read_start_address, read_quantity, read_value', [
@@ -287,7 +354,7 @@ async def test_initiate_on_queried_data(transport_conf, slave_addr):
          modbus.DataType.COIL, 1, 1, [1]),
         (modbus.DataType.COIL, 0, 0, 2, 3,
          modbus.DataType.COIL, 0, 2, [1, 1]),
-        (modbus.DataType.COIL, 0, 0, 3, 15,
+        (modbus.DataType.COIL, 0, 0, 3, 7,
          modbus.DataType.COIL, 0, 3, [1, 1, 1]),
         # read read more than configured
         (modbus.DataType.COIL, 0, 0, 1, 1,
@@ -319,12 +386,12 @@ async def test_initiate_on_queried_data(transport_conf, slave_addr):
          modbus.DataType.HOLDING_REGISTER, 1, 2, [0x3456, 0x7800]),
 
         (modbus.DataType.INPUT_REGISTER, 0, 0, 32, 0x12345678,
-         modbus.DataType.INPUT_REGISTER, 0, 2, [0x12345678]),
+         modbus.DataType.INPUT_REGISTER, 0, 2, [0x1234, 0x5678]),
 
-        # invalid value for configured data ignored
+        # invalid value for configured data are ignored
         (modbus.DataType.COIL, 0, 0, 1, 3,
          modbus.DataType.COIL, 0, 1, [0]),
-        (modbus.DataType.COIL, 0, 0, 3, 7,
+        (modbus.DataType.COIL, 0, 0, 3, 15,
          modbus.DataType.COIL, 0, 3, [0, 0, 0]),
         (modbus.DataType.HOLDING_REGISTER, 0, 0, 16, 0x12345,
          modbus.DataType.HOLDING_REGISTER, 0, 1, [0]),
@@ -334,12 +401,12 @@ async def test_initiate_on_queried_data(transport_conf, slave_addr):
         # wrong read data type
         (modbus.DataType.COIL, 0, 0, 1, 1,
          modbus.DataType.DISCRETE_INPUT, 0, 1, [0]),
-        (modbus.DataType.HOLDING_REGISTER, 0, 0, 16, 0xffff,
+        (modbus.DataType.HOLDING_REGISTER, 0, 0, 16, 0xFFFF,
          modbus.DataType.COIL, 0, 1, [0]),
-        (modbus.DataType.HOLDING_REGISTER, 0, 0, 16, 0xffff,
+        (modbus.DataType.HOLDING_REGISTER, 0, 0, 16, 0xFFFF,
          modbus.DataType.INPUT_REGISTER, 0, 1, [0]),
     ])
-async def test_data(transport_conf, slave_addr, data_type, start_address,
+async def test_read(transport_conf, slave_addr, data_type, start_address,
                     bit_offset, bit_count, event_value, read_data_type,
                     read_start_address, read_quantity, read_value):
     start_address = 0
@@ -382,6 +449,109 @@ async def test_data(transport_conf, slave_addr, data_type, start_address,
         start_address=read_start_address,
         quantity=read_quantity)
     assert master_read_value == read_value
+
+    await master.async_close()
+    await device.async_close()
+
+
+@pytest.mark.parametrize('data_type', modbus.DataType)
+async def test_read_invalid_device_id(transport_conf, slave_addr,
+                                      data_type):
+    device_id = 1
+    invalid_device_id = 13
+    start_address = 0
+    conf = {'name': 'name',
+            'modbus_type': 'TCP',
+            'transport': transport_conf,
+            'data': [
+                {'name': 'd1',
+                 'device_id': device_id,
+                 'data_type': data_type.name,
+                 'start_address': start_address,
+                 'bit_offset': 0,
+                 'bit_count': 1}]}
+
+    eventer_client = EventerClient()
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
+
+    master = await modbus.create_tcp_master(modbus.ModbusType.TCP, slave_addr)
+
+    with pytest.raises(asyncio.TimeoutError):
+        await aio.wait_for(master.read(
+            device_id=invalid_device_id,
+            data_type=data_type,
+            start_address=start_address,
+            quantity=1), timeout=0.05)
+
+    await master.async_close()
+    await device.async_close()
+
+
+@pytest.mark.parametrize('data_type, bit_count, write_values, event_value', [
+    (modbus.DataType.COIL, 1, [1], 1),
+    (modbus.DataType.COIL, 3, [1, 1, 1], 7),
+    (modbus.DataType.HOLDING_REGISTER, 16, [0], 0),
+    (modbus.DataType.HOLDING_REGISTER, 16, [0xFFFF], 65535),
+    (modbus.DataType.HOLDING_REGISTER, 32, [0x1234, 0x5678], 305419896)])
+@pytest.mark.parametrize('event_write_result, master_write_result', [
+    ('SUCCESS', None),
+    ('INVALID_FUNCTION_CODE', modbus.Error.INVALID_FUNCTION_CODE),
+    ('INVALID_DATA_ADDRESS', modbus.Error.INVALID_DATA_ADDRESS),
+    ('INVALID_DATA_VALUE', modbus.Error.INVALID_DATA_VALUE),
+    ('FUNCTION_ERROR', modbus.Error.FUNCTION_ERROR),
+    ('GATEWAY_PATH_UNAVAILABLE', modbus.Error.GATEWAY_PATH_UNAVAILABLE),
+    ('GATEWAY_TARGET_DEVICE_FAILED_TO_RESPOND',
+        modbus.Error.GATEWAY_TARGET_DEVICE_FAILED_TO_RESPOND)])
+async def test_write(transport_conf, slave_addr, data_type, bit_count,
+                     write_values, event_value,
+                     event_write_result, master_write_result):
+    event_queue = aio.Queue()
+    device_id = 1
+    data_name = 'd1'
+    start_address = 0
+    conf = {'name': 'name',
+            'modbus_type': 'TCP',
+            'transport': transport_conf,
+            'data': [
+                {'name': data_name,
+                 'device_id': device_id,
+                 'data_type': data_type.name,
+                 'start_address': start_address,
+                 'bit_offset': 0,
+                 'bit_count': bit_count}]}
+
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
+
+    await event_queue.get()
+
+    master = await modbus.create_tcp_master(modbus.ModbusType.TCP, slave_addr)
+
+    conns_event = await event_queue.get()
+    assert_connections_event(conns_event, 1, slave_addr)
+    connection_id = conns_event.payload.data[0]['connection_id']
+
+    write_res_future = await master.async_group.spawn(
+        master.write, device_id, data_type, start_address, write_values)
+
+    write_req_event = await event_queue.get()
+    assert write_req_event.type == (*event_type_prefix, 'gateway', 'write')
+    assert isinstance(write_req_event.payload.data['request_id'], str)
+    assert write_req_event.payload.data['connection_id'] == connection_id
+    assert len(write_req_event.payload.data['data']) == 1
+    assert write_req_event.payload.data['data'][0] == {'name': data_name,
+                                                       'value': event_value}
+
+    write_resp_event = create_event(
+        (*event_type_prefix, 'system', 'write'),
+        {'request_id': write_req_event.payload.data['request_id'],
+         'result': event_write_result})
+    await aio.call(device.process_events, [write_resp_event])
+
+    write_res = await write_res_future
+    assert write_res == master_write_result
 
     await master.async_close()
     await device.async_close()
