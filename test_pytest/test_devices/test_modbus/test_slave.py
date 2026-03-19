@@ -136,7 +136,7 @@ def transport_conf_tcp(slave_addr):
         'local_port': slave_addr.port,
         'remote_hosts': None,
         'max_connections': None,
-        'keep_alive_timeout': 1}
+        'keep_alive_timeout': None}
 
 
 @pytest.fixture
@@ -184,7 +184,7 @@ def create_master_factory(conf, master_serial_port, slave_addr):
                 addr=slave_addr)
 
         if transport_conf['type'] == 'SERIAL':
-            return await modbus.create_serial_master(
+            master = await modbus.create_serial_master(
                 modbus_type=conf['modbus_type'],
                 port=master_serial_port,
                 baudrate=transport_conf['baudrate'],
@@ -195,6 +195,12 @@ def create_master_factory(conf, master_serial_port, slave_addr):
                 rtscts=transport_conf['flow_control']['rtscts'],
                 dsrdtr=transport_conf['flow_control']['dsrdtr'],
                 silent_interval=transport_conf['silent_interval'])
+            # send first message in order to establish connection
+            await master.read(device_id=1,
+                              data_type=modbus.DataType.COIL,
+                              start_address=0,
+                              quantity=1)
+            return master
 
     return create_master
 
@@ -208,7 +214,7 @@ def create_master_factory(conf, master_serial_port, slave_addr):
         'local_port': 54321,
         'remote_hosts': ['1.2.3', '192.168.0.13'],
         'max_connections': 3,
-        'keep_alive_timeout': 1},
+        'keep_alive_timeout': None},
      'data': [
         {'name': 'data1',
          'device_id': 1,
@@ -256,7 +262,7 @@ async def test_create(conf):
     assert device.is_closed
 
 
-async def test_status(conf, create_master_factory):
+async def test_connections(conf, create_master_factory):
     event_queue = aio.Queue()
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     device = await aio.call(info.create, conf, eventer_client,
@@ -284,6 +290,36 @@ async def test_status(conf, create_master_factory):
 
     assert event_queue.empty()
 
+    await device.async_close()
+
+
+async def test_keep_alive_timeout(conf, create_master_factory):
+    keep_alive_timeout = 0.05
+    conf = json.set_(conf, ['transport', 'keep_alive_timeout'],
+                     keep_alive_timeout)
+    event_queue = aio.Queue()
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
+
+    event = await event_queue.get()
+    assert_connections_event(event, 0, slave_addr)
+
+    master = await create_master_factory()
+    assert master.info.remote_addr == slave_addr
+
+    event = await event_queue.get()
+    assert_connections_event(event, 1, slave_addr, master.info.local_addr)
+
+    await asyncio.sleep(keep_alive_timeout)
+
+    assert not event_queue.empty()
+    event = event_queue.get_nowait()
+    assert_connections_event(event, 0, slave_addr)
+
+    assert event_queue.empty()
+
+    await master.async_close()
     await device.async_close()
 
 
@@ -785,93 +821,83 @@ async def test_write_invalid_device_id(conf, create_master_factory,
 
 @pytest.mark.parametrize(
     'start_address, bit_offset, bit_count, write_address, and_mask, or_mask, '
-    'queried_data_event_value, write_event_value', [
+    'queried_data_event_value, write_event_values', [
         # mask 1 bit at the register start
         # set 0
-        (0, 0, 1, 0, 0, 0, 0, 0),
-        (0, 0, 1, 0, 0, 0, 1, 0),
-        (0, 0, 1, 0, 0x7fff, 0x7fff, 0, 0),
-        (0, 0, 1, 0, 0x7fff, 0x7fff, 1, 0),
-
+        (0, 0, 1, 0, 0, 0, 0, [0]),
+        (0, 0, 1, 0, 0, 0, 1, [0]),
+        (0, 0, 1, 0, 0x7fff, 0x7fff, 0, [0]),
+        (0, 0, 1, 0, 0x7fff, 0x7fff, 1, [0]),
         # set 1
-        (0, 0, 1, 0, 0, 0x8000, 0, 1),
-        (0, 0, 1, 0, 0, 0x8000, 1, 1),
-        (0, 0, 1, 0, 0x7fff, 0xffff, 0, 1),
-        (0, 0, 1, 0, 0x7fff, 0xffff, 1, 1),
-
+        (0, 0, 1, 0, 0, 0x8000, 0, [1]),
+        (0, 0, 1, 0, 0, 0x8000, 1, [1]),
+        (0, 0, 1, 0, 0x7fff, 0xffff, 0, [1]),
+        (0, 0, 1, 0, 0x7fff, 0xffff, 1, [1]),
         # does not change -> no resulting write event
-        (0, 0, 1, 0, 0x8000, 0, 0, None),
-        (0, 0, 1, 0, 0x8000, 0, 1, None),
-        (0, 0, 1, 0, 0xffff, 0x7fff, 0, None),
-        (0, 0, 1, 0, 0xffff, 0x7fff, 1, None),
-
+        (0, 0, 1, 0, 0x8000, 0, 0, []),
+        (0, 0, 1, 0, 0x8000, 0, 1, []),
+        (0, 0, 1, 0, 0xffff, 0x7fff, 0, []),
+        (0, 0, 1, 0, 0xffff, 0x7fff, 1, []),
         # invert
-        (0, 0, 1, 0, 0x8000, 0x8000, 0, 1),
-        (0, 0, 1, 0, 0x8000, 0x8000, 1, 0),
-        (0, 0, 1, 0, 0xffff, 0xffff, 0, 1),
-        (0, 0, 1, 0, 0xffff, 0xffff, 1, 0),
+        (0, 0, 1, 0, 0x8000, 0x8000, 0, [1]),
+        (0, 0, 1, 0, 0x8000, 0x8000, 1, [0]),
+        (0, 0, 1, 0, 0xffff, 0xffff, 0, [1]),
+        (0, 0, 1, 0, 0xffff, 0xffff, 1, [0]),
 
         # mask 1 bit at the register end
         # set 0
-        (0, 15, 1, 0, 0, 0, 0, 0),
-        (0, 15, 1, 0, 0, 0, 1, 0),
-        (0, 15, 1, 0, 0xfffe, 0xfffe, 0, 0),
-        (0, 15, 1, 0, 0xfffe, 0xfffe, 1, 0),
-
+        (0, 15, 1, 0, 0, 0, 0, [0]),
+        (0, 15, 1, 0, 0, 0, 1, [0]),
+        (0, 15, 1, 0, 0xfffe, 0xfffe, 0, [0]),
+        (0, 15, 1, 0, 0xfffe, 0xfffe, 1, [0]),
         # set 1
-        (0, 15, 1, 0, 0, 1, 0, 1),
-        (0, 15, 1, 0, 0, 1, 1, 1),
-        (0, 15, 1, 0, 0xfffe, 0xffff, 0, 1),
-        (0, 15, 1, 0, 0xfffe, 0xffff, 1, 1),
-
-
+        (0, 15, 1, 0, 0, 1, 0, [1]),
+        (0, 15, 1, 0, 0, 1, 1, [1]),
+        (0, 15, 1, 0, 0xfffe, 0xffff, 0, [1]),
+        (0, 15, 1, 0, 0xfffe, 0xffff, 1, [1]),
         # does not change -> no resulting write event
-        (0, 15, 1, 0, 1, 0, 0, None),
-        (0, 15, 1, 0, 1, 0, 1, None),
-        (0, 15, 1, 0, 0xffff, 0xfffe, 0, None),
-        (0, 15, 1, 0, 0xffff, 0xfffe, 1, None),
-
+        (0, 15, 1, 0, 1, 0, 0, []),
+        (0, 15, 1, 0, 1, 0, 1, []),
+        (0, 15, 1, 0, 0xffff, 0xfffe, 0, []),
+        (0, 15, 1, 0, 0xffff, 0xfffe, 1, []),
         # invert
-        (0, 15, 1, 0, 1, 1, 0, 1),
-        (0, 15, 1, 0, 1, 1, 1, 0),
-        (0, 15, 1, 0, 0xffff, 0xffff, 0, 1),
-        (0, 15, 1, 0, 0xffff, 0xffff, 1, 0),
+        (0, 15, 1, 0, 1, 1, 0, [1]),
+        (0, 15, 1, 0, 1, 1, 1, [0]),
+        (0, 15, 1, 0, 0xffff, 0xffff, 0, [1]),
+        (0, 15, 1, 0, 0xffff, 0xffff, 1, [0]),
 
         # mask 2 bits in the middle of the register
         # set 0 on both bits
-        (0, 7, 2, 0, 0, 0, 0, 0),
-        (0, 7, 2, 0, 0, 0, 1, 0),
-        (0, 7, 2, 0, 0, 0, 2, 0),
-        (0, 7, 2, 0, 0, 0, 3, 0),
-
+        (0, 7, 2, 0, 0, 0, 0, [0]),
+        (0, 7, 2, 0, 0, 0, 1, [0]),
+        (0, 7, 2, 0, 0, 0, 2, [0]),
+        (0, 7, 2, 0, 0, 0, 3, [0]),
         # set 1 on both bits
-        (0, 7, 2, 0, 0, 0x0180, 0, 3),
-        (0, 7, 2, 0, 0, 0x0180, 1, 3),
-        (0, 7, 2, 0, 0, 0x0180, 2, 3),
-        (0, 7, 2, 0, 0, 0x0180, 3, 3),
-
+        (0, 7, 2, 0, 0, 0x0180, 0, [3]),
+        (0, 7, 2, 0, 0, 0x0180, 1, [3]),
+        (0, 7, 2, 0, 0, 0x0180, 2, [3]),
+        (0, 7, 2, 0, 0, 0x0180, 3, [3]),
         # does not change on both bits -> no resulting write event
-        (0, 7, 2, 0, 0x0180, 0, 0, None),
-        (0, 7, 2, 0, 0x0180, 0, 1, None),
-        (0, 7, 2, 0, 0x0180, 0, 2, None),
-        (0, 7, 2, 0, 0x0180, 0, 3, None),
-
+        (0, 7, 2, 0, 0x0180, 0, 0, []),
+        (0, 7, 2, 0, 0x0180, 0, 1, []),
+        (0, 7, 2, 0, 0x0180, 0, 2, []),
+        (0, 7, 2, 0, 0x0180, 0, 3, []),
         # invert on both bits
-        (0, 7, 2, 0, 0x0180, 0x0180, 0, 3),
-        (0, 7, 2, 0, 0x0180, 0x0180, 1, 2),
-        (0, 7, 2, 0, 0x0180, 0x0180, 2, 1),
-        (0, 7, 2, 0, 0x0180, 0x0180, 3, 0),
+        (0, 7, 2, 0, 0x0180, 0x0180, 0, [3]),
+        (0, 7, 2, 0, 0x0180, 0x0180, 1, [2]),
+        (0, 7, 2, 0, 0x0180, 0x0180, 2, [1]),
+        (0, 7, 2, 0, 0x0180, 0x0180, 3, [0]),
 
         # first bit set 1, second bit invert
-        (0, 7, 2, 0, 0x0080, 0x0100, 1, 3),
+        (0, 7, 2, 0, 0x0080, 0x0100, 1, [3]),
 
         # end cases on masking entire register
-        (0, 0, 16, 0, 0x1234, 0, 0, 0),
-        (0, 0, 16, 0, 0x1234, 0, 0xffff, 0x1234),
-        (0, 0, 16, 0, 0xffff, 0, 0x1234, 0x1234),
-        (0, 0, 16, 0, 0, 0, 0x1234, 0),
-        (0, 0, 16, 0, 0, 0x4321, 0x1234, 0x4321),
-        (0, 0, 16, 0, 0, 0x4321, 0, 0x4321),
+        (0, 0, 16, 0, 0x1234, 0, 0, [0]),
+        (0, 0, 16, 0, 0x1234, 0, 0xffff, [0x1234]),
+        (0, 0, 16, 0, 0xffff, 0, 0x1234, [0x1234]),
+        (0, 0, 16, 0, 0, 0, 0x1234, [0]),
+        (0, 0, 16, 0, 0, 0x4321, 0x1234, [0x4321]),
+        (0, 0, 16, 0, 0, 0x4321, 0, [0x4321]),
         ])
 @pytest.mark.parametrize('system_event_success, master_write_result', [
     (True, None),
@@ -879,7 +905,7 @@ async def test_write_invalid_device_id(conf, create_master_factory,
 async def test_write_mask(conf, create_master_factory, start_address,
                           bit_offset, bit_count, write_address,
                           and_mask, or_mask, queried_data_event_value,
-                          write_event_value, system_event_success,
+                          write_event_values, system_event_success,
                           master_write_result):
     event_queue = aio.Queue()
     device_id = 1
@@ -915,30 +941,18 @@ async def test_write_mask(conf, create_master_factory, start_address,
     write_mask_res_future = master.async_group.spawn(
         master.write_mask,
         device_id=device_id,
-        address=data_type,
+        address=write_address,
         and_mask=and_mask,
         or_mask=or_mask)
-
-    # write event is not expected
-    if write_event_value is None:
-        write_res = await write_mask_res_future
-        assert write_res is None
-
-        assert event_queue.empty()
-
-        await master.async_close()
-        await device.async_close()
-
-        return
 
     write_req_event = await event_queue.get()
     assert write_req_event.type == (*event_type_prefix, 'gateway', 'write')
     assert isinstance(write_req_event.payload.data['request_id'], str)
     assert write_req_event.payload.data['connection_id'] == connection_id
-    assert len(write_req_event.payload.data['data']) == 1
-    assert write_req_event.payload.data['data'][0] == {
-        'name': data_name,
-        'value': write_event_value}
+    assert len(write_req_event.payload.data['data']) == len(write_event_values)
+    for event_data, write_value in zip(write_req_event.payload.data['data'],
+                                       write_event_values):
+        assert event_data['value'] == write_value
 
     write_mask_resp_event = create_event(
         (*event_type_prefix, 'system', 'write'),
@@ -948,6 +962,115 @@ async def test_write_mask(conf, create_master_factory, start_address,
 
     write_res = await write_mask_res_future
     assert write_res == master_write_result
+
+    await master.async_close()
+    await device.async_close()
+
+
+@pytest.mark.parametrize('data, write_address, and_mask, or_mask, event_data'[
+    # 8 data of 1 bit, every second changed, remaining 8 bits irrelevant
+    ([('d1', 0, 0, 1),
+      ('d2', 0, 1, 1),
+      ('d3', 0, 2, 1),
+      ('d4', 0, 3, 1),
+      ('d5', 0, 4, 1),
+      ('d6', 0, 5, 1),
+      ('d7', 0, 6, 1),
+      ('d8', 0, 7, 1)], 0, 0x55ff, 0x88ff, [
+      {'name': 'd1',
+       'value': 1},
+      {'name': 'd3',
+       'value': 0},
+      {'name': 'd5',
+       'value': 1},
+      {'name': 'd7',
+       'value': 0}]),
+
+    # 8 data of 2 bits
+    ([('d1', 0, 0, 2),
+      ('d2', 0, 2, 2),
+      ('d3', 0, 4, 2),
+      ('d4', 0, 6, 2),
+      ('d5', 0, 8, 2),
+      ('d6', 0, 10, 2),
+      ('d7', 0, 12, 2),
+      ('d8', 0, 14, 2)], 0, 0xcc55, 0xcc88, [
+      {'name': 'd2',
+       'value': 2},
+      {'name': 'd4',
+       'value': 2},
+      {'name': 'd5',
+       'value': 2},
+      {'name': 'd6',
+       'value': 0},
+      {'name': 'd7',
+       'value': 2},
+      {'name': 'd8',
+       'value': 0}]),
+
+    # 3 data of 1 register
+    ([('d1', 0, 0, 16),
+      ('d2', 1, 0, 16),
+      ('d3', 2, 0, 16)], 0, 0x0000ffffffff, 0xffff0000ffff, [
+      {'name': 'd1',
+       'value': 65535},
+      {'name': 'd3',
+       'value': 65535}]),
+
+    # 2 data 1 register long, each offset by 8, written only to one
+    ([('d1', 0, 8, 16),
+      ('d2', 1, 8, 16)], 0, 0xff00ff, 0x00ff00, [
+      {'name': 'd1',
+       'value': 65280}]),
+
+    # 2 data 1 register long, each offset by 8, written only 3rd register
+    ([('d1', 0, 8, 16),
+      ('d2', 1, 8, 16)], 2, 0xffff, 0xffff, [
+      {'name': 'd2',
+       'value': 255}]),
+    ])
+async def test_write_mask_multiple(conf, create_master_factory, data,
+                                   write_address, and_mask, or_mask,
+                                   event_data):
+    event_queue = aio.Queue()
+    device_id = 1
+    data_type = modbus.DataType.HOLDING_REGISTER
+    conf = json.set_(
+        conf,
+        'data',
+        [{'name': name,
+          'device_id': device_id,
+          'data_type': data_type.name,
+          'start_address': address,
+          'bit_offset': bit_offset,
+          'bit_count': bit_count}
+         for name, address, bit_offset, bit_count in data])
+
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
+
+    await event_queue.get()
+
+    master = await create_master_factory()
+
+    conns_event = await event_queue.get()
+    assert_connections_event(conns_event, 1, slave_addr)
+    connection_id = conns_event.payload.data[0]['connection_id']
+
+    master.async_group.spawn(
+        master.write_mask,
+        device_id=device_id,
+        address=write_address,
+        and_mask=and_mask,
+        or_mask=or_mask)
+
+    write_req_event = await event_queue.get()
+    assert write_req_event.type == (*event_type_prefix, 'gateway', 'write')
+    assert isinstance(write_req_event.payload.data['request_id'], str)
+    assert write_req_event.payload.data['connection_id'] == connection_id
+    assert len(write_req_event.payload.data['data']) == len(event_data)
+    assert write_req_event.payload.data['data'] == event_data
 
     await master.async_close()
     await device.async_close()
