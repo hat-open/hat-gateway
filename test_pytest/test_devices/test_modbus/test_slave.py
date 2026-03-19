@@ -323,6 +323,51 @@ async def test_keep_alive_timeout(conf, create_master_factory):
     await device.async_close()
 
 
+async def test_max_connections(slave_addr):
+    conf = {'name': 'name',
+            'modbus_type': 'TCP',
+            'transport': {
+                'type': 'TCP',
+                'local_host': slave_addr.host,
+                'local_port': slave_addr.port,
+                'remote_hosts': None,
+                'max_connections': 3,
+                'keep_alive_timeout': None},
+            'data': []}
+
+    eventer_client = EventerClient()
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
+
+    masters = set()
+    for _ in range(3):
+        master = await modbus.create_tcp_master(
+            modbus_type=modbus.modbus_type.TCP,
+            addr=slave_addr)
+        masters.add(master)
+
+    # connection of 4th master should not succeed
+    with pytest.raises(Exception):
+        await modbus.create_tcp_master(
+                modbus_type=modbus.modbus_type.TCP,
+                addr=slave_addr)
+
+    master = masters.pop()
+    await master.async_close()
+
+    # after one master disconnected, connection succeeds
+    master = await modbus.create_tcp_master(
+        modbus_type=modbus.modbus_type.TCP,
+        addr=slave_addr)
+    masters.add(master)
+
+    while masters:
+        master = masters.pop()
+        await master.async_close()
+
+    await device.async_close()
+
+
 async def test_query(conf):
     conf = json.set_(conf,
                      'data',
@@ -821,83 +866,84 @@ async def test_write_invalid_device_id(conf, create_master_factory,
 
 @pytest.mark.parametrize(
     'start_address, bit_offset, bit_count, write_address, and_mask, or_mask, '
-    'queried_data_event_value, write_event_values', [
+    'queried_data_event_value, write_event_value', [
         # mask 1 bit at the register start
         # set 0
-        (0, 0, 1, 0, 0, 0, 0, [0]),
-        (0, 0, 1, 0, 0, 0, 1, [0]),
-        (0, 0, 1, 0, 0x7fff, 0x7fff, 0, [0]),
-        (0, 0, 1, 0, 0x7fff, 0x7fff, 1, [0]),
+        (0, 0, 1, 0, 0, 0, 0, 0),
+        (0, 0, 1, 0, 0, 0, 1, 0),
+        (0, 0, 1, 0, 0x7fff, 0x7fff, 0, 0),
+        (0, 0, 1, 0, 0x7fff, 0x7fff, 1, 0),
         # set 1
-        (0, 0, 1, 0, 0, 0x8000, 0, [1]),
-        (0, 0, 1, 0, 0, 0x8000, 1, [1]),
-        (0, 0, 1, 0, 0x7fff, 0xffff, 0, [1]),
-        (0, 0, 1, 0, 0x7fff, 0xffff, 1, [1]),
+        (0, 0, 1, 0, 0, 0x8000, 0, 1),
+        (0, 0, 1, 0, 0, 0x8000, 1, 1),
+        (0, 0, 1, 0, 0x7fff, 0xffff, 0, 1),
+        (0, 0, 1, 0, 0x7fff, 0xffff, 1, 1),
         # does not change -> no resulting write event
-        (0, 0, 1, 0, 0x8000, 0, 0, []),
-        (0, 0, 1, 0, 0x8000, 0, 1, []),
-        (0, 0, 1, 0, 0xffff, 0x7fff, 0, []),
-        (0, 0, 1, 0, 0xffff, 0x7fff, 1, []),
+        (0, 0, 1, 0, 0x8000, 0, 0, None),
+        (0, 0, 1, 0, 0x8000, 0, 1, None),
+        (0, 0, 1, 0, 0xffff, 0x7fff, 0, None),
+        (0, 0, 1, 0, 0xffff, 0x7fff, 1, None),
         # invert
-        (0, 0, 1, 0, 0x8000, 0x8000, 0, [1]),
-        (0, 0, 1, 0, 0x8000, 0x8000, 1, [0]),
-        (0, 0, 1, 0, 0xffff, 0xffff, 0, [1]),
-        (0, 0, 1, 0, 0xffff, 0xffff, 1, [0]),
+        (0, 0, 1, 0, 0x8000, 0x8000, 0, 1),
+        (0, 0, 1, 0, 0x8000, 0x8000, 1, 0),
+        (0, 0, 1, 0, 0xffff, 0xffff, 0, 1),
+        (0, 0, 1, 0, 0xffff, 0xffff, 1, 0),
 
         # mask 1 bit at the register end
         # set 0
-        (0, 15, 1, 0, 0, 0, 0, [0]),
-        (0, 15, 1, 0, 0, 0, 1, [0]),
-        (0, 15, 1, 0, 0xfffe, 0xfffe, 0, [0]),
-        (0, 15, 1, 0, 0xfffe, 0xfffe, 1, [0]),
+        (0, 15, 1, 0, 0, 0, 0, 0),
+        (0, 15, 1, 0, 0, 0, 1, 0),
+        (0, 15, 1, 0, 0xfffe, 0xfffe, 0, 0),
+        (0, 15, 1, 0, 0xfffe, 0xfffe, 1, 0),
         # set 1
-        (0, 15, 1, 0, 0, 1, 0, [1]),
-        (0, 15, 1, 0, 0, 1, 1, [1]),
-        (0, 15, 1, 0, 0xfffe, 0xffff, 0, [1]),
-        (0, 15, 1, 0, 0xfffe, 0xffff, 1, [1]),
+        (0, 15, 1, 0, 0, 1, 0, 1),
+        (0, 15, 1, 0, 0, 1, 1, 1),
+        (0, 15, 1, 0, 0xfffe, 0xffff, 0, 1),
+        (0, 15, 1, 0, 0xfffe, 0xffff, 1, 1),
         # does not change -> no resulting write event
-        (0, 15, 1, 0, 1, 0, 0, []),
-        (0, 15, 1, 0, 1, 0, 1, []),
-        (0, 15, 1, 0, 0xffff, 0xfffe, 0, []),
-        (0, 15, 1, 0, 0xffff, 0xfffe, 1, []),
+        (0, 15, 1, 0, 1, 0, 0, None),
+        (0, 15, 1, 0, 1, 0, 1, None),
+        (0, 15, 1, 0, 0xffff, 0xfffe, 0, None),
+        (0, 15, 1, 0, 0xffff, 0xfffe, 1, None),
         # invert
-        (0, 15, 1, 0, 1, 1, 0, [1]),
-        (0, 15, 1, 0, 1, 1, 1, [0]),
-        (0, 15, 1, 0, 0xffff, 0xffff, 0, [1]),
-        (0, 15, 1, 0, 0xffff, 0xffff, 1, [0]),
+        (0, 15, 1, 0, 1, 1, 0, 1),
+        (0, 15, 1, 0, 1, 1, 1, 0),
+        (0, 15, 1, 0, 0xffff, 0xffff, 0, 1),
+        (0, 15, 1, 0, 0xffff, 0xffff, 1, 0),
 
         # mask 2 bits in the middle of the register
         # set 0 on both bits
-        (0, 7, 2, 0, 0, 0, 0, [0]),
-        (0, 7, 2, 0, 0, 0, 1, [0]),
-        (0, 7, 2, 0, 0, 0, 2, [0]),
-        (0, 7, 2, 0, 0, 0, 3, [0]),
+        (0, 7, 2, 0, 0, 0, 0, 0),
+        (0, 7, 2, 0, 0, 0, 1, 0),
+        (0, 7, 2, 0, 0, 0, 2, 0),
+        (0, 7, 2, 0, 0, 0, 3, 0),
         # set 1 on both bits
-        (0, 7, 2, 0, 0, 0x0180, 0, [3]),
-        (0, 7, 2, 0, 0, 0x0180, 1, [3]),
-        (0, 7, 2, 0, 0, 0x0180, 2, [3]),
-        (0, 7, 2, 0, 0, 0x0180, 3, [3]),
+        (0, 7, 2, 0, 0, 0x0180, 0, 3),
+        (0, 7, 2, 0, 0, 0x0180, 1, 3),
+        (0, 7, 2, 0, 0, 0x0180, 2, 3),
+        (0, 7, 2, 0, 0, 0x0180, 3, 3),
         # does not change on both bits -> no resulting write event
-        (0, 7, 2, 0, 0x0180, 0, 0, []),
-        (0, 7, 2, 0, 0x0180, 0, 1, []),
-        (0, 7, 2, 0, 0x0180, 0, 2, []),
-        (0, 7, 2, 0, 0x0180, 0, 3, []),
+        (0, 7, 2, 0, 0x0180, 0, 0, None),
+        (0, 7, 2, 0, 0x0180, 0, 1, None),
+        (0, 7, 2, 0, 0x0180, 0, 2, None),
+        (0, 7, 2, 0, 0x0180, 0, 3, None),
         # invert on both bits
-        (0, 7, 2, 0, 0x0180, 0x0180, 0, [3]),
-        (0, 7, 2, 0, 0x0180, 0x0180, 1, [2]),
-        (0, 7, 2, 0, 0x0180, 0x0180, 2, [1]),
-        (0, 7, 2, 0, 0x0180, 0x0180, 3, [0]),
+        (0, 7, 2, 0, 0x0180, 0x0180, 0, 3),
+        (0, 7, 2, 0, 0x0180, 0x0180, 1, 2),
+        (0, 7, 2, 0, 0x0180, 0x0180, 2, 1),
+        (0, 7, 2, 0, 0x0180, 0x0180, 3, 0),
 
         # first bit set 1, second bit invert
-        (0, 7, 2, 0, 0x0080, 0x0100, 1, [3]),
+        (0, 7, 2, 0, 0x0080, 0x0100, 1, 3),
 
         # end cases on masking entire register
-        (0, 0, 16, 0, 0x1234, 0, 0, [0]),
-        (0, 0, 16, 0, 0x1234, 0, 0xffff, [0x1234]),
-        (0, 0, 16, 0, 0xffff, 0, 0x1234, [0x1234]),
-        (0, 0, 16, 0, 0, 0, 0x1234, [0]),
-        (0, 0, 16, 0, 0, 0x4321, 0x1234, [0x4321]),
-        (0, 0, 16, 0, 0, 0x4321, 0, [0x4321]),
+        (0, 0, 16, 0, 0x1234, 0, 0, 0),
+        (0, 0, 16, 0, 0x1234, 0, 0xffff, 0x1234),
+        (0, 0, 16, 0, 0xffff, 0, 0x1234, 0x1234),
+        (0, 0, 16, 0, 0, 0, 0x1234, 0),
+        (0, 0, 16, 0, 0, 0x4321, 0x1234, 0x4321),
+        (0, 0, 16, 0, 0, 0x4321, 0, 0x4321),
+        (0, 0, 16, 1, 0x1234, 0, 0, None),
         ])
 @pytest.mark.parametrize('system_event_success, master_write_result', [
     (True, None),
@@ -905,7 +951,7 @@ async def test_write_invalid_device_id(conf, create_master_factory,
 async def test_write_mask(conf, create_master_factory, start_address,
                           bit_offset, bit_count, write_address,
                           and_mask, or_mask, queried_data_event_value,
-                          write_event_values, system_event_success,
+                          write_event_value, system_event_success,
                           master_write_result):
     event_queue = aio.Queue()
     device_id = 1
@@ -945,14 +991,20 @@ async def test_write_mask(conf, create_master_factory, start_address,
         and_mask=and_mask,
         or_mask=or_mask)
 
+    if write_event_value is None:
+        write_res = await write_mask_res_future
+        assert write_res == modbus.Error.INVALID_DATA_ADDRESS
+        assert event_queue.empty()
+
+        await master.async_close()
+        await device.async_close()
+
     write_req_event = await event_queue.get()
     assert write_req_event.type == (*event_type_prefix, 'gateway', 'write')
     assert isinstance(write_req_event.payload.data['request_id'], str)
     assert write_req_event.payload.data['connection_id'] == connection_id
-    assert len(write_req_event.payload.data['data']) == len(write_event_values)
-    for event_data, write_value in zip(write_req_event.payload.data['data'],
-                                       write_event_values):
-        assert event_data['value'] == write_value
+    assert len(write_req_event.payload.data['data']) == 1
+    assert write_req_event.payload.data['data'][0] == write_event_value
 
     write_mask_resp_event = create_event(
         (*event_type_prefix, 'system', 'write'),
