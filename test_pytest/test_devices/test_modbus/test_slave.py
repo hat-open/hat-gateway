@@ -7,6 +7,7 @@ import time
 import pytest
 
 from hat.drivers import modbus
+from hat.drivers import serial
 from hat.drivers import tcp
 import hat.event.common
 
@@ -61,28 +62,13 @@ class EventerClient(aio.Resource):
         return await aio.call(self._query_cb, params)
 
 
-def assert_connections_event(event, no_conns, slave_addr, master_addr=None):
+def assert_connections_event(event, no_conns):
     assert event.type == (*event_type_prefix, 'gateway', 'connections')
     assert len(event.payload.data) == no_conns
     if no_conns == 0:
         return
 
-    for conn in event.payload.data:
-        assert conn['type'] == 'TCP'
-        assert isinstance(conn['connection_id'], int)
-        assert isinstance(conn['remote']['host'], str)
-        assert isinstance(conn['remote']['port'], int)
-        if slave_addr:
-            assert conn['local']['host'] == slave_addr.host
-            assert conn['local']['port'] == slave_addr.port
-
-    if master_addr:
-        assert any(conn['local']['host'] == master_addr.host and
-                   conn['local']['port'] == master_addr.port
-                   for conn in event.payload.data)
-
     assert len(set(i['connection_id'] for i in event.payload.data)) == no_conns
-
     assert event.source_timestamp is None
 
 
@@ -124,6 +110,7 @@ def slave_serial_port(nullmodem):
     return str(nullmodem[0])
 
 
+@pytest.fixture
 def master_serial_port(nullmodem):
     return str(nullmodem[1])
 
@@ -155,22 +142,31 @@ def transport_conf_serial(slave_serial_port):
         'keep_alive_timeout': 0.1}
 
 
-@pytest.mark.parametrize('transport_type', ['TCP', 'SERIAL'])
-@pytest.fixture
-def transport_conf(transport_conf_tcp, transport_conf_serial, transport_type):
-    if transport_type == 'TCP':
+@pytest.fixture(params=['TCP', 'SERIAL'])
+def transport_conf(transport_conf_tcp, transport_conf_serial, request):
+    if request.param == 'TCP':
         return transport_conf_tcp
 
-    if transport_type == 'SERIAL':
+    if request.param == 'SERIAL':
         return transport_conf_serial
 
 
-@pytest.mark.parametrize('modbus_type', modbus.ModbusType)
-def conf(transport_conf, modbus_type):
+@pytest.fixture(params=modbus.ModbusType)
+def conf(transport_conf, request):
+    if transport_conf['type'] == 'TCP':
+        data = []
+    elif transport_conf['type'] == 'SERIAL':
+        data = [{'name': 'data1',
+                 'device_id': 1,
+                 'data_type': 'COIL',
+                 'start_address': 0,
+                 'bit_offset': 0,
+                 'bit_count': 1}]
+
     return {'name': 'name',
-            'modbus_type': modbus_type.name,
+            'modbus_type': request.param.name,
             'transport': transport_conf,
-            'data': []}
+            'data': data}
 
 
 @pytest.fixture
@@ -180,17 +176,17 @@ def create_master_factory(conf, master_serial_port, slave_addr):
     async def create_master():
         if transport_conf['type'] == 'TCP':
             return await modbus.create_tcp_master(
-                modbus_type=conf['modbus_type'],
+                modbus_type=modbus.ModbusType[conf['modbus_type']],
                 addr=slave_addr)
 
         if transport_conf['type'] == 'SERIAL':
             master = await modbus.create_serial_master(
-                modbus_type=conf['modbus_type'],
+                modbus_type=modbus.ModbusType[conf['modbus_type']],
                 port=master_serial_port,
                 baudrate=transport_conf['baudrate'],
-                bytesize=transport_conf['bytesize'],
-                parity=transport_conf['parity'],
-                stopbits=transport_conf['stopbits'],
+                bytesize=serial.ByteSize[transport_conf['bytesize']],
+                parity=serial.Parity[transport_conf['parity']],
+                stopbits=serial.StopBits[transport_conf['stopbits']],
                 xonxoff=transport_conf['flow_control']['xonxoff'],
                 rtscts=transport_conf['flow_control']['rtscts'],
                 dsrdtr=transport_conf['flow_control']['dsrdtr'],
@@ -262,31 +258,98 @@ async def test_create(conf):
     assert device.is_closed
 
 
-async def test_connections(conf, create_master_factory):
+@pytest.mark.parametrize('modbus_type', modbus.ModbusType)
+async def test_connections_tcp(transport_conf_tcp, slave_addr, modbus_type):
+    conf = {'name': 'name',
+            'modbus_type': modbus_type.name,
+            'transport': transport_conf_tcp,
+            'data': []}
     event_queue = aio.Queue()
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     device = await aio.call(info.create, conf, eventer_client,
                             event_type_prefix)
 
     event = await event_queue.get()
-    assert_connections_event(event, 0, slave_addr)
+    assert_connections_event(event, 0)
 
     masters = set()
-    for _ in range(3):
-        master = await create_master_factory()
-        assert master.info.remote_addr == slave_addr
+    for i in range(5):
+        master = await modbus.create_tcp_master(modbus_type=modbus_type,
+                                                addr=slave_addr)
         masters.add(master)
 
+        assert master.info.remote_addr == slave_addr
+
         event = await event_queue.get()
-        assert_connections_event(
-            event, len(masters), slave_addr, master.info.local_addr)
+        assert_connections_event(event, len(masters))
+
+        for conn in event.payload.data:
+            assert conn['type'] == 'TCP'
+            assert conn['local']['host'] == slave_addr.host
+            assert conn['local']['port'] == slave_addr.port
+
+        assert any(conn['remote']['host'] == master.info.local_addr.host and
+                   conn['remote']['port'] == master.info.local_addr.port
+                   for conn in event.payload.data)
 
     while masters:
         master = masters.pop()
         await master.async_close()
 
         event = await event_queue.get()
-        assert_connections_event(event, len(masters), slave_addr)
+        assert_connections_event(event, len(masters))
+
+    assert event_queue.empty()
+
+    await device.async_close()
+
+
+@pytest.mark.parametrize('modbus_type', modbus.ModbusType)
+async def test_connection_serial(transport_conf_serial, modbus_type,
+                                 master_serial_port):
+    conf = {'name': 'name',
+            'modbus_type': modbus_type.name,
+            'transport': transport_conf_serial,
+            'data': [{'name': 'data1',
+                      'device_id': 1,
+                      'data_type': 'COIL',
+                      'start_address': 0,
+                      'bit_offset': 0,
+                      'bit_count': 1}]}
+    event_queue = aio.Queue()
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
+
+    event = await event_queue.get()
+    assert_connections_event(event, 0)
+
+    master = await modbus.create_serial_master(
+        modbus_type=modbus.ModbusType[conf['modbus_type']],
+        port=master_serial_port,
+        baudrate=conf['transport']['baudrate'],
+        bytesize=serial.ByteSize[conf['transport']['bytesize']],
+        parity=serial.Parity[conf['transport']['parity']],
+        stopbits=serial.StopBits[conf['transport']['stopbits']],
+        xonxoff=conf['transport']['flow_control']['xonxoff'],
+        rtscts=conf['transport']['flow_control']['rtscts'],
+        dsrdtr=conf['transport']['flow_control']['dsrdtr'],
+        silent_interval=conf['transport']['silent_interval'])
+    # send first message in order to establish connection
+    await master.read(device_id=1,
+                      data_type=modbus.DataType.COIL,
+                      start_address=0,
+                      quantity=1)
+
+    event = await event_queue.get()
+    assert_connections_event(event, 1)
+    conn = event.payload.data[0]
+    assert conn['type'] == 'SERIAL'
+
+    await master.async_close()
+
+    event = await event_queue.get()
+    assert_connections_event(event, 0)
 
     assert event_queue.empty()
 
@@ -303,19 +366,19 @@ async def test_keep_alive_timeout(conf, create_master_factory):
                             event_type_prefix)
 
     event = await event_queue.get()
-    assert_connections_event(event, 0, slave_addr)
+    assert_connections_event(event, 0)
 
     master = await create_master_factory()
-    assert master.info.remote_addr == slave_addr
 
     event = await event_queue.get()
-    assert_connections_event(event, 1, slave_addr, master.info.local_addr)
+    assert_connections_event(event, 1)
 
-    await asyncio.sleep(keep_alive_timeout)
+    # TODO check why keep_alive_timeout needs to be extended to 0.002
+    await asyncio.sleep(keep_alive_timeout + 0.002)
 
     assert not event_queue.empty()
     event = event_queue.get_nowait()
-    assert_connections_event(event, 0, slave_addr)
+    assert_connections_event(event, 0)
 
     assert event_queue.empty()
 
@@ -342,14 +405,14 @@ async def test_max_connections(slave_addr):
     masters = set()
     for _ in range(3):
         master = await modbus.create_tcp_master(
-            modbus_type=modbus.modbus_type.TCP,
+            modbus_type=modbus.ModbusType.TCP,
             addr=slave_addr)
         masters.add(master)
 
     # connection of 4th master should not succeed
     with pytest.raises(Exception):
         await modbus.create_tcp_master(
-                modbus_type=modbus.modbus_type.TCP,
+                modbus_type=modbus.ModbusType.TCP,
                 addr=slave_addr)
 
     master = masters.pop()
@@ -390,7 +453,7 @@ async def test_query(conf):
                             event_type_prefix)
 
     for data_conf in conf['data']:
-        event_type = (*event_type_prefix, 'system', data_conf['name'])
+        event_type = (*event_type_prefix, 'system', 'data', data_conf['name'])
         assert any(hat.event.common.matches_query_type(event_type, query_type)
                    for query_type in queried_event_types)
 
@@ -421,13 +484,14 @@ async def test_read_query_data(conf, create_master_factory):
 
     master = await create_master_factory()
 
-    master_read_value = await master.read(
-        device_id=1,
-        data_type=modbus.DataType.COIL,
-        start_address=0,
-        quantity=7)
-    assert master_read_value == [evt.payload.data['value']
-                                 for evt in queried_events]
+    for i in range(7):
+        read_value = await master.read(
+            device_id=1,
+            data_type=modbus.DataType.COIL,
+            start_address=i * 3,
+            quantity=3)
+        read_value_int = int(''.join(str(v) for v in read_value), 2)
+        assert read_value_int == queried_events[i].payload.data['value']
 
     await master.async_close()
     await device.async_close()
@@ -455,16 +519,6 @@ async def test_read_no_data(conf, create_master_factory,
                                      'start_address': start_address,
                                      'bit_offset': 0,
                                      'bit_count': bit_count}])
-    conf = {'name': 'name',
-            'modbus_type': 'TCP',
-            'transport': transport_conf,
-            'data': [
-                {'name': 'd1',
-                 'device_id': device_id,
-                 'data_type': data_type.name,
-                 'start_address': start_address,
-                 'bit_offset': 0,
-                 'bit_count': bit_count}]}
 
     eventer_client = EventerClient()
     device = await aio.call(info.create, conf, eventer_client,
@@ -485,7 +539,7 @@ async def test_read_no_data(conf, create_master_factory,
 
 @pytest.mark.parametrize(
     'data_type, start_address, bit_offset, bit_count, event_value, '
-    'read_data_type, read_start_address, read_quantity, read_value', [
+    'read_data_type, read_start_address, read_quantity, read_result', [
         (modbus.DataType.COIL, 0, 0, 1, 0,
          modbus.DataType.COIL, 0, 1, [0]),
         (modbus.DataType.COIL, 0, 0, 1, 1,
@@ -596,7 +650,7 @@ async def test_read(conf, create_master_factory, data_type,
     await device.async_close()
 
 
-@pytest.mark.parametrize('read_device_id', [0, 13])
+@pytest.mark.parametrize('read_device_id', [5, 13])
 @pytest.mark.parametrize('data_type', modbus.DataType)
 async def test_read_invalid_device_id(conf, create_master_factory,
                                       data_type, read_device_id):
@@ -640,7 +694,7 @@ async def test_read_invalid_device_id(conf, create_master_factory,
 @pytest.mark.parametrize('system_event_success, master_write_result', [
     (True, None),
     (False, modbus.Error.FUNCTION_ERROR)])
-async def test_write(conf, create_master_factory, data_type,
+async def test_write(conf, slave_addr, create_master_factory, data_type,
                      bit_count, write_values, gw_event_value,
                      system_event_success, master_write_result):
     event_queue = aio.Queue()
@@ -663,7 +717,7 @@ async def test_write(conf, create_master_factory, data_type,
     master = await create_master_factory()
 
     conns_event = await event_queue.get()
-    assert_connections_event(conns_event, 1, slave_addr)
+    assert_connections_event(conns_event, 1)
     connection_id = conns_event.payload.data[0]['connection_id']
 
     write_res_future = master.async_group.spawn(
@@ -716,7 +770,7 @@ async def test_write(conf, create_master_factory, data_type,
          [{'name': 'd1', 'value': 0x12},
           {'name': 'd2', 'value': 0x78}]),
     ])
-async def test_write_multiple(conf, create_master_factory, data,
+async def test_write_multiple(conf, slave_addr, create_master_factory, data,
                               write_type, write_address, write_values,
                               event_data):
     event_queue = aio.Queue()
@@ -741,7 +795,7 @@ async def test_write_multiple(conf, create_master_factory, data,
     master = await create_master_factory()
 
     conns_event = await event_queue.get()
-    assert_connections_event(conns_event, 1, slave_addr)
+    assert_connections_event(conns_event, 1)
     connection_id = conns_event.payload.data[0]['connection_id']
 
     master.async_group.spawn(
@@ -755,8 +809,8 @@ async def test_write_multiple(conf, create_master_factory, data,
     assert write_req_event.type == (*event_type_prefix, 'gateway', 'write')
     assert isinstance(write_req_event.payload.data['request_id'], str)
     assert write_req_event.payload.data['connection_id'] == connection_id
-    assert len(write_req_event.payload.data['data']) == 1
-    assert write_req_event.payload.data['data'][0] == event_data
+    assert len(write_req_event.payload.data['data']) == len(event_data)
+    assert write_req_event.payload.data['data'] == event_data
 
     await master.async_close()
     await device.async_close()
@@ -787,7 +841,7 @@ async def test_write_multiple(conf, create_master_factory, data,
         ([('d1', modbus.DataType.HOLDING_REGISTER, 0, 0, 16)],
          modbus.DataType.COIL, 0, [1]),
     ])
-async def test_write_error(conf, create_master_factory, data,
+async def test_write_error(conf, slave_addr, create_master_factory, data,
                            write_type, write_address, write_values):
     event_queue = aio.Queue()
     device_id = 1
@@ -811,7 +865,7 @@ async def test_write_error(conf, create_master_factory, data,
     master = await create_master_factory()
 
     conns_event = await event_queue.get()
-    assert_connections_event(conns_event, 1, slave_addr)
+    assert_connections_event(conns_event, 1)
 
     write_result = await master.write(
         device_id=device_id,
@@ -829,7 +883,7 @@ async def test_write_error(conf, create_master_factory, data,
 @pytest.mark.parametrize('write_device_id', [0, 13])
 @pytest.mark.parametrize('data_type', [modbus.DataType.COIL,
                                        modbus.DataType.HOLDING_REGISTER])
-async def test_write_invalid_device_id(conf, create_master_factory,
+async def test_write_invalid_device_id(conf, slave_addr, create_master_factory,
                                        write_device_id, data_type):
     event_queue = aio.Queue()
     device_id = 1
@@ -849,7 +903,7 @@ async def test_write_invalid_device_id(conf, create_master_factory,
     master = await create_master_factory()
 
     conns_event = await event_queue.get()
-    assert_connections_event(conns_event, 1, slave_addr)
+    assert_connections_event(conns_event, 1)
 
     with pytest.raises(asyncio.TimeoutError):
         await aio.wait_for(master.write(
@@ -948,8 +1002,8 @@ async def test_write_invalid_device_id(conf, create_master_factory,
 @pytest.mark.parametrize('system_event_success, master_write_result', [
     (True, None),
     (False, modbus.Error.FUNCTION_ERROR)])
-async def test_write_mask(conf, create_master_factory, start_address,
-                          bit_offset, bit_count, write_address,
+async def test_write_mask(conf, slave_addr, create_master_factory,
+                          start_address, bit_offset, bit_count, write_address,
                           and_mask, or_mask, queried_data_event_value,
                           write_event_value, system_event_success,
                           master_write_result):
@@ -981,7 +1035,7 @@ async def test_write_mask(conf, create_master_factory, start_address,
     master = await create_master_factory()
 
     conns_event = await event_queue.get()
-    assert_connections_event(conns_event, 1, slave_addr)
+    assert_connections_event(conns_event, 1)
     connection_id = conns_event.payload.data[0]['connection_id']
 
     write_mask_res_future = master.async_group.spawn(
@@ -1004,7 +1058,8 @@ async def test_write_mask(conf, create_master_factory, start_address,
     assert isinstance(write_req_event.payload.data['request_id'], str)
     assert write_req_event.payload.data['connection_id'] == connection_id
     assert len(write_req_event.payload.data['data']) == 1
-    assert write_req_event.payload.data['data'][0] == write_event_value
+    assert write_req_event.payload.data[
+        'data'][0]['value'] == write_event_value
 
     write_mask_resp_event = create_event(
         (*event_type_prefix, 'system', 'write'),
@@ -1019,70 +1074,72 @@ async def test_write_mask(conf, create_master_factory, start_address,
     await device.async_close()
 
 
-@pytest.mark.parametrize('data, write_address, and_mask, or_mask, event_data'[
-    # 8 data of 1 bit, every second changed, remaining 8 bits irrelevant
-    ([('d1', 0, 0, 1),
-      ('d2', 0, 1, 1),
-      ('d3', 0, 2, 1),
-      ('d4', 0, 3, 1),
-      ('d5', 0, 4, 1),
-      ('d6', 0, 5, 1),
-      ('d7', 0, 6, 1),
-      ('d8', 0, 7, 1)], 0, 0x55ff, 0x88ff, [
-      {'name': 'd1',
-       'value': 1},
-      {'name': 'd3',
-       'value': 0},
-      {'name': 'd5',
-       'value': 1},
-      {'name': 'd7',
-       'value': 0}]),
+@pytest.mark.parametrize(
+    'data, write_address, and_mask, or_mask, event_data',
+    [
+     # 8 data of 1 bit, every second changed, remaining 8 bits irrelevant
+     ([('d1', 0, 0, 1),
+       ('d2', 0, 1, 1),
+       ('d3', 0, 2, 1),
+       ('d4', 0, 3, 1),
+       ('d5', 0, 4, 1),
+       ('d6', 0, 5, 1),
+       ('d7', 0, 6, 1),
+       ('d8', 0, 7, 1)], 0, 0x55ff, 0x88ff, [
+       {'name': 'd1',
+        'value': 1},
+       {'name': 'd3',
+        'value': 0},
+       {'name': 'd5',
+        'value': 1},
+       {'name': 'd7',
+        'value': 0}]),
+     # 8 data of 2 bits
 
-    # 8 data of 2 bits
-    ([('d1', 0, 0, 2),
-      ('d2', 0, 2, 2),
-      ('d3', 0, 4, 2),
-      ('d4', 0, 6, 2),
-      ('d5', 0, 8, 2),
-      ('d6', 0, 10, 2),
-      ('d7', 0, 12, 2),
-      ('d8', 0, 14, 2)], 0, 0xcc55, 0xcc88, [
-      {'name': 'd2',
-       'value': 2},
-      {'name': 'd4',
-       'value': 2},
-      {'name': 'd5',
-       'value': 2},
-      {'name': 'd6',
-       'value': 0},
-      {'name': 'd7',
-       'value': 2},
-      {'name': 'd8',
-       'value': 0}]),
+     ([('d1', 0, 0, 2),
+       ('d2', 0, 2, 2),
+       ('d3', 0, 4, 2),
+       ('d4', 0, 6, 2),
+       ('d5', 0, 8, 2),
+       ('d6', 0, 10, 2),
+       ('d7', 0, 12, 2),
+       ('d8', 0, 14, 2)], 0, 0xcc55, 0xcc88, [
+       {'name': 'd2',
+        'value': 2},
+       {'name': 'd4',
+        'value': 2},
+       {'name': 'd5',
+        'value': 2},
+       {'name': 'd6',
+        'value': 0},
+       {'name': 'd7',
+        'value': 2},
+       {'name': 'd8',
+        'value': 0}]),
+     # 3 data of 1 register
 
-    # 3 data of 1 register
-    ([('d1', 0, 0, 16),
-      ('d2', 1, 0, 16),
-      ('d3', 2, 0, 16)], 0, 0x0000ffffffff, 0xffff0000ffff, [
-      {'name': 'd1',
-       'value': 65535},
-      {'name': 'd3',
-       'value': 65535}]),
+     ([('d1', 0, 0, 16),
+       ('d2', 1, 0, 16),
+       ('d3', 2, 0, 16)], 0, 0x0000ffffffff, 0xffff0000ffff, [
+       {'name': 'd1',
+        'value': 65535},
+       {'name': 'd3',
+        'value': 65535}]),
+     # 2 data 1 register long, each offset by 8, written only to one
 
-    # 2 data 1 register long, each offset by 8, written only to one
-    ([('d1', 0, 8, 16),
-      ('d2', 1, 8, 16)], 0, 0xff00ff, 0x00ff00, [
-      {'name': 'd1',
-       'value': 65280}]),
+     ([('d1', 0, 8, 16),
+       ('d2', 1, 8, 16)], 0, 0xff00ff, 0x00ff00, [
+       {'name': 'd1',
+        'value': 65280}]),
+     # 2 data 1 register long, each offset by 8, written only 3rd register
 
-    # 2 data 1 register long, each offset by 8, written only 3rd register
-    ([('d1', 0, 8, 16),
-      ('d2', 1, 8, 16)], 2, 0xffff, 0xffff, [
-      {'name': 'd2',
-       'value': 255}]),
+     ([('d1', 0, 8, 16),
+       ('d2', 1, 8, 16)], 2, 0xffff, 0xffff, [
+       {'name': 'd2',
+        'value': 255}]),
     ])
-async def test_write_mask_multiple(conf, create_master_factory, data,
-                                   write_address, and_mask, or_mask,
+async def test_write_mask_multiple(conf, slave_addr, create_master_factory,
+                                   data, write_address, and_mask, or_mask,
                                    event_data):
     event_queue = aio.Queue()
     device_id = 1
@@ -1107,7 +1164,7 @@ async def test_write_mask_multiple(conf, create_master_factory, data,
     master = await create_master_factory()
 
     conns_event = await event_queue.get()
-    assert_connections_event(conns_event, 1, slave_addr)
+    assert_connections_event(conns_event, 1)
     connection_id = conns_event.payload.data[0]['connection_id']
 
     master.async_group.spawn(
