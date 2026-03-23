@@ -192,10 +192,10 @@ def create_master_factory(conf, master_serial_port, slave_addr):
                 dsrdtr=transport_conf['flow_control']['dsrdtr'],
                 silent_interval=transport_conf['silent_interval'])
             # send first message in order to establish connection
-            await master.read(device_id=1,
-                              data_type=modbus.DataType.COIL,
-                              start_address=0,
-                              quantity=1)
+            await master.send(modbus.ReadReq(device_id=1,
+                                             data_type=modbus.DataType.COIL,
+                                             start_address=0,
+                                             quantity=1))
             return master
 
     return create_master
@@ -336,10 +336,10 @@ async def test_connection_serial(transport_conf_serial, modbus_type,
         dsrdtr=conf['transport']['flow_control']['dsrdtr'],
         silent_interval=conf['transport']['silent_interval'])
     # send first message in order to establish connection
-    await master.read(device_id=1,
-                      data_type=modbus.DataType.COIL,
-                      start_address=0,
-                      quantity=1)
+    await master.send(modbus.ReadReq(device_id=1,
+                                     data_type=modbus.DataType.COIL,
+                                     start_address=0,
+                                     quantity=1))
 
     event = await event_queue.get()
     assert_connections_event(event, 1)
@@ -485,11 +485,11 @@ async def test_read_query_data(conf, create_master_factory):
     master = await create_master_factory()
 
     for i in range(7):
-        read_value = await master.read(
+        read_value = await master.send(modbus.ReadReq(
             device_id=1,
             data_type=modbus.DataType.COIL,
             start_address=i * 3,
-            quantity=3)
+            quantity=3))
         read_value_int = int(''.join(str(v) for v in read_value), 2)
         assert read_value_int == queried_events[i].payload.data['value']
 
@@ -526,11 +526,11 @@ async def test_read_no_data(conf, create_master_factory,
 
     master = await create_master_factory()
 
-    master_read_value = await master.read(
+    master_read_value = await master.send(modbus.ReadReq(
         device_id=device_id,
         data_type=data_type,
         start_address=start_address,
-        quantity=read_quantity)
+        quantity=read_quantity))
     assert master_read_value == read_quantity * [0]
 
     await master.async_close()
@@ -621,7 +621,6 @@ async def test_read(conf, create_master_factory, data_type,
                     start_address, bit_offset, bit_count, event_value,
                     read_data_type, read_start_address, read_quantity,
                     read_result):
-    start_address = 0
     conf = json.set_(conf, 'data', [{'name': 'd1',
                                      'device_id': 1,
                                      'data_type': data_type.name,
@@ -639,11 +638,11 @@ async def test_read(conf, create_master_factory, data_type,
                          {'value': event_value})
     await aio.call(device.process_events, [event])
 
-    master_read_result = await master.read(
+    master_read_result = await master.send(modbus.ReadReq(
         device_id=1,
         data_type=read_data_type,
         start_address=read_start_address,
-        quantity=read_quantity)
+        quantity=read_quantity))
     assert master_read_result == read_result
 
     await master.async_close()
@@ -670,11 +669,11 @@ async def test_read_invalid_device_id(conf, create_master_factory,
     master = await create_master_factory()
 
     with pytest.raises(asyncio.TimeoutError):
-        await aio.wait_for(master.read(
+        await aio.wait_for(master.send(modbus.ReadReq(
             device_id=read_device_id,
             data_type=data_type,
             start_address=start_address,
-            quantity=1), timeout=0.05)
+            quantity=1)), timeout=0.05)
 
     await master.async_close()
     await device.async_close()
@@ -691,12 +690,12 @@ async def test_read_invalid_device_id(conf, create_master_factory,
      (modbus.DataType.HOLDING_REGISTER, 8, [0x1234], 0x12),
      (modbus.DataType.HOLDING_REGISTER, 24, [0x1234, 0x5678], 0x123456),
      ])
-@pytest.mark.parametrize('system_event_success, master_write_result', [
-    (True, None),
+@pytest.mark.parametrize('system_event_success, write_response', [
+    (True, modbus.Success()),
     (False, modbus.Error.FUNCTION_ERROR)])
 async def test_write(conf, slave_addr, create_master_factory, data_type,
                      bit_count, write_values, gw_event_value,
-                     system_event_success, master_write_result):
+                     system_event_success, write_response):
     event_queue = aio.Queue()
     device_id = 1
     data_name = 'd1'
@@ -721,11 +720,10 @@ async def test_write(conf, slave_addr, create_master_factory, data_type,
     connection_id = conns_event.payload.data[0]['connection_id']
 
     write_res_future = master.async_group.spawn(
-        master.write,
-        device_id=device_id,
-        data_type=data_type,
-        start_address=start_address,
-        values=write_values)
+        master.send, modbus.WriteReq(device_id=device_id,
+                                     data_type=data_type,
+                                     start_address=start_address,
+                                     values=write_values))
 
     write_req_event = await event_queue.get()
     assert write_req_event.type == (*event_type_prefix, 'gateway', 'write')
@@ -742,7 +740,7 @@ async def test_write(conf, slave_addr, create_master_factory, data_type,
     await aio.call(device.process_events, [write_resp_event])
 
     write_res = await write_res_future
-    assert write_res == master_write_result
+    assert write_res == write_response
 
     await master.async_close()
     await device.async_close()
@@ -799,11 +797,10 @@ async def test_write_multiple(conf, slave_addr, create_master_factory, data,
     connection_id = conns_event.payload.data[0]['connection_id']
 
     master.async_group.spawn(
-        master.write,
-        device_id=device_id,
-        data_type=write_type,
-        start_address=write_address,
-        values=write_values)
+        master.send, modbus.WriteReq(device_id=device_id,
+                                     data_type=write_type,
+                                     start_address=write_address,
+                                     values=write_values))
 
     write_req_event = await event_queue.get()
     assert write_req_event.type == (*event_type_prefix, 'gateway', 'write')
@@ -867,11 +864,11 @@ async def test_write_error(conf, slave_addr, create_master_factory, data,
     conns_event = await event_queue.get()
     assert_connections_event(conns_event, 1)
 
-    write_result = await master.write(
+    write_result = await master.send(modbus.WriteReq(
         device_id=device_id,
         data_type=write_type,
         start_address=write_address,
-        values=write_values)
+        values=write_values))
     assert write_result == modbus.Error.INVALID_DATA_ADDRESS
 
     assert event_queue.empty()
@@ -906,11 +903,11 @@ async def test_write_invalid_device_id(conf, slave_addr, create_master_factory,
     assert_connections_event(conns_event, 1)
 
     with pytest.raises(asyncio.TimeoutError):
-        await aio.wait_for(master.write(
+        await aio.wait_for(master.send(modbus.WriteReq(
             device_id=write_device_id,
             data_type=data_type,
             start_address=0,
-            values=[0]), timeout=0.05)
+            values=[0])), timeout=0.05)
 
     assert event_queue.empty()
 
@@ -1000,7 +997,7 @@ async def test_write_invalid_device_id(conf, slave_addr, create_master_factory,
         (0, 0, 16, 1, 0x1234, 0, 0, None),
         ])
 @pytest.mark.parametrize('system_event_success, master_write_result', [
-    (True, None),
+    (True, modbus.Success()),
     (False, modbus.Error.FUNCTION_ERROR)])
 async def test_write_mask(conf, slave_addr, create_master_factory,
                           start_address, bit_offset, bit_count, write_address,
@@ -1039,11 +1036,10 @@ async def test_write_mask(conf, slave_addr, create_master_factory,
     connection_id = conns_event.payload.data[0]['connection_id']
 
     write_mask_res_future = master.async_group.spawn(
-        master.write_mask,
-        device_id=device_id,
-        address=write_address,
-        and_mask=and_mask,
-        or_mask=or_mask)
+        master.send, modbus.WriteMaskReq(device_id=device_id,
+                                         address=write_address,
+                                         and_mask=and_mask,
+                                         or_mask=or_mask))
 
     if write_event_value is None:
         write_res = await write_mask_res_future
@@ -1168,11 +1164,10 @@ async def test_write_mask_multiple(conf, slave_addr, create_master_factory,
     connection_id = conns_event.payload.data[0]['connection_id']
 
     master.async_group.spawn(
-        master.write_mask,
-        device_id=device_id,
-        address=write_address,
-        and_mask=and_mask,
-        or_mask=or_mask)
+        master.send, modbus.WriteMaskReq(device_id=device_id,
+                                         address=write_address,
+                                         and_mask=and_mask,
+                                         or_mask=or_mask))
 
     write_req_event = await event_queue.get()
     assert write_req_event.type == (*event_type_prefix, 'gateway', 'write')
