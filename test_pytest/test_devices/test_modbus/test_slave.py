@@ -649,36 +649,6 @@ async def test_read(conf, create_master_factory, data_type,
     await device.async_close()
 
 
-@pytest.mark.parametrize('read_device_id', [5, 13])
-@pytest.mark.parametrize('data_type', modbus.DataType)
-async def test_read_invalid_device_id(conf, create_master_factory,
-                                      data_type, read_device_id):
-    device_id = 1
-    start_address = 0
-    conf = json.set_(conf, 'data', [{'name': 'd1',
-                                     'device_id': device_id,
-                                     'data_type': data_type.name,
-                                     'start_address': start_address,
-                                     'bit_offset': 0,
-                                     'bit_count': 1}])
-
-    eventer_client = EventerClient()
-    device = await aio.call(info.create, conf, eventer_client,
-                            event_type_prefix)
-
-    master = await create_master_factory()
-
-    with pytest.raises(asyncio.TimeoutError):
-        await aio.wait_for(master.send(modbus.ReadReq(
-            device_id=read_device_id,
-            data_type=data_type,
-            start_address=start_address,
-            quantity=1)), timeout=0.05)
-
-    await master.async_close()
-    await device.async_close()
-
-
 @pytest.mark.parametrize(
     'data_type, bit_count, write_values, gw_event_value', [
      (modbus.DataType.COIL, 1, [1], 1),
@@ -870,44 +840,6 @@ async def test_write_error(conf, slave_addr, create_master_factory, data,
         start_address=write_address,
         values=write_values))
     assert write_result == modbus.Error.INVALID_DATA_ADDRESS
-
-    assert event_queue.empty()
-
-    await master.async_close()
-    await device.async_close()
-
-
-@pytest.mark.parametrize('write_device_id', [0, 13])
-@pytest.mark.parametrize('data_type', [modbus.DataType.COIL,
-                                       modbus.DataType.HOLDING_REGISTER])
-async def test_write_invalid_device_id(conf, slave_addr, create_master_factory,
-                                       write_device_id, data_type):
-    event_queue = aio.Queue()
-    device_id = 1
-    conf = json.set_(conf, 'data', [{'name': 'd1',
-                                     'device_id': device_id,
-                                     'data_type': data_type.name,
-                                     'start_address': 0,
-                                     'bit_offset': 0,
-                                     'bit_count': 1}])
-
-    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
-    device = await aio.call(info.create, conf, eventer_client,
-                            event_type_prefix)
-
-    await event_queue.get()
-
-    master = await create_master_factory()
-
-    conns_event = await event_queue.get()
-    assert_connections_event(conns_event, 1)
-
-    with pytest.raises(asyncio.TimeoutError):
-        await aio.wait_for(master.send(modbus.WriteReq(
-            device_id=write_device_id,
-            data_type=data_type,
-            start_address=0,
-            values=[0])), timeout=0.05)
 
     assert event_queue.empty()
 
@@ -1240,9 +1172,52 @@ async def test_write_mask_error(conf, slave_addr, create_master_factory,
                             address=write_address,
                             and_mask=and_mask,
                             or_mask=or_mask))
-    assert write_mask_res == modbus.Error.INVALID_DATA_ADDRES
+    assert write_mask_res == modbus.Error.INVALID_DATA_ADDRESS
 
     assert event_queue.empty()
+
+    await master.async_close()
+    await device.async_close()
+
+
+@pytest.mark.parametrize('request', [
+    modbus.ReadReq(device_id=0,
+                   data_type=modbus.DataType.HOLDING_REGISTER,
+                   start_address=0,
+                   quantity=1),
+    modbus.ReadReq(device_id=3,
+                   data_type=modbus.DataType.HOLDING_REGISTER,
+                   start_address=0,
+                   quantity=1),
+    modbus.WriteReq(device_id=13,
+                    data_type=modbus.DataType.HOLDING_REGISTER,
+                    start_address=0,
+                    values=[1, 2, 3]),
+    modbus.WriteMaskReq(device_id=345,
+                        address=0,
+                        and_mask=0,
+                        or_mask=0)])
+async def test_invalid_device_id(conf, create_master_factory, request):
+    conf = json.set_(conf, 'data', [{'name': 'd1',
+                                     'device_id': 1,
+                                     'data_type': 'HOLDING_REGISTER',
+                                     'start_address': 0,
+                                     'bit_offset': 0,
+                                     'bit_count': 1}])
+
+    eventer_client = EventerClient()
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
+
+    master = await create_master_factory()
+
+    if conf['transport']['type'] == 'TCP':
+        read_res = await master.send(request)
+        assert read_res == modbus.Error.INVALID_DATA_ADDRESS
+
+    elif conf['transport']['type'] == 'SERIAL':
+        with pytest.raises(asyncio.TimeoutError):
+            await aio.wait_for(master.send(request), timeout=0.05)
 
     await master.async_close()
     await device.async_close()
