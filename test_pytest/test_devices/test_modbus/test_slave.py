@@ -994,7 +994,6 @@ async def test_write_invalid_device_id(conf, slave_addr, create_master_factory,
         (0, 0, 16, 0, 0, 0, 0x1234, 0),
         (0, 0, 16, 0, 0, 0x4321, 0x1234, 0x4321),
         (0, 0, 16, 0, 0, 0x4321, 0, 0x4321),
-        (0, 0, 16, 1, 0x1234, 0, 0, None),
         ])
 @pytest.mark.parametrize('system_event_success, master_write_result', [
     (True, modbus.Success()),
@@ -1043,11 +1042,12 @@ async def test_write_mask(conf, slave_addr, create_master_factory,
 
     if write_event_value is None:
         write_res = await write_mask_res_future
-        assert write_res == modbus.Error.INVALID_DATA_ADDRESS
+        assert write_res == modbus.Success()
         assert event_queue.empty()
 
         await master.async_close()
         await device.async_close()
+        return
 
     write_req_event = await event_queue.get()
     assert write_req_event.type == (*event_type_prefix, 'gateway', 'write')
@@ -1090,8 +1090,16 @@ async def test_write_mask(conf, slave_addr, create_master_factory,
         'value': 1},
        {'name': 'd7',
         'value': 0}]),
+     # 8 data of 1 bit, writing "no change" -> no event
+     ([('d1', 0, 0, 1),
+       ('d2', 0, 1, 1),
+       ('d3', 0, 2, 1),
+       ('d4', 0, 3, 1),
+       ('d5', 0, 4, 1),
+       ('d6', 0, 5, 1),
+       ('d7', 0, 6, 1),
+       ('d8', 0, 7, 1)], 0, 0xffff, 0, None),
      # 8 data of 2 bits
-
      ([('d1', 0, 0, 2),
        ('d2', 0, 2, 2),
        ('d3', 0, 4, 2),
@@ -1113,7 +1121,6 @@ async def test_write_mask(conf, slave_addr, create_master_factory,
        {'name': 'd8',
         'value': 0}]),
      # 3 data of 1 register
-
      ([('d1', 0, 0, 16),
        ('d2', 1, 0, 16),
        ('d3', 2, 0, 16)], 0, 0x0000ffffffff, 0xffff0000ffff, [
@@ -1122,17 +1129,26 @@ async def test_write_mask(conf, slave_addr, create_master_factory,
        {'name': 'd3',
         'value': 65535}]),
      # 2 data 1 register long, each offset by 8, written only to one
-
      ([('d1', 0, 8, 16),
        ('d2', 1, 8, 16)], 0, 0xff00ff, 0x00ff00, [
        {'name': 'd1',
         'value': 65280}]),
-     # 2 data 1 register long, each offset by 8, written only 3rd register
-
+     # 2 data 1 register long, each offset by 8, written only to 3rd register
      ([('d1', 0, 8, 16),
        ('d2', 1, 8, 16)], 2, 0xffff, 0xffff, [
        {'name': 'd2',
         'value': 255}]),
+     # 2 data, writting "no change" -> no event
+     ([('d1', 0, 8, 16),
+       ('d2', 1, 8, 16)], 2, 0xffffffffffff, 0, None),
+     # 1 data 1 register long, writting to two registers
+     ([('d1', 1, 0, 16)], 0, 0, 0x12345678, [
+       {'name': 'd2',
+        'value': 22136}]),
+     # 1 data offset by 15, writting 1 to first register changes its 1st bit
+     ([('d1', 0, 15, 16)], 0, 0, 0xffff, [
+       {'name': 'd2',
+        'value': 0x8000}]),
     ])
 async def test_write_mask_multiple(conf, slave_addr, create_master_factory,
                                    data, write_address, and_mask, or_mask,
@@ -1163,11 +1179,20 @@ async def test_write_mask_multiple(conf, slave_addr, create_master_factory,
     assert_connections_event(conns_event, 1)
     connection_id = conns_event.payload.data[0]['connection_id']
 
-    master.async_group.spawn(
+    write_res_future = master.async_group.spawn(
         master.send, modbus.WriteMaskReq(device_id=device_id,
                                          address=write_address,
                                          and_mask=and_mask,
                                          or_mask=or_mask))
+
+    if event_data is None:
+        write_res = await write_res_future
+        assert write_res == modbus.Success()
+        assert event_queue.empty()
+
+        await master.async_close()
+        await device.async_close()
+        return
 
     write_req_event = await event_queue.get()
     assert write_req_event.type == (*event_type_prefix, 'gateway', 'write')
@@ -1175,6 +1200,49 @@ async def test_write_mask_multiple(conf, slave_addr, create_master_factory,
     assert write_req_event.payload.data['connection_id'] == connection_id
     assert len(write_req_event.payload.data['data']) == len(event_data)
     assert write_req_event.payload.data['data'] == event_data
+
+    await master.async_close()
+    await device.async_close()
+
+
+@pytest.mark.parametrize(
+    'start_address, bit_offset, bit_count, write_address, and_mask, or_mask, ',
+    [
+        (0, 0, 16, 1, 0x1234, 0),
+        (123, 0, 16, 0, 0x1234, 0),
+        (0, 16, 16, 0, 0x1234, 0),
+    ])
+async def test_write_mask_error(conf, slave_addr, create_master_factory,
+                                start_address, bit_offset, bit_count,
+                                write_address, and_mask, or_mask):
+    event_queue = aio.Queue()
+    device_id = 1
+    data_name = 'd1'
+    data_type = modbus.DataType.HOLDING_REGISTER
+    conf = json.set_(conf, 'data', [{'name': data_name,
+                                     'device_id': device_id,
+                                     'data_type': data_type.name,
+                                     'start_address': start_address,
+                                     'bit_offset': bit_offset,
+                                     'bit_count': bit_count}])
+
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
+    device = await aio.call(info.create, conf, eventer_client,
+                            event_type_prefix)
+
+    master = await create_master_factory()
+
+    conns_event = await event_queue.get()
+    assert_connections_event(conns_event, 1)
+
+    write_mask_res = await master.send(
+        modbus.WriteMaskReq(device_id=device_id,
+                            address=write_address,
+                            and_mask=and_mask,
+                            or_mask=or_mask))
+    assert write_mask_res == modbus.Error.INVALID_DATA_ADDRES
+
+    assert event_queue.empty()
 
     await master.async_close()
     await device.async_close()
