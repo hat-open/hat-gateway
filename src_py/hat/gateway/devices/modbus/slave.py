@@ -100,9 +100,7 @@ class ModbusSlaveDevice(aio.Resource):
                     addr=tcp.Address(transport_conf['local_host'],
                                      transport_conf['local_port']),
                     slave_cb=slave_queue.put_nowait,
-                    read_cb=self._on_read,
-                    write_cb=self._on_write,
-                    write_mask_cb=self._on_write_mask)
+                    request_cb=self._on_request)
 
                 self._async_group.spawn(self._tcp_connection_loop, tcp_server,
                                         slave_queue)
@@ -128,15 +126,13 @@ class ModbusSlaveDevice(aio.Resource):
                     xonxoff=xonxoff,
                     rtscts=rtscts,
                     dsrdtr=dsrdtr,
-                    silent_interval=silent_interval,
-                    read_cb=self._on_read,
-                    write_cb=self._on_write,
-                    write_mask_cb=self._on_write_mask)
+                    request_cb=self._on_request,
+                    silent_interval=silent_interval)
 
                 self._async_group.spawn(self._serial_connection_loop, conn)
 
             else:
-                raise ValueError('unsupported transport type')
+                raise ValueError('unsupported link type')
 
         except Exception as e:
             self._log.warning('connection loop error: %s', e, exc_info=e)
@@ -218,7 +214,7 @@ class ModbusSlaveDevice(aio.Resource):
 
                 await conn.wait_closed()
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 self._log.error('serial connection error: no communication')
                 await asyncio.sleep(connection_timeout)
                 continue
@@ -241,7 +237,7 @@ class ModbusSlaveDevice(aio.Resource):
                 await aio.wait_for(event.wait(), self._keep_alive_timeout)
                 event.clear()
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self._log.warning('keep alive timeout')
 
         finally:
@@ -311,174 +307,215 @@ class ModbusSlaveDevice(aio.Resource):
 
         req_future.set_result(event.payload.data['success'])
 
-    async def _on_read(self, conn, device_id, data_type, start_address,
-                       quantity):
-        if conn not in self._conns:
-            return modbus.Error.FUNCTION_ERROR
+    async def _on_request(self, conn, request):
+        device_id = request.device_id
 
         if device_id not in self._device_ids:
-            return []
+            self._log.debug('device %s not configured', device_id)
+
+            if self._conf['transport']['type'] == 'TCP':
+                return modbus.Error.INVALID_DATA_ADDRESS
+
+            else:
+                return
 
         event = self._keep_alive_events.get(conn)
         if event:
             event.set()
 
-        res = []
-        memory = self._cache[device_id][data_type]
+        if isinstance(request, modbus.ReadReq):
+            return self._process_read_request(request)
+
+        elif isinstance(request, modbus.WriteReq):
+            return await self._process_write_request(request, conn)
+
+        elif isinstance(request, modbus.WriteMaskReq):
+            return await self._process_write_mask_request(request, conn)
+
+        else:
+            raise TypeError('unsupported request')
+
+    def _process_read_request(self, request):
+        cache = self._cache[request.device_id][request.data_type]
+
+        quantity = (request.quantity
+                    if request.data_type != modbus.DataType.QUEUE else 1)
+
+        values = []
         for i in range(quantity):
-            value = memory.get(start_address + i)
+            value = cache.get(request.start_address + i)
             if value is None:
                 return modbus.Error.INVALID_DATA_ADDRESS
 
-            res.append(value)
+            values.append(value)
 
-        return res
+        return values
 
-    async def _on_write(self, conn, device_id, data_type, start_address,
-                        values):
-        if conn not in self._conns:
+    async def _process_write_request(self, request, conn):
+        if request.device_id == 0:
+            self._log.warning('broadcast device_id 0 not supported')
             return modbus.Error.FUNCTION_ERROR
-
-        if device_id == 0:
-            self._log.warning('broadcast device_id not supported')
-            return modbus.Error.FUNCTION_ERROR
-
-        if device_id not in self._device_ids:
-            return
-
-        event = self._keep_alive_events.get(conn)
-        if event:
-            event.set()
 
         data = []
-        try:
-            data = self._write_req_to_data(
-                device_id, data_type, start_address, values)
 
-        except ValueError as e:
-            self._log.warning('write error: %s', e, exc_info=e)
-            return
+        try:
+            if request.data_type == modbus.DataType.COIL:
+                data = self._write_coil_to_data(request)
+
+            elif request.data_type == modbus.DataType.HOLDING_REGISTER:
+                data = self._write_holding_register_to_data(request)
+
+            else:
+                raise Exception('invalid data type')
 
         except Exception as e:
             self._log.warning('write error: %s', e, exc_info=e)
             return modbus.Error.INVALID_DATA_ADDRESS
 
         if not data:
-            return
-
-        request_id = next(self._next_write_req_id)
-        req_future = self._loop.create_future()
-        self._write_reqs[request_id] = req_future
+            return modbus.Success
 
         try:
-            event = hat.event.common.RegisterEvent(
-                type=(*self._event_type_prefix, 'gateway', 'write'),
-                source_timestamp=None,
-                payload=hat.event.common.EventPayloadJson({
-                    'request_id': request_id,
-                    'connection_id': self._conns[conn],
-                    'data': data}))
-
-            await self._eventer_client.register([event])
-
-            res = await aio.wait_for(req_future, write_response_timeout)
-            if not res:
-                return modbus.Error.FUNCTION_ERROR
-
-        except asyncio.TimeoutError:
-            self._log.warning('write response not received')
-            return modbus.Error.FUNCTION_ERROR
+            return await self._write_response(conn, data)
 
         except Exception as e:
             self._log.error('write error: %s', e, exc_info=e)
             return modbus.Error.FUNCTION_ERROR
 
-    def _write_req_to_data(self, device_id, data_type, start_address, values):
-        if data_type == modbus.DataType.COIL:
-            return self._write_coil_to_data(
-                device_id, start_address, values)
-
-        elif data_type == modbus.DataType.HOLDING_REGISTER:
-            return self._write_holding_register_to_data(
-                device_id, start_address, values)
-
-        else:
-            raise Exception('invalid data type')
-
-    def _write_coil_to_data(self, device_id, start_address, values):
-        if any(v not in {0, 1} for v in values):
-            raise ValueError('invalid coil write value')
+    async def _process_write_mask_request(self, request, conn):
+        if request.device_id == 0:
+            self._log.warning('broadcast device_id 0 not supported')
+            return modbus.Error.FUNCTION_ERROR
 
         data = []
 
-        coils_cache = self._cache[device_id][modbus.DataType.COIL]
+        try:
+            data = self._write_mask_to_data(request)
 
-        req_start = start_address
-        req_end = start_address + len(values)
+        except Exception as e:
+            self._log.warning('write mask error: %s', e, exc_info=e)
+            return modbus.Error.INVALID_DATA_ADDRESS
 
-        for address in range(req_start, req_end):
-            if coils_cache.get(address) is None:
+        if not data:
+            return modbus.Success
+
+        try:
+            return await self._write_response(conn, data)
+
+        except Exception as e:
+            self._log.error('write mask error: %s', e, exc_info=e)
+            return modbus.Error.FUNCTION_ERROR
+
+    async def _write_response(self, conn, data):
+        request_id = next(self._next_write_req_id)
+        req_future = self._loop.create_future()
+        self._write_reqs[request_id] = req_future
+
+        event = hat.event.common.RegisterEvent(
+            type=(*self._event_type_prefix, 'gateway', 'write'),
+            source_timestamp=None,
+            payload=hat.event.common.EventPayloadJson({
+                'request_id': request_id,
+                'connection_id': self._conns[conn],
+                'data': data}))
+
+        await self._eventer_client.register([event])
+
+        try:
+            res = await aio.wait_for(req_future, write_response_timeout)
+            if not res:
+                return modbus.Error.FUNCTION_ERROR
+
+        except TimeoutError:
+            self._write_reqs.pop(request_id)
+            raise
+
+        return modbus.Success
+
+    def _write_coil_to_data(self, request):
+        if any(v not in {0, 1} for v in request.values):
+            raise ValueError('invalid write coil value')
+
+        cache = self._cache[request.device_id][request.data_type]
+
+        for address in range(request.start_address,
+                             request.start_address + len(request.values)):
+            if cache.get(address) is None:
                 raise Exception(f'write on unconfigured address: {address}')
 
-        for name, conf in self._data.items():
-            if (modbus.DataType[conf['data_type']] != modbus.DataType.COIL
-                    or conf['device_id'] != device_id):
-                continue
+        return self._write_to_data(request.device_id, request.data_type,
+                                   request.start_address, request.values)
 
-            data_start = conf['start_address'] + conf['bit_offset']
+    def _write_holding_register_to_data(self, request):
+        if not all(isinstance(
+                v, int) and 0 <= v <= 0xFFFF for v in request.values):
+            raise ValueError('invalid write holding register value')
+
+        cache = self._cache[request.device_id][request.data_type]
+
+        for address in range(request.start_address,
+                             request.start_address + len(request.values)):
+            if cache.get(address) is None:
+                raise Exception(f'write on unconfigured address: {address}')
+
+        bit_values = [int(b) for v in request.values for b in f"{v:016b}"]
+
+        return self._write_to_data(request.device_id, request.data_type,
+                                   request.start_address, bit_values)
+
+    def _write_mask_to_data(self, request):
+        if not (0 <= request.and_mask <= 0xFFFF
+                and 0 <= request.or_mask <= 0xFFFF):
+            raise ValueError('invalid write mask values')
+
+        data_type = modbus.DataType.HOLDING_REGISTER
+        cache = self._cache[request.device_id][data_type]
+
+        if cache.get(request.address) is None:
+            raise Exception(
+                f'write mask on unconfigured address: {request.address}')
+
+        prev = cache.get(request.address, 0)
+        value = modbus.apply_mask(prev, request.and_mask, request.or_mask)
+        bit_values = [int(b) for b in f"{value:016b}"]
+
+        data = self._write_to_data(request.device_id, data_type,
+                                   request.address, bit_values)
+
+        for d in list(data):
+            conf = self._data[d['name']]
+            data_start = conf['start_address'] * 16 + conf['bit_offset']
             bit_count = conf['bit_count']
             data_end = data_start + bit_count
 
-            overlap_start = max(data_start, req_start)
-            overlap_end = min(data_end, req_end)
+            overlap_start = max(data_start, request.address * 16)
+            overlap_end = min(data_end, request.address * 16 + 16)
 
-            if overlap_start >= overlap_end:
-                continue
+            for bit_address in range(overlap_start, overlap_end):
+                if not ((request.and_mask >> 15 - bit_address) & 1):
+                    break
 
-            value = 0
-            for i in range(bit_count):
-                bit = coils_cache.get(data_start + i, 0)
-                value |= bit << (bit_count - 1 - i)
-
-            for address in range(overlap_start, overlap_end):
-                bit = values[address - req_start]
-
-                bit_index = address - data_start
-                shift = bit_count - 1 - bit_index
-
-                mask = 1 << shift
-                value &= ~mask
-                value |= bit << shift
-
-            data.append({'name': name,
-                         'value': value})
+            else:
+                data.remove(d)
 
         return data
 
-    def _write_holding_register_to_data(self, device_id, start_address,
-                                        values):
-        if not all(isinstance(v, int) and 0 <= v <= 0xFFFF for v in values):
-            raise ValueError('invalid holding register write value')
+    def _write_to_data(self, device_id, data_type, start_address, values):
+        register_size = 1 if data_type == modbus.DataType.COIL else 16
+
+        req_bit_start = start_address * register_size
+        req_bit_end = req_bit_start + len(values)
 
         data = []
 
-        holding_registers_cache = self._cache[device_id][
-            modbus.DataType.HOLDING_REGISTER]
-
-        for address in range(start_address, start_address + len(values)):
-            if holding_registers_cache.get(address) is None:
-                raise Exception(f'write on unconfigured address: {address}')
-
-        req_bit_start = start_address * 16
-        req_bit_end = req_bit_start + len(values) * 16
-
         for name, conf in self._data.items():
-            if (modbus.DataType[conf['data_type']] !=
-                    modbus.DataType.HOLDING_REGISTER
-                    or conf['device_id'] != device_id):
+            conf_data_type = modbus.DataType[conf['data_type']]
+
+            if conf_data_type != data_type or conf['device_id'] != device_id:
                 continue
 
-            data_bit_start = conf['start_address'] * 16 + conf['bit_offset']
+            data_bit_start = (conf['start_address'] * register_size +
+                              conf['bit_offset'])
             data_bit_end = data_bit_start + conf['bit_count']
             bit_count = conf['bit_count']
 
@@ -491,21 +528,12 @@ class ModbusSlaveDevice(aio.Resource):
             value = 0
             for i in range(bit_count):
                 bit_address = data_bit_start + i
-
-                reg_index = bit_address // 16
-                reg_bit = 15 - (bit_address % 16)
-
-                reg_val = holding_registers_cache.get(reg_index, 0)
-
-                bit = (reg_val >> reg_bit) & 1
+                bit = self._get_bit(device_id, conf_data_type, bit_address)
                 value |= bit << (bit_count - 1 - i)
 
             for bit_address in range(overlap_start, overlap_end):
                 bit_index_req = bit_address - req_bit_start
-                reg_index = bit_index_req // 16
-                bit_pos = 15 - (bit_index_req % 16)
-
-                bit = (values[reg_index] >> bit_pos) & 1
+                bit = values[bit_index_req]
 
                 data_offset = bit_address - data_bit_start
                 shift = bit_count - 1 - data_offset
@@ -518,16 +546,6 @@ class ModbusSlaveDevice(aio.Resource):
                          'value': value})
 
         return data
-
-    async def _on_write_mask(self, conn, device_id, address, and_mask,
-                             or_mask):
-        data_type = modbus.DataType.HOLDING_REGISTER
-
-        prev = self._cache[device_id][data_type].get(address, 0)
-        value = modbus.apply_mask(prev, and_mask, or_mask)
-
-        return await self._on_write(conn, device_id, data_type, address,
-                                    [value])
 
     async def _init_cache(self):
         event_types = [(*self._event_type_prefix, 'system', 'data', '*')]
@@ -556,40 +574,59 @@ class ModbusSlaveDevice(aio.Resource):
         data_type = modbus.DataType[conf['data_type']]
         device_id = conf['device_id']
 
+        bit_count = conf['bit_count']
+
         if (not isinstance(value, int) or value < 0
-                or value >> conf['bit_count']):
+                or value >> bit_count):
             self._log.warning('invalid data value for %s: %s',
                               data_name, value)
             return
 
-        if data_type in {modbus.DataType.DISCRETE_INPUT,
-                         modbus.DataType.COIL}:
-            address = conf['start_address'] + conf['bit_offset']
-            bit_count = conf['bit_count']
+        register_size = (1 if data_type in {modbus.DataType.COIL,
+                                            modbus.DataType.DISCRETE_INPUT}
+                         else 16)
 
-            for i in range(bit_count):
-                bit = (value >> (bit_count - 1 - i)) & 1
-                self._cache[device_id][data_type][address + i] = bit
+        bit_start = conf['start_address'] * register_size + conf['bit_offset']
 
-        elif data_type in {modbus.DataType.INPUT_REGISTER,
-                           modbus.DataType.HOLDING_REGISTER}:
-            address = conf['start_address'] + (conf['bit_offset'] // 16)
-            reg_bit_pos = conf['bit_offset'] % 16
-            remaining = conf['bit_count']
+        for i in range(bit_count):
+            bit = (value >> (bit_count - 1 - i)) & 1
+            bit_address = bit_start + i
 
-            while remaining > 0:
-                bits_in_reg = min(16 - reg_bit_pos, remaining)
-                mask = (1 << bits_in_reg) - 1
-                chunk = (value >> (remaining - bits_in_reg)) & mask
+            self._set_bit(device_id, data_type, bit_address, bit)
 
-                shift = 16 - reg_bit_pos - bits_in_reg
-                chunk = chunk << shift
+    def _get_bit(self, device_id, data_type, bit_address):
+        if data_type == modbus.DataType.COIL:
+            return self._cache[device_id][data_type][bit_address]
 
-                self._cache[device_id][data_type][address] = chunk & 0xFFFF
+        elif data_type == modbus.DataType.HOLDING_REGISTER:
+            reg_index = bit_address // 16
+            reg_bit = 15 - (bit_address % 16)
 
-                remaining -= bits_in_reg
-                address += 1
-                reg_bit_pos = 0
+            reg_val = self._cache[device_id][data_type][reg_index]
+            return (reg_val >> reg_bit) & 1
+
+        else:
+            return 0
+
+    def _set_bit(self, device_id, data_type, bit_address, bit):
+        if data_type in {modbus.DataType.COIL,
+                         modbus.DataType.DISCRETE_INPUT}:
+            self._cache[device_id][data_type][bit_address] = bit
+
+        elif data_type in {modbus.DataType.HOLDING_REGISTER,
+                           modbus.DataType.INPUT_REGISTER}:
+
+            reg_index = bit_address // 16
+            reg_bit = 15 - (bit_address % 16)
+
+            reg_val = self._cache[device_id][data_type].get(reg_index, 0)
+
+            if bit:
+                reg_val |= (1 << reg_bit)
+            else:
+                reg_val &= ~(1 << reg_bit)
+
+            self._cache[device_id][data_type][reg_index] = reg_val
 
 
 def _sort_events(events):
