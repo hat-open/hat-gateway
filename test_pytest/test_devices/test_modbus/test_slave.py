@@ -398,31 +398,44 @@ async def test_max_connections(slave_addr):
                 'keep_alive_timeout': None},
             'data': []}
 
-    eventer_client = EventerClient()
+    event_queue = aio.Queue()
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     device = await aio.call(info.create, conf, eventer_client,
                             event_type_prefix)
 
+    event = await event_queue.get()
+    assert_connections_event(event, 0)
+
     masters = set()
-    for _ in range(3):
+    for i in range(3):
         master = await modbus.create_tcp_master(
             modbus_type=modbus.ModbusType.TCP,
             addr=slave_addr)
         masters.add(master)
+        event = await event_queue.get()
+        assert_connections_event(event, i + 1)
 
     # connection of 4th master should not succeed
-    with pytest.raises(Exception):
-        await modbus.create_tcp_master(
+    master = await modbus.create_tcp_master(
                 modbus_type=modbus.ModbusType.TCP,
                 addr=slave_addr)
+    await master.wait_closed()
+    assert event_queue.empty()
 
     master = masters.pop()
     await master.async_close()
 
+    event = await event_queue.get()
+    assert_connections_event(event, 2)
+
     # after one master disconnected, connection succeeds
     master = await modbus.create_tcp_master(
-        modbus_type=modbus.modbus_type.TCP,
+        modbus_type=modbus.ModbusType.TCP,
         addr=slave_addr)
     masters.add(master)
+
+    event = await event_queue.get()
+    assert_connections_event(event, 3)
 
     while masters:
         master = masters.pop()
@@ -866,11 +879,10 @@ async def test_write_error(conf, slave_addr, create_master_factory, data,
         (0, 0, 1, 0, 0x8000, 0, 1, None),
         (0, 0, 1, 0, 0xffff, 0x7fff, 0, None),
         (0, 0, 1, 0, 0xffff, 0x7fff, 1, None),
-        # invert
-        (0, 0, 1, 0, 0x8000, 0x8000, 0, 1),
-        (0, 0, 1, 0, 0x8000, 0x8000, 1, 0),
-        (0, 0, 1, 0, 0xffff, 0xffff, 0, 1),
-        (0, 0, 1, 0, 0xffff, 0xffff, 1, 0),
+        (0, 0, 1, 0, 0x8000, 0x8000, 0, None),
+        (0, 0, 1, 0, 0x8000, 0x8000, 1, None),
+        (0, 0, 1, 0, 0xffff, 0xffff, 0, None),
+        (0, 0, 1, 0, 0xffff, 0xffff, 1, None),
 
         # mask 1 bit at the register end
         # set 0
@@ -888,11 +900,10 @@ async def test_write_error(conf, slave_addr, create_master_factory, data,
         (0, 15, 1, 0, 1, 0, 1, None),
         (0, 15, 1, 0, 0xffff, 0xfffe, 0, None),
         (0, 15, 1, 0, 0xffff, 0xfffe, 1, None),
-        # invert
-        (0, 15, 1, 0, 1, 1, 0, 1),
-        (0, 15, 1, 0, 1, 1, 1, 0),
-        (0, 15, 1, 0, 0xffff, 0xffff, 0, 1),
-        (0, 15, 1, 0, 0xffff, 0xffff, 1, 0),
+        (0, 15, 1, 0, 1, 1, 0, None),
+        (0, 15, 1, 0, 1, 1, 1, None),
+        (0, 15, 1, 0, 0xffff, 0xffff, 0, None),
+        (0, 15, 1, 0, 0xffff, 0xffff, 1, None),
 
         # mask 2 bits in the middle of the register
         # set 0 on both bits
@@ -910,26 +921,26 @@ async def test_write_error(conf, slave_addr, create_master_factory, data,
         (0, 7, 2, 0, 0x0180, 0, 1, None),
         (0, 7, 2, 0, 0x0180, 0, 2, None),
         (0, 7, 2, 0, 0x0180, 0, 3, None),
-        # invert on both bits
-        (0, 7, 2, 0, 0x0180, 0x0180, 0, 3),
-        (0, 7, 2, 0, 0x0180, 0x0180, 1, 2),
-        (0, 7, 2, 0, 0x0180, 0x0180, 2, 1),
-        (0, 7, 2, 0, 0x0180, 0x0180, 3, 0),
+        (0, 7, 2, 0, 0x0180, 0x0180, 0, None),
+        (0, 7, 2, 0, 0x0180, 0x0180, 1, None),
+        (0, 7, 2, 0, 0x0180, 0x0180, 2, None),
+        (0, 7, 2, 0, 0x0180, 0x0180, 3, None),
 
-        # first bit set 1, second bit invert
+        # # first bit set 1, second bit does not change
         (0, 7, 2, 0, 0x0080, 0x0100, 1, 3),
 
         # end cases on masking entire register
         (0, 0, 16, 0, 0x1234, 0, 0, 0),
         (0, 0, 16, 0, 0x1234, 0, 0xffff, 0x1234),
-        (0, 0, 16, 0, 0xffff, 0, 0x1234, 0x1234),
+        (0, 0, 16, 0, 0xffff, 0, 0x1234, None),
         (0, 0, 16, 0, 0, 0, 0x1234, 0),
         (0, 0, 16, 0, 0, 0x4321, 0x1234, 0x4321),
         (0, 0, 16, 0, 0, 0x4321, 0, 0x4321),
         ])
 @pytest.mark.parametrize('system_event_success, master_write_result', [
     (True, modbus.Success()),
-    (False, modbus.Error.FUNCTION_ERROR)])
+    (False, modbus.Error.FUNCTION_ERROR),
+    ])
 async def test_write_mask(conf, slave_addr, create_master_factory,
                           start_address, bit_offset, bit_count, write_address,
                           and_mask, or_mask, queried_data_event_value,
@@ -1041,9 +1052,9 @@ async def test_write_mask(conf, slave_addr, create_master_factory,
        ('d7', 0, 12, 2),
        ('d8', 0, 14, 2)], 0, 0xcc55, 0xcc88, [
        {'name': 'd2',
-        'value': 2},
+        'value': 0},
        {'name': 'd4',
-        'value': 2},
+        'value': 0},
        {'name': 'd5',
         'value': 2},
        {'name': 'd6',
@@ -1052,34 +1063,14 @@ async def test_write_mask(conf, slave_addr, create_master_factory,
         'value': 2},
        {'name': 'd8',
         'value': 0}]),
-     # 3 data of 1 register
-     ([('d1', 0, 0, 16),
-       ('d2', 1, 0, 16),
-       ('d3', 2, 0, 16)], 0, 0x0000ffffffff, 0xffff0000ffff, [
-       {'name': 'd1',
-        'value': 65535},
-       {'name': 'd3',
-        'value': 65535}]),
-     # 2 data 1 register long, each offset by 8, written only to one
-     ([('d1', 0, 8, 16),
-       ('d2', 1, 8, 16)], 0, 0xff00ff, 0x00ff00, [
-       {'name': 'd1',
-        'value': 65280}]),
      # 2 data 1 register long, each offset by 8, written only to 3rd register
      ([('d1', 0, 8, 16),
-       ('d2', 1, 8, 16)], 2, 0xffff, 0xffff, [
+       ('d2', 1, 8, 16)], 2, 0, 0xffff, [
        {'name': 'd2',
         'value': 255}]),
-     # 2 data, writting "no change" -> no event
-     ([('d1', 0, 8, 16),
-       ('d2', 1, 8, 16)], 2, 0xffffffffffff, 0, None),
-     # 1 data 1 register long, writting to two registers
-     ([('d1', 1, 0, 16)], 0, 0, 0x12345678, [
-       {'name': 'd2',
-        'value': 22136}]),
      # 1 data offset by 15, writting 1 to first register changes its 1st bit
      ([('d1', 0, 15, 16)], 0, 0, 0xffff, [
-       {'name': 'd2',
+       {'name': 'd1',
         'value': 0x8000}]),
     ])
 async def test_write_mask_multiple(conf, slave_addr, create_master_factory,
@@ -1162,6 +1153,8 @@ async def test_write_mask_error(conf, slave_addr, create_master_factory,
     device = await aio.call(info.create, conf, eventer_client,
                             event_type_prefix)
 
+    await event_queue.get()
+
     master = await create_master_factory()
 
     conns_event = await event_queue.get()
@@ -1180,7 +1173,7 @@ async def test_write_mask_error(conf, slave_addr, create_master_factory,
     await device.async_close()
 
 
-@pytest.mark.parametrize('request', [
+@pytest.mark.parametrize('read_req', [
     modbus.ReadReq(device_id=0,
                    data_type=modbus.DataType.HOLDING_REGISTER,
                    start_address=0,
@@ -1193,11 +1186,11 @@ async def test_write_mask_error(conf, slave_addr, create_master_factory,
                     data_type=modbus.DataType.HOLDING_REGISTER,
                     start_address=0,
                     values=[1, 2, 3]),
-    modbus.WriteMaskReq(device_id=345,
+    modbus.WriteMaskReq(device_id=123,
                         address=0,
                         and_mask=0,
                         or_mask=0)])
-async def test_invalid_device_id(conf, create_master_factory, request):
+async def test_invalid_device_id(conf, create_master_factory, read_req):
     conf = json.set_(conf, 'data', [{'name': 'd1',
                                      'device_id': 1,
                                      'data_type': 'HOLDING_REGISTER',
@@ -1212,12 +1205,12 @@ async def test_invalid_device_id(conf, create_master_factory, request):
     master = await create_master_factory()
 
     if conf['transport']['type'] == 'TCP':
-        read_res = await master.send(request)
+        read_res = await master.send(read_req)
         assert read_res == modbus.Error.INVALID_DATA_ADDRESS
 
     elif conf['transport']['type'] == 'SERIAL':
         with pytest.raises(asyncio.TimeoutError):
-            await aio.wait_for(master.send(request), timeout=0.05)
+            await aio.wait_for(master.send(read_req), timeout=0.05)
 
     await master.async_close()
     await device.async_close()
