@@ -1,5 +1,6 @@
 from collections.abc import Collection
 import asyncio
+import contextlib
 import itertools
 import logging
 import uuid
@@ -17,16 +18,13 @@ from hat.gateway import common
 mlog: logging.Logger = logging.getLogger(__name__)
 
 
-connection_timeout = 2
-write_response_timeout = 10
-
-
 async def create(conf: common.DeviceConf,
                  eventer_client: hat.event.eventer.Client,
                  event_type_prefix: common.EventTypePrefix
                  ) -> 'ModbusSlaveDevice':
     device = ModbusSlaveDevice()
     device._conf = conf
+    device._transport_type = conf['transport']['type']
     device._device_ids = set(data['device_id'] for data in conf['data'])
 
     device._keep_alive_events = {}
@@ -40,13 +38,14 @@ async def create(conf: common.DeviceConf,
 
     device._next_write_req_id = _unique_ids()
     device._write_reqs = {}
+    device._response_timeout = conf['transport']['response_timeout']
 
     device._async_group = aio.Group()
     device._loop = asyncio.get_running_loop()
 
     device._data = {data['name']: data for data in conf['data']}
     device._cache = {
-        device_id: {dt: {} for dt in modbus.DataType}
+        device_id: {data_type: {} for data_type in modbus.DataType}
         for device_id in device._device_ids}
 
     device._log = _create_logger_adapter(conf['name'])
@@ -79,8 +78,7 @@ class ModbusSlaveDevice(aio.Resource):
         return self._async_group
 
     async def process_events(self, events: Collection[hat.event.common.Event]):
-        sorted_events = _sort_events(events)
-        for event in sorted_events:
+        for event in events:
             try:
                 self._log.debug('received event: %s', event)
                 await self._process_event(event)
@@ -94,16 +92,14 @@ class ModbusSlaveDevice(aio.Resource):
             modbus_type = modbus.ModbusType[self._conf['modbus_type']]
 
             if transport_conf['type'] == 'TCP':
-                slave_queue = aio.Queue()
                 tcp_server = await modbus.create_tcp_server(
                     modbus_type=modbus_type,
                     addr=tcp.Address(transport_conf['local_host'],
                                      transport_conf['local_port']),
-                    slave_cb=slave_queue.put_nowait,
+                    slave_cb=self._on_tcp_connection,
                     request_cb=self._on_request)
 
-                self._async_group.spawn(self._tcp_connection_loop, tcp_server,
-                                        slave_queue)
+                self.async_group.spawn(aio.call_on_cancel, tcp_server.close)
 
             elif transport_conf['type'] == 'SERIAL':
                 port = transport_conf['port']
@@ -129,7 +125,7 @@ class ModbusSlaveDevice(aio.Resource):
                     request_cb=self._on_request,
                     silent_interval=silent_interval)
 
-                self._async_group.spawn(self._serial_connection_loop, conn)
+                self._async_group.spawn(self._on_serial_connection, conn)
 
             else:
                 raise ValueError('unsupported link type')
@@ -137,48 +133,28 @@ class ModbusSlaveDevice(aio.Resource):
         except Exception as e:
             self._log.warning('connection loop error: %s', e, exc_info=e)
 
-    async def _tcp_connection_loop(self, tcp_server, conn_queue):
+    async def _on_tcp_connection(self, conn):
         transport_conf = self._conf['transport']
 
         remote_hosts = transport_conf['remote_hosts']
         max_connections = transport_conf['max_connections']
 
-        try:
-            while True:
-                try:
-                    conn = await conn_queue.get()
+        remote_host = conn.info.remote_addr.host
 
-                    remote_host = conn.info.remote_addr.host
+        if remote_hosts is not None and remote_host not in remote_hosts:
+            conn.close()
+            self._log.warning('connection closed: remote host %s '
+                              'not allowed', remote_host)
+            return
 
-                    if (remote_hosts is not None and
-                            remote_host not in remote_hosts):
-                        conn.close()
-                        self._log.warning('connection closed: remote host %s '
-                                          'not allowed', remote_host)
-                        continue
+        if (max_connections is not None and
+                len(self._conns) >= max_connections):
+            conn.close()
+            self._log.debug('connection closed: max connections '
+                            'exceeded (remote host %s)',
+                            remote_host)
+            return
 
-                    if (max_connections is not None and
-                            len(self._conns) >= max_connections):
-                        conn.close()
-                        self._log.debug('connection closed: max connections '
-                                        'exceeded (remote host %s)',
-                                        remote_host)
-                        continue
-
-                    self._async_group.spawn(self._on_tcp_connection, conn)
-
-                except asyncio.CancelledError:
-                    break
-
-                except Exception as e:
-                    self._log.error('tcp connection error: %s', e, exc_info=e)
-                    await asyncio.sleep(connection_timeout)
-
-        finally:
-            if tcp_server:
-                tcp_server.close()
-
-    async def _on_tcp_connection(self, conn):
         conn_id = next(self._next_conn_ids)
 
         try:
@@ -191,41 +167,35 @@ class ModbusSlaveDevice(aio.Resource):
 
             await conn.wait_closed()
 
+        except ConnectionError:
+            self._log.debug('connection close')
+
         except Exception as e:
             self._log.error('tcp connection error: %s', e, exc_info=e)
 
         finally:
             await self._cleanup_connection(conn)
 
-    async def _serial_connection_loop(self, conn):
-        while True:
-            try:
-                self._keep_alive_events[conn] = asyncio.Event()
-                await aio.wait_for(self._keep_alive_events[conn].wait(),
-                                   self._keep_alive_timeout)
-                self._keep_alive_events[conn].clear()
+    async def _on_serial_connection(self, conn):
+        try:
+            self._keep_alive_events[conn] = asyncio.Event()
+            await self._keep_alive_events[conn].wait()
+            self._keep_alive_events[conn].clear()
 
-                conn_id = next(self._next_conn_ids)
-                self._conns[conn] = conn_id
+            conn_id = next(self._next_conn_ids)
+            self._conns[conn] = conn_id
 
-                self._async_group.spawn(self._keep_alive_loop, conn)
+            self.async_group.spawn(self._keep_alive_loop, conn)
 
-                await self._register_connections()
+            await self._register_connections()
 
-                await conn.wait_closed()
+            await conn.wait_closed()
 
-            except TimeoutError:
-                self._log.error('serial connection error: no communication')
-                await asyncio.sleep(connection_timeout)
-                continue
+        except Exception as e:
+            self._log.error('serial connection error: %s', e, exc_info=e)
 
-            except Exception as e:
-                self._log.error('serial connection error: %s', e, exc_info=e)
-                await asyncio.sleep(connection_timeout)
-                continue
-
-            finally:
-                await self._cleanup_connection(conn)
+        finally:
+            await self._cleanup_connection(conn)
 
     async def _keep_alive_loop(self, conn):
         try:
@@ -244,7 +214,7 @@ class ModbusSlaveDevice(aio.Resource):
             await self._cleanup_connection(conn)
 
     async def _register_connections(self):
-        if self._conf['transport']['type'] == 'TCP':
+        if self._transport_type == 'TCP':
             payload = [{'type': 'TCP',
                         'connection_id': conn_id,
                         'local': {'host': conn.info.local_addr.host,
@@ -253,7 +223,7 @@ class ModbusSlaveDevice(aio.Resource):
                                    'port': conn.info.remote_addr.port}}
                        for conn, conn_id in self._conns.items()]
 
-        elif self._conf['transport']['type'] == 'SERIAL':
+        elif self._transport_type == 'SERIAL':
             payload = [{'type': 'SERIAL',
                         'connection_id': conn_id}
                        for conn, conn_id in self._conns.items()]
@@ -269,15 +239,19 @@ class ModbusSlaveDevice(aio.Resource):
         await self._eventer_client.register([event])
 
     async def _cleanup_connection(self, conn):
-        conn.close()
-
-        if conn in self._conns:
-            self._conns.pop(conn)
-            await self._register_connections()
-
-        event = self._keep_alive_events.pop(conn, None)
+        event = self._keep_alive_events.get(conn)
         if event:
             event.set()
+
+        self._keep_alive_events.pop(conn, None)
+
+        if conn.is_open:
+            conn.close()
+
+        conn_id = self._conns.pop(conn, None)
+        if conn_id is not None:
+            with contextlib.suppress(Exception):
+                await aio.uncancellable(self._register_connections())
 
     async def _process_event(self, event):
         suffix = event.type[len(self._event_type_prefix):]
@@ -308,12 +282,25 @@ class ModbusSlaveDevice(aio.Resource):
         req_future.set_result(event.payload.data['success'])
 
     async def _on_request(self, conn, request):
+        if self._transport_type == 'TCP':
+            if conn not in self._conns:
+                return
+
         device_id = request.device_id
+
+        if request.device_id == 0:
+            self._log.warning('broadcast not supported')
+
+            if self._transport_type == 'TCP':
+                return modbus.Error.INVALID_DATA_ADDRESS
+
+            else:
+                return
 
         if device_id not in self._device_ids:
             self._log.debug('device %s not configured', device_id)
 
-            if self._conf['transport']['type'] == 'TCP':
+            if self._transport_type == 'TCP':
                 return modbus.Error.INVALID_DATA_ADDRESS
 
             else:
@@ -352,10 +339,6 @@ class ModbusSlaveDevice(aio.Resource):
         return values
 
     async def _process_write_request(self, request, conn):
-        if request.device_id == 0:
-            self._log.warning('broadcast device_id 0 not supported')
-            return modbus.Error.FUNCTION_ERROR
-
         data = []
 
         try:
@@ -422,13 +405,13 @@ class ModbusSlaveDevice(aio.Resource):
         await self._eventer_client.register([event])
 
         try:
-            res = await aio.wait_for(req_future, write_response_timeout)
+            res = await aio.wait_for(req_future, self._response_timeout)
             if not res:
                 return modbus.Error.FUNCTION_ERROR
 
         except TimeoutError:
             self._write_reqs.pop(request_id)
-            raise
+            raise Exception('response timeout')
 
         return modbus.Success
 
@@ -492,7 +475,7 @@ class ModbusSlaveDevice(aio.Resource):
             overlap_end = min(data_end, request.address * 16 + 16)
 
             for bit_address in range(overlap_start, overlap_end):
-                if not ((request.and_mask >> 15 - bit_address) & 1):
+                if not ((request.and_mask >> 15 - (bit_address % 16)) & 1):
                     break
 
             else:
@@ -556,8 +539,7 @@ class ModbusSlaveDevice(aio.Resource):
         for data_name in data:
             self._write_event_value(data_name, 0)
 
-        events = _sort_events(result.events)
-        for event in events:
+        for event in result.events:
             try:
                 data_name = event.type[len(self._event_type_prefix) + 2]
 
@@ -627,10 +609,6 @@ class ModbusSlaveDevice(aio.Resource):
                 reg_val &= ~(1 << reg_bit)
 
             self._cache[device_id][data_type][reg_index] = reg_val
-
-
-def _sort_events(events):
-    return sorted(events)
 
 
 def _unique_ids():

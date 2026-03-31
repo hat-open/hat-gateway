@@ -248,6 +248,7 @@ $defs:
                         - local_port
                         - remote_hosts
                         - max_connections
+                        - response_timeout
                         - keep_alive_timeout
                     properties:
                         type:
@@ -273,6 +274,11 @@ $defs:
                             type:
                                 - "null"
                                 - integer
+                        response_timeout:
+                            type: number
+                            description: |
+                                Maximum duration (in seconds) of write
+                                request/response exchange.
                         keep_alive_timeout:
                             type:
                                 - number
@@ -287,6 +293,7 @@ $defs:
                         - stopbits
                         - flow_control
                         - silent_interval
+                        - response_timeout
                         - keep_alive_timeout
                     properties:
                         type:
@@ -346,6 +353,11 @@ $defs:
                             type: number
                             description: |
                                 Serial communication silent interval
+                        response_timeout:
+                            type: number
+                            description: |
+                                Maximum duration (in seconds) of write
+                                request/response exchange.
                         keep_alive_timeout:
                             type: number
             data:
