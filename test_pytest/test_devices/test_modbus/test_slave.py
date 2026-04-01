@@ -123,6 +123,7 @@ def transport_conf_tcp(slave_addr):
         'local_port': slave_addr.port,
         'remote_hosts': None,
         'max_connections': None,
+        'response_timeout': 1,
         'keep_alive_timeout': None}
 
 
@@ -139,8 +140,8 @@ def transport_conf_serial(slave_serial_port):
                          'rtscts': False,
                          'dsrdtr': False},
         'silent_interval': 0.005,
-        'keep_alive_timeout': 0.1,
-        'response_timeout': 10}
+        'response_timeout': 1,
+        'keep_alive_timeout': 0.1}
 
 
 @pytest.fixture(params=['TCP', 'SERIAL'])
@@ -211,6 +212,7 @@ def create_master_factory(conf, master_serial_port, slave_addr):
         'local_port': 54321,
         'remote_hosts': ['1.2.3', '192.168.0.13'],
         'max_connections': 3,
+        'response_timeout': 1,
         'keep_alive_timeout': None},
      'data': [
         {'name': 'data1',
@@ -232,6 +234,7 @@ def create_master_factory(conf, master_serial_port, slave_addr):
                          'rtscts': True,
                          'dsrdtr': False},
         'silent_interval': 0.005,
+        'response_timeout': 1,
         'keep_alive_timeout': 1.5},
      'data': [
         {'name': 'data1',
@@ -395,6 +398,7 @@ async def test_max_connections(slave_addr):
                 'local_port': slave_addr.port,
                 'remote_hosts': None,
                 'max_connections': 3,
+                'response_timeout': 1,
                 'keep_alive_timeout': None},
             'data': []}
 
@@ -459,6 +463,7 @@ async def test_remote_hosts(slave_addr, remote_hosts, expect_connected):
                 'local_port': slave_addr.port,
                 'remote_hosts': remote_hosts,
                 'max_connections': 3,
+                'response_timeout': 1,
                 'keep_alive_timeout': None},
             'data': []}
 
@@ -1308,7 +1313,7 @@ async def test_write_response_timeout(
                                      'start_address': start_address,
                                      'bit_offset': 0,
                                      'bit_count': 1}])
-    conf = json.set_(conf, 'response_timeout', 0.05)
+    conf = json.set_(conf, ['transport', 'response_timeout'], 0.05)
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
 
@@ -1396,7 +1401,13 @@ async def test_invalid_device_id(conf, create_master_factory, device_id,
 
 
 async def test_broadcast_device_id(conf, create_master_factory):
-    conf = json.set_(conf, 'data', [{'name': 'd1',
+    conf = json.set_(conf, 'data', [{'name': 'd0',
+                                     'device_id': 1,
+                                     'data_type': 'COIL',
+                                     'start_address': 0,
+                                     'bit_offset': 0,
+                                     'bit_count': 1},
+                                    {'name': 'd1',
                                      'device_id': 0,
                                      'data_type': 'HOLDING_REGISTER',
                                      'start_address': 0,
