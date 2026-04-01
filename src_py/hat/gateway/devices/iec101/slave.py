@@ -270,7 +270,12 @@ class Iec101SlaveDevice(common.Device):
     async def _connection_receive_loop(self, conn, conn_id):
         try:
             while True:
-                msgs = await conn.receive()
+                try:
+                    msgs = await conn.receive()
+
+                except iec101.AsduTypeError as e:
+                    self._log.warning("asdu type error: %s", e)
+                    continue
 
                 for msg in msgs:
                     try:

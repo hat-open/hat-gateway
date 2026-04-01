@@ -133,7 +133,12 @@ class Iec104SlaveDevice(common.Device):
                 enabled_cb(conn.is_enabled)
 
                 while True:
-                    msgs = await conn.receive()
+                    try:
+                        msgs = await conn.receive()
+
+                    except iec104.AsduTypeError as e:
+                        self._log.warning("asdu type error: %s", e)
+                        continue
 
                     for msg in msgs:
                         try:
