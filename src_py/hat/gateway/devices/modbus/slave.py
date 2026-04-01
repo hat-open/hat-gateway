@@ -99,7 +99,8 @@ class ModbusSlaveDevice(aio.Resource):
                     slave_cb=self._on_tcp_connection,
                     request_cb=self._on_request)
 
-                self.async_group.spawn(aio.call_on_cancel, tcp_server.close)
+                self.async_group.spawn(aio.call_on_cancel,
+                                       tcp_server.async_close)
 
             elif transport_conf['type'] == 'SERIAL':
                 port = transport_conf['port']
@@ -125,7 +126,7 @@ class ModbusSlaveDevice(aio.Resource):
                     request_cb=self._on_request,
                     silent_interval=silent_interval)
 
-                self._async_group.spawn(self._on_serial_connection, conn)
+                self.async_group.spawn(self._on_serial_connection, conn)
 
             else:
                 raise ValueError('unsupported link type')
@@ -163,7 +164,7 @@ class ModbusSlaveDevice(aio.Resource):
 
             if self._keep_alive_timeout is not None:
                 self._keep_alive_events[conn] = asyncio.Event()
-                self._async_group.spawn(self._keep_alive_loop, conn)
+                conn.async_group.spawn(self._keep_alive_loop, conn)
 
             await conn.wait_closed()
 
@@ -185,7 +186,7 @@ class ModbusSlaveDevice(aio.Resource):
             conn_id = next(self._next_conn_ids)
             self._conns[conn] = conn_id
 
-            self.async_group.spawn(self._keep_alive_loop, conn)
+            conn.async_group.spawn(self._keep_alive_loop, conn)
 
             await self._register_connections()
 
@@ -239,14 +240,12 @@ class ModbusSlaveDevice(aio.Resource):
         await self._eventer_client.register([event])
 
     async def _cleanup_connection(self, conn):
-        event = self._keep_alive_events.get(conn)
+        event = self._keep_alive_events.pop(conn, None)
         if event:
             event.set()
 
-        self._keep_alive_events.pop(conn, None)
-
         if conn.is_open:
-            conn.close()
+            await conn.async_close()
 
         conn_id = self._conns.pop(conn, None)
         if conn_id is not None:
@@ -261,7 +260,7 @@ class ModbusSlaveDevice(aio.Resource):
             await self._process_data_event(event, data_name)
 
         elif suffix[:2] == ('system', 'write'):
-            await self._process_write_event(event)
+            self._process_write_event(event)
 
         else:
             raise Exception('unsupported event type')
@@ -272,7 +271,7 @@ class ModbusSlaveDevice(aio.Resource):
 
         self._write_event_value(data_name, event.payload.data['value'])
 
-    async def _process_write_event(self, event):
+    def _process_write_event(self, event):
         request_id = event.payload.data['request_id']
         req_future = self._write_reqs.pop(request_id, None)
 
