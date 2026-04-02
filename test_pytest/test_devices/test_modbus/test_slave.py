@@ -357,6 +357,29 @@ async def test_connection_serial(transport_conf_serial, modbus_type,
 
     assert event_queue.empty()
 
+    master = await modbus.create_serial_master(
+        modbus_type=modbus.ModbusType[conf['modbus_type']],
+        port=master_serial_port,
+        baudrate=conf['transport']['baudrate'],
+        bytesize=serial.ByteSize[conf['transport']['bytesize']],
+        parity=serial.Parity[conf['transport']['parity']],
+        stopbits=serial.StopBits[conf['transport']['stopbits']],
+        xonxoff=conf['transport']['flow_control']['xonxoff'],
+        rtscts=conf['transport']['flow_control']['rtscts'],
+        dsrdtr=conf['transport']['flow_control']['dsrdtr'],
+        silent_interval=conf['transport']['silent_interval'])
+    # send first message in order to establish connection
+    await master.send(modbus.ReadReq(device_id=1,
+                                     data_type=modbus.DataType.COIL,
+                                     start_address=0,
+                                     quantity=1))
+
+    event = await event_queue.get()
+    assert_connections_event(event, 1)
+    conn = event.payload.data[0]
+    assert conn['type'] == 'SERIAL'
+
+    await master.async_close()
     await device.async_close()
 
 

@@ -103,36 +103,14 @@ class ModbusSlaveDevice(aio.Resource):
                                        tcp_server.async_close)
 
             elif transport_conf['type'] == 'SERIAL':
-                port = transport_conf['port']
-                baudrate = transport_conf['baudrate']
-                bytesize = serial.ByteSize[transport_conf['bytesize']]
-                parity = serial.Parity[transport_conf['parity']]
-                stopbits = serial.StopBits[transport_conf['stopbits']]
-                xonxoff = transport_conf['flow_control']['xonxoff']
-                rtscts = transport_conf['flow_control']['rtscts']
-                dsrdtr = transport_conf['flow_control']['dsrdtr']
-                silent_interval = transport_conf['silent_interval']
-
-                conn = await modbus.create_serial_slave(
-                    modbus_type=modbus_type,
-                    port=port,
-                    baudrate=baudrate,
-                    bytesize=bytesize,
-                    parity=parity,
-                    stopbits=stopbits,
-                    xonxoff=xonxoff,
-                    rtscts=rtscts,
-                    dsrdtr=dsrdtr,
-                    request_cb=self._on_request,
-                    silent_interval=silent_interval)
-
-                self.async_group.spawn(self._on_serial_connection, conn)
+                self._async_group.spawn(self._serial_connection_loop)
 
             else:
                 raise ValueError('unsupported link type')
 
         except Exception as e:
-            self._log.warning('connection loop error: %s', e, exc_info=e)
+            self._log.error('connection loop error: %s', e, exc_info=e)
+            self.close()
 
     async def _on_tcp_connection(self, conn):
         transport_conf = self._conf['transport']
@@ -176,6 +154,47 @@ class ModbusSlaveDevice(aio.Resource):
 
         finally:
             await self._cleanup_connection(conn)
+
+    async def _serial_connection_loop(self):
+        transport_conf = self._conf['transport']
+        modbus_type = modbus.ModbusType[self._conf['modbus_type']]
+
+        while True:
+            try:
+                port = transport_conf['port']
+                baudrate = transport_conf['baudrate']
+                bytesize = serial.ByteSize[transport_conf['bytesize']]
+                parity = serial.Parity[transport_conf['parity']]
+                stopbits = serial.StopBits[transport_conf['stopbits']]
+                xonxoff = transport_conf['flow_control']['xonxoff']
+                rtscts = transport_conf['flow_control']['rtscts']
+                dsrdtr = transport_conf['flow_control']['dsrdtr']
+                silent_interval = transport_conf['silent_interval']
+
+                conn = await modbus.create_serial_slave(
+                    modbus_type=modbus_type,
+                    port=port,
+                    baudrate=baudrate,
+                    bytesize=bytesize,
+                    parity=parity,
+                    stopbits=stopbits,
+                    xonxoff=xonxoff,
+                    rtscts=rtscts,
+                    dsrdtr=dsrdtr,
+                    request_cb=self._on_request,
+                    silent_interval=silent_interval)
+
+            except Exception:
+                raise
+
+            try:
+                await self._on_serial_connection(conn)
+
+            except ConnectionError:
+                self._log.debug('connection closed')
+
+            except Exception as e:
+                self._log.error('serial connection error: %s', e, exc_info=e)
 
     async def _on_serial_connection(self, conn):
         try:
@@ -355,7 +374,7 @@ class ModbusSlaveDevice(aio.Resource):
             return modbus.Error.INVALID_DATA_ADDRESS
 
         if not data:
-            return modbus.Success
+            return modbus.Success()
 
         try:
             return await self._write_response(conn, data)
@@ -379,7 +398,7 @@ class ModbusSlaveDevice(aio.Resource):
             return modbus.Error.INVALID_DATA_ADDRESS
 
         if not data:
-            return modbus.Success
+            return modbus.Success()
 
         try:
             return await self._write_response(conn, data)
@@ -412,7 +431,7 @@ class ModbusSlaveDevice(aio.Resource):
             self._write_reqs.pop(request_id)
             raise Exception('response timeout')
 
-        return modbus.Success
+        return modbus.Success()
 
     def _write_coil_to_data(self, request):
         if any(v not in {0, 1} for v in request.values):

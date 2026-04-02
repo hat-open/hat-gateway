@@ -198,10 +198,65 @@ Modbus slave
 Modbus slave device configuration is specified by
 ``hat-gateway://modbus.yaml#/$defs/slave``.
 
+According to :ref:`gateway specification <gateway>`, all modbus slave device
+event types have prefix::
 
-.. todo::
+    gateway/modbus_slave/<device_name>/<source>/...
 
-    ...
+Modbus slave device provides implementation of modbus slave which accepts
+multiple TCP master connections or a single serial master connection.
+A change in the list of active master connections triggers the registration
+of a new gateway 'connections' event containing the current state of the
+connections list. A serial master connection is considered active only after
+the first modbus request is made. Also, serial connections list will contain
+one connection at the most.
+
+Modbus slave device is configured with list of available data. Once started,
+device queries last system 'data' events corresponding to the configured data.
+This local cache is continuously updated with the latest data states based on
+received system 'data' events. Each configured data has a device id specified.
+For each modbus request (read, write or write mask) using a device id that
+is not configured, a TCP modbus slave slave shall return an
+``INVALID_DATA_ADDRESS`` error, whereas a serial modbus slave shall return
+``None``. Broadcast device id 0 is not supported.
+
+A keep-alive mechanism is supported. It can be optionally configured for TCP
+slave devices, and is mandatory for serial slave devices. If configured, a
+master connecting starts a keep-alive timer. Each master modbus request for a
+configured device id resets the timer. If the timer expires, the connection
+is considered inactive, and the registration of a gateway 'connections' event
+is triggered.
+
+When slave receives a modbus master read request, it will immediately respond
+with read response based on the current state of local data cache. If the
+modbus read request tries to read values that do not belong to any configured
+data, an ``INVALID_DATA_ADDRESS`` error is returned.
+
+Modbus slave device also supports modbus write and modbus write mask requests.
+If slave receives a write request that at least partially hits configured data
+(at least one bit), it registers a gateway 'write' event containing the new
+data value. If multiple data items are affected, only one gateway 'write' event
+is registered, containing all updated values.
+If the request attempts to write on data that is not configured,
+an ``INVALID_DATA_ADDRESS`` error is returned.
+
+Modbus write mask request behaves similarly. If slave receives a write mask
+request that at least partially hits configured data (at least one bit),
+it registers a gateway 'write' event containing the new data value. If multiple
+data items are affected, only one gateway 'write' event is registered,
+containing all updated values.
+If the request tries to write on data that is not configured,
+an ``INVALID_DATA_ADDRESS`` is returned.
+Also, if not one bit of the hit data is affected by write mask request mask, a
+``Success`` is returned without registering a gateway 'write' event.
+A bit is considered affected if the applied and_mask used on that bit is not
+equal to 1.
+
+In both write and write mask request, when gateway 'write' event is generated,
+return value is based on paired system 'write' event's `success` value. If
+`success` is ``True`` `Success` is returned, ``FUNCTION_ERROR`` otherwise.
+If no paired system 'write' event is received within the configured
+`response_timeout` seconds, ``FUNCTION_ERROR`` is returned.
 
 
 Gateway events
