@@ -409,17 +409,18 @@ async def test_read(slave_addr, connection_conf, data_type, bit_offset,
             [create_remote_device_enable_event(1, True)],
             False)
 
-    async def on_read(slave, device_id, _data_type, start_address, quantity):
-        assert device_id == 1
-        assert data_type == _data_type.name
-        assert start_address == 123
-        assert quantity == len(registers)
+    async def on_request(slave, request):
+        assert isinstance(request, modbus.ReadReq)
+        assert request.device_id == 1
+        assert request.data_type == data_type
+        assert request.start_address == 123
+        assert request.quantity == len(registers)
         return registers
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait,
                                    query_cb=on_query)
     server = await modbus.create_tcp_server(modbus.ModbusType.TCP, slave_addr,
-                                            read_cb=on_read)
+                                            request_cb=on_request)
     device = await aio.call(info.create, conf, eventer_client,
                             event_type_prefix)
 
@@ -525,20 +526,24 @@ async def test_write(slave_addr, connection_conf, data_type, bit_offset,
                                           'bit_offset': bit_offset,
                                           'bit_count': bit_count}]}]}
 
-    async def on_write_mask(slave, device_id, address, and_mask, or_mask):
-        assert device_id == 1
-        data[address] = modbus.apply_mask(data[address], and_mask, or_mask)
+    async def on_request(slave, request):
+        if isinstance(request, modbus.WriteReq):
+            assert request.device_id == 1
+            assert request.data_type == data_type
+            for i, value in enumerate(request.values):
+                data[request.start_address + i] = value
 
-    async def on_write(slave, device_id, _data_type, start_address, registers):
-        assert device_id == 1
-        assert data_type == _data_type.name
-        for i, register in enumerate(registers):
-            data[start_address + i] = register
+        if isinstance(request, modbus.WriteMaskReq):
+            assert request.device_id == 1
+            data[request.address] = modbus.apply_mask(data[request.address],
+                                                      request.and_mask,
+                                                      request.or_mask)
+
+        return modbus.Success()
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     server = await modbus.create_tcp_server(modbus.ModbusType.TCP, slave_addr,
-                                            write_cb=on_write,
-                                            write_mask_cb=on_write_mask)
+                                            request_cb=on_request)
     device = await aio.call(info.create, conf, eventer_client,
                             event_type_prefix)
 

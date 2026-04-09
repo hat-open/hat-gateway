@@ -148,13 +148,13 @@ async def test_read(profile, nullmodem, conn_conf, remote_device_count,
 
         return hat.event.common.QueryResult(events, False)
 
-    async def on_read(slave, device_id, _data_type, start_address, quantity):
-        return list(range(quantity))
+    async def on_request(slave, request):
+        return list(range(request.quantity))
 
     eventer_client = EventerClient(query_cb=on_query)
     slave = await modbus.create_serial_slave(modbus_type=modbus.ModbusType.RTU,
                                              port=nullmodem[0],
-                                             read_cb=on_read,
+                                             request_cb=on_request,
                                              silent_interval=0)
 
     with profile(f"remote_device_count_{remote_device_count}_"
