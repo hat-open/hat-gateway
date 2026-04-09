@@ -1,5 +1,6 @@
 from collections.abc import Collection
 import asyncio
+import collections
 import contextlib
 import itertools
 import logging
@@ -43,19 +44,19 @@ async def create(conf: common.DeviceConf,
     device._async_group = aio.Group()
     device._loop = asyncio.get_running_loop()
 
-    device._data = {data['name']: data for data in conf['data']}
+    device._data_confs = {data['name']: data for data in conf['data']}
     device._cache = {
         device_id: {data_type: {} for data_type in modbus.DataType}
         for device_id in device._device_ids}
 
     device._log = _create_logger_adapter(conf['name'])
 
-    await device._init_cache()
-
     try:
+        await device._init_cache()
+
         await device._register_connections()
 
-        await device._connection_loop()
+        await device._create_slave()
 
     except BaseException:
         await aio.uncancellable(device.async_close())
@@ -86,7 +87,7 @@ class ModbusSlaveDevice(aio.Resource):
             except Exception as e:
                 self._log.warning('error processing event: %s', e, exc_info=e)
 
-    async def _connection_loop(self):
+    async def _create_slave(self):
         try:
             transport_conf = self._conf['transport']
             modbus_type = modbus.ModbusType[self._conf['modbus_type']]
@@ -103,7 +104,7 @@ class ModbusSlaveDevice(aio.Resource):
                                        tcp_server.async_close)
 
             elif transport_conf['type'] == 'SERIAL':
-                self._async_group.spawn(self._serial_connection_loop)
+                self.async_group.spawn(self._serial_connection_loop)
 
             else:
                 raise ValueError('unsupported link type')
@@ -126,8 +127,7 @@ class ModbusSlaveDevice(aio.Resource):
                               'not allowed', remote_host)
             return
 
-        if (max_connections is not None and
-                len(self._conns) >= max_connections):
+        if max_connections is not None and len(self._conns) >= max_connections:
             conn.close()
             self._log.debug('connection closed: max connections '
                             'exceeded (remote host %s)',
@@ -184,7 +184,8 @@ class ModbusSlaveDevice(aio.Resource):
                     request_cb=self._on_request,
                     silent_interval=silent_interval)
 
-            except Exception:
+            except Exception as e:
+                self._log.error('create serial error: %s', e, exc_info=e)
                 raise
 
             try:
@@ -285,7 +286,7 @@ class ModbusSlaveDevice(aio.Resource):
             raise Exception('unsupported event type')
 
     async def _process_data_event(self, event, data_name):
-        if data_name not in self._data:
+        if data_name not in self._data_confs:
             raise Exception(f'data {data_name} not configured')
 
         self._write_event_value(data_name, event.payload.data['value'])
@@ -357,8 +358,6 @@ class ModbusSlaveDevice(aio.Resource):
         return values
 
     async def _process_write_request(self, request, conn):
-        data = []
-
         try:
             if request.data_type == modbus.DataType.COIL:
                 data = self._write_coil_to_data(request)
@@ -388,8 +387,6 @@ class ModbusSlaveDevice(aio.Resource):
             self._log.warning('broadcast device_id 0 not supported')
             return modbus.Error.FUNCTION_ERROR
 
-        data = []
-
         try:
             data = self._write_mask_to_data(request)
 
@@ -418,7 +415,7 @@ class ModbusSlaveDevice(aio.Resource):
             payload=hat.event.common.EventPayloadJson({
                 'request_id': request_id,
                 'connection_id': self._conns[conn],
-                'data': data}))
+                'data': list(data)}))
 
         await self._eventer_client.register([event])
 
@@ -459,7 +456,8 @@ class ModbusSlaveDevice(aio.Resource):
             if cache.get(address) is None:
                 raise Exception(f'write on unconfigured address: {address}')
 
-        bit_values = [int(b) for v in request.values for b in f"{v:016b}"]
+        bit_values = [((value >> (15 - i)) & 1) for value in request.values
+                      for i in range(16)]
 
         return self._write_to_data(request.device_id, request.data_type,
                                    request.start_address, bit_values)
@@ -478,13 +476,14 @@ class ModbusSlaveDevice(aio.Resource):
 
         prev = cache.get(request.address, 0)
         value = modbus.apply_mask(prev, request.and_mask, request.or_mask)
-        bit_values = [int(b) for b in f"{value:016b}"]
+        bit_values = [((value >> (15 - i)) & 1) for i in range(16)]
 
         data = self._write_to_data(request.device_id, data_type,
                                    request.address, bit_values)
 
-        for d in list(data):
-            conf = self._data[d['name']]
+        res_data = collections.deque()
+        for d in data:
+            conf = self._data_confs[d['name']]
             data_start = conf['start_address'] * 16 + conf['bit_offset']
             bit_count = conf['bit_count']
             data_end = data_start + bit_count
@@ -494,12 +493,10 @@ class ModbusSlaveDevice(aio.Resource):
 
             for bit_address in range(overlap_start, overlap_end):
                 if not ((request.and_mask >> 15 - (bit_address % 16)) & 1):
+                    res_data.append(d)
                     break
 
-            else:
-                data.remove(d)
-
-        return data
+        return res_data
 
     def _write_to_data(self, device_id, data_type, start_address, values):
         register_size = 1 if data_type == modbus.DataType.COIL else 16
@@ -507,9 +504,9 @@ class ModbusSlaveDevice(aio.Resource):
         req_bit_start = start_address * register_size
         req_bit_end = req_bit_start + len(values)
 
-        data = []
+        data = collections.deque()
 
-        for name, conf in self._data.items():
+        for name, conf in self._data_confs.items():
             conf_data_type = modbus.DataType[conf['data_type']]
 
             if conf_data_type != data_type or conf['device_id'] != device_id:
@@ -553,15 +550,14 @@ class ModbusSlaveDevice(aio.Resource):
         params = hat.event.common.QueryLatestParams(event_types)
         result = await self._eventer_client.query(params)
 
-        data = {data['name']: data for data in self._conf['data']}
-        for data_name in data:
+        for data_name in self._data_confs.keys():
             self._write_event_value(data_name, 0)
 
         for event in result.events:
             try:
                 data_name = event.type[len(self._event_type_prefix) + 2]
 
-                if data_name not in data:
+                if data_name not in self._data_confs:
                     raise Exception(f'data {data_name} not configured')
 
                 self._write_event_value(data_name, event.payload.data['value'])
@@ -570,14 +566,13 @@ class ModbusSlaveDevice(aio.Resource):
                 self._log.debug('skipping initial data: %s', e, exc_info=e)
 
     def _write_event_value(self, data_name, value):
-        conf = self._data[data_name]
+        conf = self._data_confs[data_name]
         data_type = modbus.DataType[conf['data_type']]
         device_id = conf['device_id']
 
         bit_count = conf['bit_count']
 
-        if (not isinstance(value, int) or value < 0
-                or value >> bit_count):
+        if not isinstance(value, int) or value < 0 or value >> bit_count:
             self._log.warning('invalid data value for %s: %s',
                               data_name, value)
             return
@@ -606,7 +601,7 @@ class ModbusSlaveDevice(aio.Resource):
             return (reg_val >> reg_bit) & 1
 
         else:
-            return 0
+            raise ValueError('unsupported data type')
 
     def _set_bit(self, device_id, data_type, bit_address, bit):
         if data_type in {modbus.DataType.COIL,
@@ -627,6 +622,9 @@ class ModbusSlaveDevice(aio.Resource):
                 reg_val &= ~(1 << reg_bit)
 
             self._cache[device_id][data_type][reg_index] = reg_val
+
+        else:
+            raise ValueError('unsupported data type')
 
 
 def _unique_ids():

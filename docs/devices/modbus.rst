@@ -213,7 +213,7 @@ one connection at the most.
 
 Modbus slave device is configured with list of available data. Once started,
 device queries last system 'data' events corresponding to the configured data.
-This local cache is continuously updated with the latest data states based on
+This local cache is continuously updated with the latest data values based on
 received system 'data' events. Each configured data has a device id specified.
 For each modbus request (read, write or write mask) using a device id that
 is not configured, a TCP modbus slave slave shall return an
@@ -246,11 +246,15 @@ it registers a gateway 'write' event containing the new data value. If multiple
 data items are affected, only one gateway 'write' event is registered,
 containing all updated values.
 If the request tries to write on data that is not configured,
-an ``INVALID_DATA_ADDRESS`` is returned.
+an ``INVALID_DATA_ADDRESS`` error is returned.
 Also, if not one bit of the hit data is affected by write mask request mask, a
 ``Success`` is returned without registering a gateway 'write' event.
 A bit is considered affected if the applied and_mask used on that bit is not
 equal to 1.
+
+Both write and write mask requests take the current local cache data values
+into consideration, and the new data value is calculated based on the previous
+one.
 
 In both write and write mask request, when gateway 'write' event is generated,
 return value is based on paired system 'write' event's `success` value. If
