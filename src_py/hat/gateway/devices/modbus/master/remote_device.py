@@ -11,21 +11,16 @@ import typing
 
 from hat import aio
 from hat import json
+from hat.drivers import modbus
 
 from hat.gateway.devices.modbus.master import common
-from hat.gateway.devices.modbus.master.connection import (DataType,
-                                                          Error,
-                                                          Connection)
-from hat.gateway.devices.modbus.master.eventer_client import (RemoteDeviceStatusRes,  # NOQA
-                                                              RemoteDeviceReadRes,  # NOQA
-                                                              RemoteDeviceWriteRes,  # NOQA
-                                                              Response)
+from hat.gateway.devices.modbus.master.connection import Connection
 
 
 mlog = logging.getLogger(__name__)
 
 
-ResponseCb: typing.TypeAlias = aio.AsyncCallable[[Response], None]
+ResponseCb: typing.TypeAlias = aio.AsyncCallable[[common.Response], None]
 
 
 class _Status(enum.Enum):
@@ -36,7 +31,7 @@ class _Status(enum.Enum):
 
 
 class _DataInfo(typing.NamedTuple):
-    data_type: DataType
+    data_type: modbus.DataType
     register_size: int
     start_address: int
     bit_count: int
@@ -49,7 +44,7 @@ class _DataInfo(typing.NamedTuple):
 class _DataGroup(typing.NamedTuple):
     data_infos: list[_DataInfo]
     interval: float
-    data_type: DataType
+    data_type: modbus.DataType
     start_address: int
     quantity: int
 
@@ -90,36 +85,47 @@ class RemoteDevice:
                     data_name: str,
                     request_id: str,
                     value: int
-                    ) -> RemoteDeviceWriteRes | None:
+                    ) -> common.RemoteDeviceWriteRes | None:
         data_info = self._data_infos.get(data_name)
         if not data_info:
             self._log.debug('data %s is not available', data_name)
             return
 
-        if data_info.data_type == DataType.COIL:
-            result = await self._write_coil(data_info, value)
+        if data_info.data_type == modbus.DataType.COIL:
+            res = await self._write_coil(data_info, value)
 
-        elif data_info.data_type == DataType.HOLDING_REGISTER:
-            result = await self._write_holding_register(data_info, value)
+        elif data_info.data_type == modbus.DataType.HOLDING_REGISTER:
+            res = await self._write_holding_register(data_info, value)
 
         else:
             self._log.debug('write unsupported for %s', data_info.data_type)
             return
 
-        return RemoteDeviceWriteRes(
+        if isinstance(res, modbus.Error):
+            result = res.name
+
+        elif isinstance(res, common.Timeout):
+            result = 'TIMEOUT'
+
+        else:
+            result = 'SUCCESS'
+
+        return common.RemoteDeviceWriteRes(
             device_id=self._device_id,
             data_name=data_name,
             request_id=request_id,
-            result=result.name if result else 'SUCCESS')
+            result=result)
 
     async def _write_coil(self, data_info, value):
         address = data_info.start_address + data_info.bit_offset
         registers = [(value >> (data_info.bit_count - i - 1)) & 1
                      for i in range(data_info.bit_count)]
-        return await self._conn.write(device_id=self._device_id,
-                                      data_type=data_info.data_type,
-                                      start_address=address,
-                                      values=registers)
+        req = modbus.WriteReq(device_id=self._device_id,
+                              data_type=data_info.data_type,
+                              start_address=address,
+                              values=registers)
+
+        return await self._conn.send(req)
 
     async def _write_holding_register(self, data_info, value):
         address = data_info.start_address + (data_info.bit_offset // 16)
@@ -135,12 +141,15 @@ class RemoteDevice:
             or_mask = (((value >> (bit_count - mask_size)) &
                         ((1 << mask_size) - 1)) <<
                        mask_suffix_size)
-            result = await self._conn.write_mask(device_id=self._device_id,
-                                                 address=address,
-                                                 and_mask=and_mask,
-                                                 or_mask=or_mask)
-            if result:
-                return result
+            req = modbus.WriteMaskReq(device_id=self._device_id,
+                                      address=address,
+                                      and_mask=and_mask,
+                                      or_mask=or_mask)
+
+            res = await self._conn.send(req)
+            if not isinstance(res, modbus.Success):
+                return res
+
             address += 1
             bit_count -= mask_size
 
@@ -148,24 +157,29 @@ class RemoteDevice:
         if register_count:
             registers = [(value >> (bit_count - 16 * (i + 1))) & 0xFFFF
                          for i in range(register_count)]
-            result = await self._conn.write(device_id=self._device_id,
-                                            data_type=data_info.data_type,
-                                            start_address=address,
-                                            values=registers)
-            if result:
-                return result
+            req = modbus.WriteReq(device_id=self._device_id,
+                                  data_type=data_info.data_type,
+                                  start_address=address,
+                                  values=registers)
+
+            res = await self._conn.send(req)
+            if not isinstance(res, modbus.Success):
+                return res
+
             address += register_count
             bit_count -= 16 * register_count
 
         if not bit_count:
-            return
+            return modbus.Success()
 
         and_mask = (0xFFFF << (16 - bit_count)) >> 16
         or_mask = (value & ((1 << bit_count) - 1)) << (16 - bit_count)
-        return await self._conn.write_mask(device_id=self._device_id,
-                                           address=address,
-                                           and_mask=and_mask,
-                                           or_mask=or_mask)
+        req = modbus.WriteMaskReq(device_id=self._device_id,
+                                  address=address,
+                                  and_mask=and_mask,
+                                  or_mask=or_mask)
+
+        return await self._conn.send(req)
 
 
 class _Reader(aio.Resource):
@@ -225,13 +239,15 @@ class _Reader(aio.Resource):
 
                 self._log.debug('reading data')
                 for data_group in read_data_groups:
-                    result = await self._conn.read(
+                    req = modbus.ReadReq(
                         device_id=self._device_id,
                         data_type=data_group.data_type,
                         start_address=data_group.start_address,
                         quantity=data_group.quantity)
 
-                    if isinstance(result, Error) and result.name == 'TIMEOUT':
+                    res = await self._conn.send(req)
+
+                    if isinstance(res, common.Timeout):
                         timeout = True
                         break
 
@@ -240,9 +256,9 @@ class _Reader(aio.Resource):
                     for data_info in data_group.data_infos:
                         last_response = last_responses.get(data_info.name)
 
-                        response = self._process_read_result(
-                            data_info, data_group.start_address,
-                            result, last_response)
+                        response = self._process_read_res(
+                            data_info, data_group.start_address, res,
+                            last_response)
 
                         if response:
                             last_responses[data_info.name] = response
@@ -269,40 +285,48 @@ class _Reader(aio.Resource):
             with contextlib.suppress(Exception):
                 await aio.uncancellable(self._set_status(_Status.DISABLED))
 
-    def _process_read_result(self, data_info, start_address, result,
-                             last_response):
-        if isinstance(result, Error):
+    def _process_read_res(self, data_info, start_address, res, last_response):
+        if isinstance(res, modbus.Error):
+            result = res.name
+
+        elif isinstance(res, common.Timeout):
+            result = 'TIMEOUT'
+
+        else:
+            result = 'SUCCESS'
+
+        if result != 'SUCCESS':
             self._log.debug('data name %s: error response %s',
                             data_info.name, result)
-            return RemoteDeviceReadRes(device_id=self._device_id,
-                                       data_name=data_info.name,
-                                       result=result.name,
-                                       value=None,
-                                       cause=None)
+            return common.RemoteDeviceReadRes(device_id=self._device_id,
+                                              data_name=data_info.name,
+                                              result=result,
+                                              value=None,
+                                              cause=None)
 
         offset = data_info.start_address - start_address
         value = _get_registers_value(
             data_info.register_size, data_info.bit_offset,
             data_info.bit_count,
-            result[offset:offset+data_info.quantity])
+            res[offset:offset+data_info.quantity])
 
         if last_response is None or last_response.result != 'SUCCESS':
             self._log.debug('data name %s: initial value %s',
                             data_info.name, value)
-            return RemoteDeviceReadRes(device_id=self._device_id,
-                                       data_name=data_info.name,
-                                       result='SUCCESS',
-                                       value=value,
-                                       cause='INTERROGATE')
+            return common.RemoteDeviceReadRes(device_id=self._device_id,
+                                              data_name=data_info.name,
+                                              result=result,
+                                              value=value,
+                                              cause='INTERROGATE')
 
         if last_response.value != value:
             self._log.debug('data name %s: value change %s -> %s',
                             data_info.name, last_response.value, value)
-            return RemoteDeviceReadRes(device_id=self._device_id,
-                                       data_name=data_info.name,
-                                       result='SUCCESS',
-                                       value=value,
-                                       cause='CHANGE')
+            return common.RemoteDeviceReadRes(device_id=self._device_id,
+                                              data_name=data_info.name,
+                                              result=result,
+                                              value=value,
+                                              cause='CHANGE')
 
         self._log.debug('data name %s: no value change', data_info.name)
 
@@ -314,14 +338,14 @@ class _Reader(aio.Resource):
                         self._status, status)
         self._status = status
 
-        res = RemoteDeviceStatusRes(device_id=self._device_id,
-                                    status=status.name)
-        await aio.call(self._response_cb, res)
+        response = common.RemoteDeviceStatusRes(device_id=self._device_id,
+                                                status=status.name)
+        await aio.call(self._response_cb, response)
 
 
 def _get_data_infos(conf):
     for i in conf['data']:
-        data_type = DataType[i['data_type']]
+        data_type = modbus.DataType[i['data_type']]
         register_size = _get_register_size(data_type)
         bit_count = i['bit_count']
         bit_offset = i['bit_offset']
@@ -405,28 +429,28 @@ def _group_data_infos_with_type_interval(data_infos, data_type, interval):
 
 
 def _get_register_size(data_type):
-    if data_type in (DataType.COIL,
-                     DataType.DISCRETE_INPUT):
+    if data_type in (modbus.DataType.COIL,
+                     modbus.DataType.DISCRETE_INPUT):
         return 1
 
-    if data_type in (DataType.HOLDING_REGISTER,
-                     DataType.INPUT_REGISTER,
-                     DataType.QUEUE):
+    if data_type in (modbus.DataType.HOLDING_REGISTER,
+                     modbus.DataType.INPUT_REGISTER,
+                     modbus.DataType.QUEUE):
         return 16
 
     raise ValueError('invalid data type')
 
 
 def _get_max_quantity(data_type):
-    if data_type in (DataType.COIL,
-                     DataType.DISCRETE_INPUT):
+    if data_type in (modbus.DataType.COIL,
+                     modbus.DataType.DISCRETE_INPUT):
         return 2000
 
-    if data_type in (DataType.HOLDING_REGISTER,
-                     DataType.INPUT_REGISTER):
+    if data_type in (modbus.DataType.HOLDING_REGISTER,
+                     modbus.DataType.INPUT_REGISTER):
         return 125
 
-    if data_type == DataType.QUEUE:
+    if data_type == modbus.DataType.QUEUE:
         return 1
 
     raise ValueError('invalid data type')

@@ -412,7 +412,7 @@ async def test_read(slave_addr, connection_conf, data_type, bit_offset,
     async def on_request(slave, request):
         assert isinstance(request, modbus.ReadReq)
         assert request.device_id == 1
-        assert request.data_type == data_type
+        assert request.data_type == modbus.DataType[data_type]
         assert request.start_address == 123
         assert request.quantity == len(registers)
         return registers
@@ -529,7 +529,7 @@ async def test_write(slave_addr, connection_conf, data_type, bit_offset,
     async def on_request(slave, request):
         if isinstance(request, modbus.WriteReq):
             assert request.device_id == 1
-            assert request.data_type == data_type
+            assert request.data_type == modbus.DataType[data_type]
             for i, value in enumerate(request.values):
                 data[request.start_address + i] = value
 

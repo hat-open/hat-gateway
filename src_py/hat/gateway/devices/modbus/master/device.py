@@ -9,12 +9,7 @@ import hat.event.eventer
 
 from hat.gateway.devices.modbus.master import common
 from hat.gateway.devices.modbus.master.connection import connect
-from hat.gateway.devices.modbus.master.eventer_client import (RemoteDeviceEnableReq,  # NOQA
-                                                              RemoteDeviceWriteReq,  # NOQA
-                                                              StatusRes,
-                                                              RemoteDeviceStatusRes,  # NOQA
-                                                              RemoteDeviceWriteRes,  # NOQA
-                                                              EventerClientProxy)  # NOQA
+from hat.gateway.devices.modbus.master.eventer_client import EventerClientProxy
 from hat.gateway.devices.modbus.master.remote_device import RemoteDevice
 
 
@@ -48,14 +43,14 @@ class ModbusMasterDevice(aio.Resource):
     async def process_events(self, events: Collection[hat.event.common.Event]):
         try:
             for request in self._eventer_client.process_events(events):
-                if isinstance(request, RemoteDeviceEnableReq):
+                if isinstance(request, common.RemoteDeviceEnableReq):
                     self._log.debug('received remote device enable request')
                     if request.enable:
                         self._enable_remote_device(request.device_id)
                     else:
                         await self._disable_remote_device(request.device_id)
 
-                elif isinstance(request, RemoteDeviceWriteReq):
+                elif isinstance(request, common.RemoteDeviceWriteReq):
                     self._log.debug('received remote device write request')
                     if self._conn and self._conn.is_open:
                         self._conn.async_group.spawn(
@@ -117,9 +112,10 @@ class ModbusMasterDevice(aio.Resource):
                         self._enable_remote_device(device.device_id)
 
                     else:
-                        await self._notify_response(RemoteDeviceStatusRes(
-                            device_id=device.device_id,
-                            status='DISABLED'))
+                        await self._notify_response(
+                            common.RemoteDeviceStatusRes(
+                                device_id=device.device_id,
+                                status='DISABLED'))
 
                 await self._conn.wait_closing()
                 await self._conn.async_close()
@@ -143,7 +139,7 @@ class ModbusMasterDevice(aio.Resource):
 
         self._log.debug('changing status: %s -> %s', self._status, status)
         self._status = status
-        await self._notify_response(StatusRes(status))
+        await self._notify_response(common.StatusRes(status))
 
     def _enable_remote_device(self, device_id):
         self._log.debug('enabling device %s', device_id)

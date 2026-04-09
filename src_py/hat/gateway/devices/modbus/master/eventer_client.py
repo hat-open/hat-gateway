@@ -1,7 +1,6 @@
 from collections.abc import Collection, Iterable
 import contextlib
 import logging
-import typing
 
 from hat import aio
 import hat.event.common
@@ -11,51 +10,6 @@ from hat.gateway.devices.modbus.master import common
 
 
 mlog = logging.getLogger(__name__)
-
-
-class RemoteDeviceEnableReq(typing.NamedTuple):
-    device_id: int
-    enable: bool
-
-
-class RemoteDeviceWriteReq(typing.NamedTuple):
-    device_id: int
-    data_name: str
-    request_id: str
-    value: int
-
-
-Request: typing.TypeAlias = RemoteDeviceEnableReq | RemoteDeviceWriteReq
-
-
-class StatusRes(typing.NamedTuple):
-    status: str
-
-
-class RemoteDeviceStatusRes(typing.NamedTuple):
-    device_id: int
-    status: str
-
-
-class RemoteDeviceReadRes(typing.NamedTuple):
-    device_id: int
-    data_name: str
-    result: str
-    value: int | None
-    cause: str | None
-
-
-class RemoteDeviceWriteRes(typing.NamedTuple):
-    device_id: int
-    data_name: str
-    request_id: str
-    result: str
-
-
-Response: typing.TypeAlias = (StatusRes |
-                              RemoteDeviceStatusRes |
-                              RemoteDeviceReadRes |
-                              RemoteDeviceWriteRes)
 
 
 class EventerClientProxy(aio.Resource):
@@ -74,7 +28,7 @@ class EventerClientProxy(aio.Resource):
 
     def process_events(self,
                        events: Collection[hat.event.common.Event]
-                       ) -> Iterable[Request]:
+                       ) -> Iterable[common.Request]:
         self._log.debug('received %s events', len(events))
         for event in events:
             try:
@@ -83,7 +37,7 @@ class EventerClientProxy(aio.Resource):
             except Exception as e:
                 self._log.info('received invalid event: %s', e, exc_info=e)
 
-    async def write(self, responses: Iterable[Response]):
+    async def write(self, responses: Iterable[common.Response]):
         events = [_response_to_register_event(self._event_type_prefix, i)
                   for i in responses]
         await self._eventer_client.register(events)
@@ -120,32 +74,32 @@ def _request_from_event(event_type_prefix, event):
 
     if event_type_suffix[3] == 'enable':
         enable = bool(event.payload.data)
-        return RemoteDeviceEnableReq(device_id=device_id,
-                                     enable=enable)
+        return common.RemoteDeviceEnableReq(device_id=device_id,
+                                            enable=enable)
 
     if event_type_suffix[3] == 'write':
         data_name = event_type_suffix[4]
         request_id = event.payload.data['request_id']
         value = event.payload.data['value']
-        return RemoteDeviceWriteReq(device_id=device_id,
-                                    data_name=data_name,
-                                    request_id=request_id,
-                                    value=value)
+        return common.RemoteDeviceWriteReq(device_id=device_id,
+                                           data_name=data_name,
+                                           request_id=request_id,
+                                           value=value)
 
     raise Exception('unsupported event type')
 
 
 def _response_to_register_event(event_type_prefix, res):
-    if isinstance(res, StatusRes):
+    if isinstance(res, common.StatusRes):
         event_type = (*event_type_prefix, 'gateway', 'status')
         payload = res.status
 
-    elif isinstance(res, RemoteDeviceStatusRes):
+    elif isinstance(res, common.RemoteDeviceStatusRes):
         event_type = (*event_type_prefix, 'gateway', 'remote_device',
                       str(res.device_id), 'status')
         payload = res.status
 
-    elif isinstance(res, RemoteDeviceReadRes):
+    elif isinstance(res, common.RemoteDeviceReadRes):
         event_type = (*event_type_prefix, 'gateway', 'remote_device',
                       str(res.device_id), 'read', res.data_name)
         payload = {'result': res.result}
@@ -154,7 +108,7 @@ def _response_to_register_event(event_type_prefix, res):
         if res.cause is not None:
             payload['cause'] = res.cause
 
-    elif isinstance(res, RemoteDeviceWriteRes):
+    elif isinstance(res, common.RemoteDeviceWriteRes):
         event_type = (*event_type_prefix, 'gateway', 'remote_device',
                       str(res.device_id), 'write', res.data_name)
         payload = {'request_id': res.request_id,

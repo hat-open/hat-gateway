@@ -1,8 +1,6 @@
 import asyncio
-import enum
 import logging
 import time
-import typing
 
 from hat import json
 from hat import aio
@@ -14,19 +12,6 @@ from hat.gateway.devices.modbus.master import common
 
 
 mlog = logging.getLogger(__name__)
-
-
-DataType: typing.TypeAlias = modbus.DataType
-
-
-Error = enum.Enum('Error', [
-    'INVALID_FUNCTION_CODE',
-    'INVALID_DATA_ADDRESS',
-    'INVALID_DATA_VALUE',
-    'FUNCTION_ERROR',
-    'GATEWAY_PATH_UNAVAILABLE',
-    'GATEWAY_TARGET_DEVICE_FAILED_TO_RESPOND',
-    'TIMEOUT'])
 
 
 async def connect(conf: json.Data,
@@ -88,6 +73,7 @@ class Connection(aio.Resource):
         self._master = master
         self._name = name
         self._request_queue = aio.Queue(request_queue_size)
+        self._loop = asyncio.get_running_loop()
         self._log = common.create_device_logger_adapter(mlog, name)
 
         self.async_group.spawn(self._request_loop)
@@ -96,48 +82,33 @@ class Connection(aio.Resource):
     def async_group(self) -> aio.Group:
         return self._master.async_group
 
-    async def read(self,
-                   device_id: int,
-                   data_type: modbus.DataType,
-                   start_address: int,
-                   quantity: int
-                   ) -> list[int] | Error:
-        self._log.debug('enqueuing read request')
-        return await self._request(self._master.read, device_id, data_type,
-                                   start_address, quantity)
+    async def send(self,
+                   req: modbus.Request
+                   ) -> modbus.Response | common.Timeout:
+        self._log.debug('enqueuing request')
 
-    async def write(self,
-                    device_id: int,
-                    data_type: modbus.DataType,
-                    start_address: int,
-                    values: list[int]
-                    ) -> Error | None:
-        self._log.debug('enqueuing write request')
-        return await self._request(self._master.write, device_id, data_type,
-                                   start_address, values)
+        try:
+            future = self._loop.create_future()
+            delayed_count = self._conf['request_retry_delayed_count'] + 1
+            await self._request_queue.put((req, delayed_count, future))
 
-    async def write_mask(self,
-                         device_id: int,
-                         address: int,
-                         and_mask: int,
-                         or_mask: int
-                         ) -> Error | None:
-        self._log.debug('enqueuing write mask request')
-        return await self._request(self._master.write_mask, device_id,
-                                   address, and_mask, or_mask)
+            return await future
+
+        except aio.QueueClosedError:
+            raise ConnectionError()
 
     async def _request_loop(self):
         future = None
-        result_t = None
+        res_t = None
 
         try:
             self._log.debug('starting request loop')
             while True:
-                fn, args, delayed_count, future = await self._request_queue.get()  # NOQA
+                req, delayed_count, future = await self._request_queue.get()  # NOQA
                 self._log.debug('dequed request')
 
-                if result_t is not None and self._conf['request_delay'] > 0:
-                    dt = time.monotonic() - result_t
+                if res_t is not None and self._conf['request_delay'] > 0:
+                    dt = time.monotonic() - res_t
                     if dt < self._conf['request_delay']:
                         await asyncio.sleep(self._conf['request_delay'] - dt)
 
@@ -151,16 +122,12 @@ class Connection(aio.Resource):
                 while True:
                     try:
                         immediate_count -= 1
-                        result = await fn(*args)
-                        result_t = time.monotonic()
+                        res = await self._master.send(req)
+                        res_t = time.monotonic()
 
-                        self._log.debug('received result %s', result)
-                        if isinstance(result, modbus.Error):
-                            result = Error[result.name]
-
+                        self._log.debug('received response %s', res)
                         if not future.done():
-                            self._log.debug('setting request result')
-                            future.set_result(result)
+                            future.set_result(res)
 
                         break
 
@@ -173,13 +140,13 @@ class Connection(aio.Resource):
 
                         if delayed_count > 0:
                             self._log.debug('delayed request retry')
-                            self.async_group.spawn(self._delay_request, fn,
-                                                   args, delayed_count, future)
+                            self.async_group.spawn(self._delay_request, req,
+                                                   delayed_count, future)
                             future = None
 
                         elif not future.done():
                             self._log.debug('request resulting in timeout')
-                            future.set_result(Error.TIMEOUT)
+                            future.set_result(common.Timeout())
 
                         break
 
@@ -205,23 +172,12 @@ class Connection(aio.Resource):
                     future.set_exception(ConnectionError())
                 if self._request_queue.empty():
                     break
-                _, __, ___, future = self._request_queue.get_nowait()
+                _, __, future = self._request_queue.get_nowait()
 
-    async def _request(self, fn, *args):
-        try:
-            future = asyncio.Future()
-            delayed_count = self._conf['request_retry_delayed_count'] + 1
-            await self._request_queue.put((fn, args, delayed_count, future))
-
-            return await future
-
-        except aio.QueueClosedError:
-            raise ConnectionError()
-
-    async def _delay_request(self, fn, args, delayed_count, future):
+    async def _delay_request(self, req, delayed_count, future):
         try:
             await asyncio.sleep(self._conf['request_retry_delay'])
-            await self._request_queue.put((fn, args, delayed_count, future))
+            await self._request_queue.put((req, delayed_count, future))
             future = None
 
         except aio.QueueClosedError:
