@@ -1,6 +1,6 @@
 """IEC 60870-5-101 slave device"""
 
-from collections.abc import Collection, Iterable
+from collections.abc import Iterable
 import asyncio
 import collections
 import contextlib
@@ -161,13 +161,12 @@ class Iec101SlaveDevice(common.Device):
     def async_group(self) -> aio.Group:
         return self._link.async_group
 
-    async def process_events(self, events: Collection[hat.event.common.Event]):
-        for event in events:
-            try:
-                await self._process_event(event)
+    async def process_event(self, event: hat.event.common.Event):
+        try:
+            await self._process_event(event)
 
-            except Exception as e:
-                self._log.warning('error processing event: %s', e, exc_info=e)
+        except Exception as e:
+            self._log.warning('error processing event: %s', e, exc_info=e)
 
     async def _connection_loop(self, device_conf):
         conn = None

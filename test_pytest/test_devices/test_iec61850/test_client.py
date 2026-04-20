@@ -1468,7 +1468,7 @@ async def test_command_success(addr, create_conf, model, with_operate_time,
 
     if model in ['SBO_WITH_NORMAL_SECURITY', 'SBO_WITH_ENHANCED_SECURITY']:
         event = _create_command_event('SELECT')
-        await aio.call(device.process_events, [event])
+        await aio.call(device.process_event, event)
 
         result_cmd_ref, cmd = await select_queue.get()
         assert result_cmd_ref == cmd_ref
@@ -1483,7 +1483,7 @@ async def test_command_success(addr, create_conf, model, with_operate_time,
         _assert_command_event(event, 'SELECT')
 
         event = _create_command_event('CANCEL')
-        await aio.call(device.process_events, [event])
+        await aio.call(device.process_event, event)
 
         result_cmd_ref, cmd = await cancel_queue.get()
         assert result_cmd_ref == cmd_ref
@@ -1493,13 +1493,13 @@ async def test_command_success(addr, create_conf, model, with_operate_time,
         _assert_command_event(event, 'CANCEL')
 
         event = _create_command_event('SELECT')
-        await aio.call(device.process_events, [event])
+        await aio.call(device.process_event, event)
 
         await select_queue.get()
         await event_queue.get()
 
     event = _create_command_event('OPERATE')
-    await aio.call(device.process_events, [event])
+    await aio.call(device.process_event, event)
 
     result_cmd_ref, cmd = await operate_queue.get()
     assert result_cmd_ref == cmd_ref
@@ -1607,19 +1607,19 @@ async def test_command_error(addr, create_conf, model, with_operate_time,
 
     if model in ['SBO_WITH_NORMAL_SECURITY', 'SBO_WITH_ENHANCED_SECURITY']:
         event = _create_command_event('SELECT')
-        await aio.call(device.process_events, [event])
+        await aio.call(device.process_event, event)
 
         event = await event_queue.get()
         _assert_command_event(event, 'SELECT')
 
         event = _create_command_event('CANCEL')
-        await aio.call(device.process_events, [event])
+        await aio.call(device.process_event, event)
 
         event = await event_queue.get()
         _assert_command_event(event, 'CANCEL')
 
     event = _create_command_event('OPERATE')
-    await aio.call(device.process_events, [event])
+    await aio.call(device.process_event, event)
 
     event = await event_queue.get()
     _assert_command_event(event, 'OPERATE')
@@ -1771,7 +1771,7 @@ async def test_change_success(addr, create_conf, value_type, mms_data,
     event = create_change_event(name=name,
                                 session_id=session_id,
                                 value=json_value)
-    await aio.call(device.process_events, [event])
+    await aio.call(device.process_event, event)
 
     result_data_ref, result_mms_data = await write_queue.get()
     assert result_data_ref == data_ref
@@ -1900,7 +1900,7 @@ async def test_change_error(addr, create_conf, value_type, json_value):
     event = create_change_event(name=name,
                                 session_id=session_id,
                                 value=json_value)
-    await aio.call(device.process_events, [event])
+    await aio.call(device.process_event, event)
 
     event = await event_queue.get()
     assert_change_event(event=event,

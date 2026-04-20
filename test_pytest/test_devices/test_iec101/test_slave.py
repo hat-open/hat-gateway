@@ -416,7 +416,8 @@ async def test_interrogate(serial_conns, link_type):
                                     {'value': 'OFF',
                                      'quality': quality})
                   for i in range(data_count // 2)]
-    await aio.call(device.process_events, new_events)
+    for event in new_events:
+        await aio.call(device.process_event, event)
 
     exp_gi_resp_events = new_events + query_events[data_count // 2:]
 
@@ -1003,7 +1004,7 @@ async def test_data(serial_conns, link_type, data_type, event_data,
 
     data_event = create_data_event(data_type, 12, 34, event_data,
                                    source_timestamp=source_timestamp)
-    await aio.call(device.process_events, [data_event])
+    await aio.call(device.process_event, data_event)
 
     data_msgs = await master_conn.receive()
     data_msg = data_msgs[0]
@@ -1058,7 +1059,8 @@ async def test_data_bulk(serial_conns, link_type):
                                                   'substituted': False,
                                                   'blocked': False}})
                    for i in range(events_count)]
-    await aio.call(device.process_events, data_events)
+    for data_event in data_events:
+        await aio.call(device.process_event, data_event)
 
     data_msgs = []
     for _ in range(events_count):
@@ -1189,7 +1191,7 @@ async def test_command(serial_conns, link_type,
         (*event_type_prefix, 'system', 'command', command_type.lower(),
             str(asdu), str(io)),
         cmd_res_payload)
-    await aio.call(device.process_events, [cmd_res_event])
+    await aio.call(device.process_event, cmd_res_event)
 
     msgs = await master_conn.receive()
     assert len(msgs) == 1
@@ -1256,7 +1258,7 @@ async def test_command_wrong_conn_id(serial_conns, link_type):
         (*event_type_prefix, 'system', 'command', 'single',
             str(asdu), str(io)),
         cmd_res_payload)
-    await aio.call(device.process_events, [cmd_res_event])
+    await aio.call(device.process_event, cmd_res_event)
 
     with pytest.raises(asyncio.TimeoutError):
         await aio.wait_for(master_conn.receive(), 0.1)
@@ -1307,7 +1309,8 @@ async def test_buffer(serial_conns, link_type):
             data_events.append(data_event)
             if d_conf['buffer']:
                 buffered_data_events.append(data_event)
-    await aio.call(device.process_events, data_events)
+    for data_event in data_events:
+        await aio.call(device.process_event, data_event)
 
     master_link = await create_master_link(link_type, conf)
     master_conn1 = await create_master_conn(master_link, address1, conf)
@@ -1378,7 +1381,8 @@ async def test_buffer_size(serial_conns, link_type):
                     source_timestamp=hat.event.common.now())
                 data_events.append(data_event)
                 buffered_events[data_conf['buffer']].append(data_event)
-    await aio.call(device.process_events, data_events)
+    for data_event in data_events:
+        await aio.call(device.process_event, data_event)
 
     master_link = await create_master_link(link_type, conf)
     master_conn = await create_master_conn(master_link, address, conf)
@@ -1440,7 +1444,7 @@ async def test_data_on_multi_masters(serial_conns, link_type):
                                                 'not_topical': True,
                                                 'substituted': False,
                                                 'blocked': False}})
-    await aio.call(device.process_events, [data_event])
+    await aio.call(device.process_event, data_event)
 
     msgs = await master_conns[0].receive()
     data_msg = msgs[0]
@@ -1513,7 +1517,7 @@ async def test_command_on_multi_masters(serial_conns, link_type):
         (*event_type_prefix, 'system', 'command', 'single',
             str(asdu), str(io)),
         cmd_res_payload)
-    await aio.call(device.process_events, [cmd_res_event])
+    await aio.call(device.process_event, cmd_res_event)
 
     msgs = await master_conn1.receive()
     assert len(msgs) == 1

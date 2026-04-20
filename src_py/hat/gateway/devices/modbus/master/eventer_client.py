@@ -1,4 +1,4 @@
-from collections.abc import Collection, Iterable
+from collections.abc import Iterable
 import contextlib
 import logging
 
@@ -26,16 +26,8 @@ class EventerClientProxy(aio.Resource):
     def async_group(self) -> aio.Group:
         return self._eventer_client.async_group
 
-    def process_events(self,
-                       events: Collection[hat.event.common.Event]
-                       ) -> Iterable[common.Request]:
-        self._log.debug('received %s events', len(events))
-        for event in events:
-            try:
-                yield _request_from_event(self._event_type_prefix, event)
-
-            except Exception as e:
-                self._log.info('received invalid event: %s', e, exc_info=e)
+    def process_event(self, event: hat.event.common.Event) -> common.Request:
+        return _request_from_event(self._event_type_prefix, event)
 
     async def write(self, responses: Iterable[common.Response]):
         events = [_response_to_register_event(self._event_type_prefix, i)

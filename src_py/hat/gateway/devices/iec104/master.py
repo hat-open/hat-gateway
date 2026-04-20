@@ -1,6 +1,5 @@
 """IEC 60870-5-104 master device"""
 
-from collections.abc import Collection
 import asyncio
 import collections
 import contextlib
@@ -43,32 +42,12 @@ class Iec104MasterDevice(common.Device):
     def async_group(self) -> aio.Group:
         return self._async_group
 
-    async def process_events(self, events: Collection[hat.event.common.Event]):
-        msgs = collections.deque()
-        for event in events:
-            try:
-                self._log.debug('received event: %s', event)
-                msg = _msg_from_event(self._event_type_prefix, event)
-                msgs.append(msg)
-
-            except Exception as e:
-                self._log.warning('error processing event: %s', e, exc_info=e)
-                continue
-
-        if not msgs:
-            return
-
-        if not self._conn or not self._conn.is_open:
-            self._log.warning('connection closed: %s events ignored',
-                              len(msgs))
-            return
-
+    async def process_event(self, event: hat.event.common.Event):
         try:
-            await self._conn.send(msgs)
-            self._log.debug('%s messages sent', len(msgs))
+            await self._process_event(event)
 
-        except ConnectionError as e:
-            self._log.warning('error sending messages: %s', e, exc_info=e)
+        except Exception as e:
+            self._log.warning('error processing event: %s', e, exc_info=e)
 
     async def _connection_loop(self, conf, ssl_ctx):
 
@@ -206,6 +185,16 @@ class Iec104MasterDevice(common.Device):
         finally:
             self._log.debug('closing time sync loop')
             conn.close()
+
+    async def _process_event(self, event):
+        self._log.debug('received event: %s', event)
+        msg = _msg_from_event(self._event_type_prefix, event)
+
+        if not self._conn or not self._conn.is_open:
+            raise Exception('connection closed')
+
+        await self._conn.send([msg])
+        self._log.debug('messages sent')
 
     async def _register_status(self, status):
         event = hat.event.common.RegisterEvent(

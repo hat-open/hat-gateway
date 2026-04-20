@@ -318,19 +318,19 @@ async def test_remote_device_status(slave_addr, connection_conf):
     slave = await slave_queue.get()
 
     event = create_remote_device_enable_event(1, True)
-    await aio.call(device.process_events, [event])
+    await aio.call(device.process_event, event)
 
     event = await event_queue.get()
     assert_remote_device_status_event(event, 1, 'CONNECTED')
 
     event = create_remote_device_enable_event(1, False)
-    await aio.call(device.process_events, [event])
+    await aio.call(device.process_event, event)
 
     event = await event_queue.get()
     assert_remote_device_status_event(event, 1, 'DISABLED')
 
     event = create_remote_device_enable_event(1, True)
-    await aio.call(device.process_events, [event])
+    await aio.call(device.process_event, event)
 
     event = await event_queue.get()
     assert_remote_device_status_event(event, 1, 'CONNECTED')
@@ -557,7 +557,7 @@ async def test_write(slave_addr, connection_conf, data_type, bit_offset,
     assert_remote_device_status_event(event, 1, 'DISABLED')
 
     event = create_remote_device_write_event(1, 'data', 123, value)
-    await aio.call(device.process_events, [event])
+    await aio.call(device.process_event, event)
 
     event = await event_queue.get()
     assert_remote_device_write_event(event, 1, 'data', {'request_id': 123,

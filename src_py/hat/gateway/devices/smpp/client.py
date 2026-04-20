@@ -1,4 +1,3 @@
-from collections.abc import Collection
 import asyncio
 import contextlib
 import logging
@@ -37,22 +36,21 @@ class SmppClientDevice(common.Device):
     def async_group(self) -> aio.Group:
         return self._async_group
 
-    async def process_events(self, events: Collection[hat.event.common.Event]):
-        for event in events:
-            try:
-                self._log.debug('received event: %s', event)
-                msg = _msg_from_event(
-                    event_type_prefix=self._event_type_prefix,
-                    message_encoding=self._conf['message_encoding'],
-                    event=event)
+    async def process_event(self, event: hat.event.common.Event):
+        try:
+            self._log.debug('received event: %s', event)
+            msg = _msg_from_event(
+                event_type_prefix=self._event_type_prefix,
+                message_encoding=self._conf['message_encoding'],
+                event=event)
 
-                if self._msg_queue is None:
-                    raise Exception('connection closed')
+            if self._msg_queue is None:
+                raise Exception('connection closed')
 
-                await self._msg_queue.put(msg)
+            await self._msg_queue.put(msg)
 
-            except Exception as e:
-                self._log.warning('error processing event: %s', e, exc_info=e)
+        except Exception as e:
+            self._log.warning('error processing event: %s', e, exc_info=e)
 
     async def _connection_loop(self):
         conn = None

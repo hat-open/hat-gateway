@@ -1,6 +1,5 @@
 """Ping device"""
 
-from collections.abc import Collection
 import asyncio
 import contextlib
 import logging
@@ -52,7 +51,7 @@ class PingDevice(common.Device):
     def async_group(self) -> aio.Group:
         return self._endpoint._async_group
 
-    def process_events(self, events: Collection[hat.event.common.Event]):
+    def process_event(self, event: hat.event.common.Event):
         pass
 
     async def register_status(self, remote_name, status):

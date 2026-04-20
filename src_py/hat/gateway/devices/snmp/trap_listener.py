@@ -1,6 +1,5 @@
 """SNMP trap listener device"""
 
-from collections.abc import Collection
 import collections
 import logging
 import typing
@@ -97,7 +96,7 @@ class SnmpTrapListenerDevice(common.Device):
     def async_group(self) -> aio.Group:
         return self._listener.async_group
 
-    async def process_events(self, events: Collection[hat.event.common.Event]):
+    async def process_event(self, event: hat.event.common.Event):
         pass
 
     async def _on_v1_trap(self, addr, community, trap):

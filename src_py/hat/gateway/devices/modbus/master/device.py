@@ -1,4 +1,3 @@
-from collections.abc import Collection
 import asyncio
 import contextlib
 import logging
@@ -40,29 +39,32 @@ class ModbusMasterDevice(aio.Resource):
     def async_group(self) -> aio.Group:
         return self._async_group
 
-    async def process_events(self, events: Collection[hat.event.common.Event]):
+    async def process_event(self, event: hat.event.common.Event):
         try:
-            for request in self._eventer_client.process_events(events):
-                if isinstance(request, common.RemoteDeviceEnableReq):
-                    self._log.debug('received remote device enable request')
-                    if request.enable:
-                        self._enable_remote_device(request.device_id)
-                    else:
-                        await self._disable_remote_device(request.device_id)
+            request = self._eventer_client.process_event(event)
 
-                elif isinstance(request, common.RemoteDeviceWriteReq):
-                    self._log.debug('received remote device write request')
-                    if self._conn and self._conn.is_open:
-                        self._conn.async_group.spawn(
-                            self._write, request.device_id, request.data_name,
-                            request.request_id, request.value)
+            if isinstance(request, common.RemoteDeviceEnableReq):
+                self._log.debug('received remote device enable request')
+
+                if request.enable:
+                    self._enable_remote_device(request.device_id)
 
                 else:
-                    raise ValueError('invalid request')
+                    await self._disable_remote_device(request.device_id)
+
+            elif isinstance(request, common.RemoteDeviceWriteReq):
+                self._log.debug('received remote device write request')
+
+                if self._conn and self._conn.is_open:
+                    self._conn.async_group.spawn(
+                        self._write, request.device_id, request.data_name,
+                        request.request_id, request.value)
+
+            else:
+                raise ValueError('invalid request')
 
         except Exception as e:
-            self._log.error('process events error: %s', e, exc_info=e)
-            self.close()
+            self._log.warning('error processing event: %s', e, exc_info=e)
 
     async def _connection_loop(self):
 

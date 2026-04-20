@@ -1,6 +1,5 @@
 """SNMP manager device"""
 
-from collections.abc import Collection
 import asyncio
 import logging
 
@@ -44,13 +43,12 @@ class SnmpManagerDevice(common.Device):
     def async_group(self) -> aio.Group:
         return self._async_group
 
-    async def process_events(self, events: Collection[hat.event.common.Event]):
-        for event in events:
-            try:
-                await self._process_event(event)
+    async def process_event(self, event: hat.event.common.Event):
+        try:
+            await self._process_event(event)
 
-            except Exception as e:
-                self._log.warning('event processing error: %s', e, exc_info=e)
+        except Exception as e:
+            self._log.warning('event processing error: %s', e, exc_info=e)
 
     async def _connection_loop(self):
         try:

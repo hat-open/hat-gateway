@@ -576,7 +576,7 @@ async def test_read(create_conf, create_agent, res, oid, data):
     assert_status_event(event, 'CONNECTED')
 
     event = create_read_event(oid, session_id)
-    await aio.call(device.process_events, [event])
+    await aio.call(device.process_event, event)
 
     event = await event_queue.get()
     assert_read_event(event, oid, session_id, 'REQUESTED', data)
@@ -746,7 +746,7 @@ async def test_write(create_conf, create_agent,
     assert_status_event(event, 'CONNECTED')
 
     event = create_write_event(oid, session_id, data)
-    await aio.call(device.process_events, [event])
+    await aio.call(device.process_event, event)
 
     event = await event_queue.get()
     assert_write_event(event, oid, session_id, success)

@@ -1,6 +1,5 @@
 """IEC 60870-5-101 master device"""
 
-from collections.abc import Collection
 import asyncio
 import collections
 import contextlib
@@ -35,7 +34,8 @@ async def create(conf: common.DeviceConf,
                                 eventer_client=eventer_client,
                                 event_type_prefix=event_type_prefix)
     try:
-        await device.process_events(result.events)
+        for event in result.events:
+            await device.process_event(event)
 
     except BaseException:
         await aio.uncancellable(device.async_close())
@@ -79,13 +79,12 @@ class Iec101MasterDevice(common.Device):
     def async_group(self) -> aio.Group:
         return self._async_group
 
-    async def process_events(self, events: Collection[hat.event.common.Event]):
-        for event in events:
-            try:
-                await self._process_event(event)
+    async def process_event(self, event: hat.event.common.Event):
+        try:
+            await self._process_event(event)
 
-            except Exception as e:
-                self._log.warning('error processing event: %s', e, exc_info=e)
+        except Exception as e:
+            self._log.warning('error processing event: %s', e, exc_info=e)
 
     async def _link_loop(self):
 

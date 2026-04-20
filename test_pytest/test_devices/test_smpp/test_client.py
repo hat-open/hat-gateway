@@ -260,7 +260,7 @@ async def test_message(create_conf, create_server, short_message, priority,
     message = 'abc'
 
     event = create_message_event(address, message)
-    await aio.call(device.process_events, [event])
+    await aio.call(device.process_event, event)
 
     req = await req_queue.get()
     assert req.destination_addr == address

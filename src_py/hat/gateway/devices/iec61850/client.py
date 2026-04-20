@@ -1,6 +1,5 @@
 """IEC 61850 client device"""
 
-from collections.abc import Collection
 import asyncio
 import collections
 import datetime
@@ -176,21 +175,20 @@ class Iec61850ClientDevice(common.Device):
     def async_group(self) -> aio.Group:
         return self._async_group
 
-    async def process_events(self, events: Collection[hat.event.common.Event]):
+    async def process_event(self, event: hat.event.common.Event):
         try:
-            for event in events:
-                suffix = event.type[len(self._event_type_prefix):]
+            suffix = event.type[len(self._event_type_prefix):]
 
-                if suffix[:2] == ('system', 'command'):
-                    cmd_name, = suffix[2:]
-                    await self._process_cmd_req(event, cmd_name)
+            if suffix[:2] == ('system', 'command'):
+                cmd_name, = suffix[2:]
+                await self._process_cmd_req(event, cmd_name)
 
-                elif suffix[:2] == ('system', 'change'):
-                    val_name, = suffix[2:]
-                    await self._process_change_req(event, val_name)
+            elif suffix[:2] == ('system', 'change'):
+                val_name, = suffix[2:]
+                await self._process_change_req(event, val_name)
 
-                else:
-                    raise Exception('unsupported event type')
+            else:
+                raise Exception('unsupported event type')
 
         except Exception as e:
             self._log.warning('error processing event %s: %s',

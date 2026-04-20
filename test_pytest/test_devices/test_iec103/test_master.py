@@ -476,7 +476,7 @@ async def test_enable_remote_device(serial_conns, address):
     assert event_queue.empty()
 
     event = create_enable_event(address, True)
-    await aio.call(device.process_events, [event])
+    await aio.call(device.process_event, event)
 
     event = await event_queue.get()
     assert_status_event(event, 'CONNECTING', address)
@@ -487,7 +487,7 @@ async def test_enable_remote_device(serial_conns, address):
     assert event_queue.empty()
 
     event = create_enable_event(address, False)
-    await aio.call(device.process_events, [event])
+    await aio.call(device.process_event, event)
 
     event = await event_queue.get()
     assert_status_event(event, 'DISCONNECTED', address)
@@ -495,7 +495,7 @@ async def test_enable_remote_device(serial_conns, address):
     assert event_queue.empty()
 
     event = create_enable_event(address, True)
-    await aio.call(device.process_events, [event])
+    await aio.call(device.process_event, event)
 
     event = await event_queue.get()
     assert_status_event(event, 'CONNECTING', address)
@@ -585,14 +585,14 @@ async def test_command(serial_conns, address, asdu_address, io_function,
     slave = await create_slave(conf, conn_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
-    await aio.call(device.process_events, [create_enable_event(address, True)])
+    await aio.call(device.process_event, create_enable_event(address, True))
     conn = await conn_queue.get()
 
     await wait_remote_device_connected_event(event_queue, address)
 
     event = create_command_event(address, asdu_address, io_function,
                                  io_information, session_id, value.name)
-    await aio.call(device.process_events, [event])
+    await aio.call(device.process_event, event)
 
     asdu = await conn.receive()
     return_identifier = asdu.ios[0].elements[0].return_identifier
@@ -648,13 +648,13 @@ async def test_interrogation(serial_conns, address, asdu_address):
     slave = await create_slave(conf, conn_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
-    await aio.call(device.process_events, [create_enable_event(address, True)])
+    await aio.call(device.process_event, create_enable_event(address, True))
     conn = await conn_queue.get()
 
     await wait_remote_device_connected_event(event_queue, address)
 
     event = create_interrogation_event(address, asdu_address)
-    await aio.call(device.process_events, [event])
+    await aio.call(device.process_event, event)
 
     asdu = await conn.receive()
     scan_number = asdu.ios[0].elements[0].scan_number
@@ -705,7 +705,7 @@ async def test_double_data(serial_conns, address, asdu_address, io_function,
     slave = await create_slave(conf, conn_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
-    await aio.call(device.process_events, [create_enable_event(address, True)])
+    await aio.call(device.process_event, create_enable_event(address, True))
     conn = await conn_queue.get()
 
     await wait_remote_device_connected_event(event_queue, address)
@@ -785,7 +785,7 @@ async def test_m1_data(serial_conns, address, asdu_address, io_function,
     slave = await create_slave(conf, conn_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
-    await aio.call(device.process_events, [create_enable_event(address, True)])
+    await aio.call(device.process_event, create_enable_event(address, True))
     conn = await conn_queue.get()
 
     await wait_remote_device_connected_event(event_queue, address)
@@ -869,7 +869,7 @@ async def test_m2_data(serial_conns, address, asdu_address, io_function,
     slave = await create_slave(conf, conn_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
-    await aio.call(device.process_events, [create_enable_event(address, True)])
+    await aio.call(device.process_event, create_enable_event(address, True))
     conn = await conn_queue.get()
 
     await wait_remote_device_connected_event(event_queue, address)

@@ -518,7 +518,7 @@ async def test_command_response(create_conf, create_connection, is_test,
                                   'is_negative_confirm': is_negative_confirm,
                                   'cause': cause.name,
                                   'command': cmd_json})
-    await aio.call(device.process_events, [event])
+    await aio.call(device.process_event, event)
 
     msgs = await conn.receive()
     assert len(msgs) == 1
@@ -677,7 +677,7 @@ async def test_data_response(create_conf, create_connection, is_test,
                'data': data_json}
     event = create_data_event(data_type, asdu_address, io_address, time,
                               payload)
-    await aio.call(device.process_events, [event])
+    await aio.call(device.process_event, event)
 
     msgs = await conn.receive()
     assert len(msgs) == 1
@@ -936,7 +936,7 @@ async def test_buffer(create_conf, create_connection, is_test, asdu_address,
                                    'cause': cause.name,
                                    'data': {'value': i,
                                             'quality': quality}})
-        await aio.call(device.process_events, [event])
+        await aio.call(device.process_event, event)
 
     await asyncio.sleep(0.01)
 

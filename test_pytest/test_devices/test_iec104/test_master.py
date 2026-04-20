@@ -512,7 +512,7 @@ async def test_command_request(create_conf, create_server, is_test,
 
     event = create_command_event(cmd_type, asdu_address, io_address, time,
                                  is_test, cause, cmd_json)
-    await aio.call(device.process_events, [event])
+    await aio.call(device.process_event, event)
 
     msgs = await conn.receive()
     assert len(msgs) == 1
@@ -550,7 +550,7 @@ async def test_interrogation_request(create_conf, create_server, is_test,
     await wait_connected_event(event_queue)
 
     event = create_interrogation_event(asdu_address, is_test, _request, cause)
-    await aio.call(device.process_events, [event])
+    await aio.call(device.process_event, event)
 
     msgs = await conn.receive()
     assert len(msgs) == 1
@@ -589,7 +589,7 @@ async def test_counter_interrogation_request(create_conf, create_server,
 
     event = create_counter_interrogation_event(asdu_address, is_test,
                                                _request, cause, freeze)
-    await aio.call(device.process_events, [event])
+    await aio.call(device.process_event, event)
 
     msgs = await conn.receive()
     assert len(msgs) == 1

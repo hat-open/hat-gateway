@@ -720,7 +720,7 @@ async def test_read(conf, create_master_factory, data_type,
 
     event = create_event((*event_type_prefix, 'system', 'data', 'd1'),
                          {'value': event_value})
-    await aio.call(device.process_events, [event])
+    await aio.call(device.process_event, event)
 
     master_read_result = await master.send(modbus.ReadReq(
         device_id=1,
@@ -749,7 +749,7 @@ async def test_process_unconfigured_data(conf, create_master_factory):
 
     event = create_event((*event_type_prefix, 'system', 'data', 'd2'),
                          {'value': 1})
-    await aio.call(device.process_events, [event])
+    await aio.call(device.process_event, event)
 
     master_read_result = await master.send(modbus.ReadReq(
         device_id=1,
@@ -822,7 +822,7 @@ async def test_write(conf, slave_addr, create_master_factory, data_type,
         (*event_type_prefix, 'system', 'write'),
         {'request_id': write_req_event.payload.data['request_id'],
          'success': system_event_success})
-    await aio.call(device.process_events, [write_resp_event])
+    await aio.call(device.process_event, write_resp_event)
 
     write_res = await write_res_future
     assert write_res == write_response
@@ -1092,7 +1092,7 @@ async def test_write_mask(conf, slave_addr, create_master_factory,
         (*event_type_prefix, 'system', 'write'),
         {'request_id': write_req_event.payload.data['request_id'],
          'success': system_event_success})
-    await aio.call(device.process_events, [write_mask_resp_event])
+    await aio.call(device.process_event, write_mask_resp_event)
 
     write_res = await write_mask_res_future
     assert write_res == master_write_result
@@ -1311,7 +1311,7 @@ async def test_write_response_invalid_request_id(
         (*event_type_prefix, 'system', 'write'),
         {'request_id': invalid_request_id,
          'success': system_event_success})
-    await aio.call(device.process_events, [write_resp_event])
+    await aio.call(device.process_event, write_resp_event)
 
     with pytest.raises(asyncio.TimeoutError):
         await aio.wait_for(write_res_future, timeout=0.05)

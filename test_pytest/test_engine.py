@@ -82,7 +82,7 @@ def assert_running_event(event, device_name, is_running):
 def create_device_module():
     module_names = collections.deque()
 
-    def create_device_module(device_cb=None, process_events_cb=None):
+    def create_device_module(device_cb=None, process_event_cb=None):
         module_name = f'test_{device_type}_{len(module_names)}'
         module_names.append(module_name)
 
@@ -95,9 +95,9 @@ def create_device_module():
             def async_group(self):
                 return self._async_group
 
-            async def process_events(self, events):
-                if process_events_cb:
-                    await aio.call(process_events_cb, events)
+            async def process_event(self, event):
+                if process_event_cb:
+                    await aio.call(process_event_cb, event)
 
         async def create(conf, eventer_client, event_type_prefix):
             assert event_type_prefix == ('gateway', device_type, conf['name'])
@@ -162,11 +162,18 @@ async def test_create_engine_with_disabled_devices(device_count,
     eventer_client = EventerClient(query_cb=on_query)
     engine = hat.gateway.engine.Engine(conf, eventer_client)
 
-    params = await query_queue.get()
-    subscription = hat.event.common.create_subscription(params.event_types)
-    for device_name in device_names:
-        event_type = ('gateway', device_type, device_name, 'system', 'enable')
-        assert subscription.matches(event_type)
+    event_types = {('gateway', device_type, device_name, 'system', 'enable')
+                   for device_name in device_names}
+
+    while event_types:
+        params = await query_queue.get()
+
+        for event_type in params.event_types:
+            assert event_type in event_types
+            event_types.remove(event_type)
+
+    with pytest.raises(asyncio.TimeoutError):
+        await aio.wait_for(query_queue.get(), 0.01)
 
     assert device_queue.empty()
 
@@ -192,8 +199,8 @@ async def test_create_engine_with_enabled_devices(device_count,
         assert isinstance(params, hat.event.common.QueryLatestParams)
 
         return hat.event.common.QueryResult(
-            [create_enable_event(device_name, True)
-             for device_name in device_names],
+            [create_event(event_type, True)
+             for event_type in params.event_types],
             False)
 
     eventer_client = EventerClient(query_cb=on_query)
@@ -212,34 +219,6 @@ async def test_create_engine_with_enabled_devices(device_count,
     for device in devices:
         assert device.is_closed
 
-    await eventer_client.async_close()
-
-
-async def test_close_engine_when_device_closed(create_device_module):
-    device_queue = aio.Queue()
-
-    device_name = 'device name'
-    device_module = create_device_module(device_cb=device_queue.put_nowait)
-    conf = {'name': gateway_name,
-            'devices': [{'module': device_module,
-                         'name': device_name}]}
-
-    def on_query(params):
-        return hat.event.common.QueryResult(
-            [create_enable_event(device_name, True)],
-            False)
-
-    eventer_client = EventerClient(query_cb=on_query)
-    engine = hat.gateway.engine.Engine(conf, eventer_client)
-
-    device = await device_queue.get()
-
-    assert device.is_open
-    assert engine.is_open
-
-    device.close()
-
-    await engine.wait_closed()
     await eventer_client.async_close()
 
 
@@ -316,32 +295,34 @@ async def test_running_event(create_device_module):
 
 
 async def test_process_events(create_device_module):
-    device_queue = aio.Queue()
     process_queue = aio.Queue()
+    device_queue = aio.Queue()
+    event_queue = aio.Queue()
 
     device_name = 'device name'
     device_module = create_device_module(
         device_cb=device_queue.put_nowait,
-        process_events_cb=process_queue.put_nowait)
+        process_event_cb=process_queue.put_nowait)
     conf = {'name': gateway_name,
             'devices': [{'module': device_module,
                          'name': device_name}]}
 
-    eventer_client = EventerClient()
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     engine = hat.gateway.engine.Engine(conf, eventer_client)
 
     await engine.process_events([create_enable_event(device_name, True)])
-    await device_queue.get()
+
+    event = await event_queue.get()
+    assert_running_event(event, device_name, True)
 
     assert process_queue.empty()
 
     event_type = ('gateway', device_type, device_name, 'system', 'abc')
     payload_data = 123
     await engine.process_events([create_event(event_type, payload_data)])
-    events = await process_queue.get()
-    assert len(events) == 1
-    assert events[0].type == event_type
-    assert events[0].payload.data == payload_data
+    event = await process_queue.get()
+    assert event.type == event_type
+    assert event.payload.data == payload_data
 
     event_type = ('gateway', device_type, f'not {device_name}', 'system',
                   'abc')
@@ -355,10 +336,9 @@ async def test_process_events(create_device_module):
     payload_data = 123
     await engine.process_events([create_event(event_type, payload_data)
                                  for event_type in event_types])
-    events = await process_queue.get()
-    assert len(events) == 1
-    assert events[0].type == event_types[1]
-    assert events[0].payload.data == payload_data
+    event = await process_queue.get()
+    assert event.type == event_types[1]
+    assert event.payload.data == payload_data
 
     await engine.async_close()
     await eventer_client.async_close()

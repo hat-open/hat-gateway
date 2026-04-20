@@ -125,13 +125,12 @@ closed. It's main responsibility is managing lifetime of devices and
 providing custom device's interface to event server.
 
 Device lifetime is dependent of last `enable` event state. During
-initialization, engine registers a new `running` events with payload ``false``,
-queries last devices' associated `enable` event and keeps monitoring for any
-new `enable` events. When device is enabled, engine creates new instance of
-device. Once device is successfully created, engine registers new `running`
-event with payload ``true``. If at any time device is disabled, engine will
-destroy associated device instance and continue waiting for new `enable` event.
-When device is successfully destroyed, engine will try to register new
+initialization, engine queries last devices' associated `enable` event and
+keeps monitoring for any new `enable` events. When device is enabled, engine
+creates new instance of device. Once device is successfully created, engine
+registers new `running` event with payload ``true``. If at any time device is
+disabled, engine will destroy associated device instance and continue waiting
+for new `enable` event. When device is closed, engine will try to register new
 `running` event with payload ``false``. Once engine is destroyed, all devices
 are also destroyed.
 

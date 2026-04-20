@@ -578,7 +578,7 @@ async def test_enable_remote_device(serial_conns, address, link_type):
     assert event_queue.empty()
 
     event = create_enable_event(address, True)
-    await aio.call(device.process_events, [event])
+    await aio.call(device.process_event, event)
 
     event = await event_queue.get()
     assert_status_event(event, 'CONNECTING', address)
@@ -589,7 +589,7 @@ async def test_enable_remote_device(serial_conns, address, link_type):
     assert event_queue.empty()
 
     event = create_enable_event(address, False)
-    await aio.call(device.process_events, [event])
+    await aio.call(device.process_event, event)
 
     event = await event_queue.get()
     assert_status_event(event, 'DISCONNECTED', address)
@@ -597,7 +597,7 @@ async def test_enable_remote_device(serial_conns, address, link_type):
     assert event_queue.empty()
 
     event = create_enable_event(address, True)
-    await aio.call(device.process_events, [event])
+    await aio.call(device.process_event, event)
 
     event = await event_queue.get()
     assert_status_event(event, 'CONNECTING', address)
@@ -740,14 +740,14 @@ async def test_command_request(serial_conns, link_type, is_test, address,
                                conn_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
-    await aio.call(device.process_events, [create_enable_event(address, True)])
+    await aio.call(device.process_event, create_enable_event(address, True))
     conn = await conn_queue.get()
 
     await wait_remote_device_connected_event(event_queue, address)
 
     event = create_command_event(address, cmd_type, asdu_address,
                                  io_address, is_test, cause, cmd_json)
-    await aio.call(device.process_events, [event])
+    await aio.call(device.process_event, event)
 
     msgs = await conn.receive()
     assert len(msgs) == 1
@@ -783,14 +783,14 @@ async def test_interrogation_request(serial_conns, link_type, is_test, address,
                                conn_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
-    await aio.call(device.process_events, [create_enable_event(address, True)])
+    await aio.call(device.process_event, create_enable_event(address, True))
     conn = await conn_queue.get()
 
     await wait_remote_device_connected_event(event_queue, address)
 
     event = create_interrogation_event(address, asdu_address, is_test,
                                        _request, cause)
-    await aio.call(device.process_events, [event])
+    await aio.call(device.process_event, event)
 
     msgs = await conn.receive()
     assert len(msgs) == 1
@@ -828,14 +828,14 @@ async def test_counter_interrogation_request(serial_conns, link_type, is_test,
                                conn_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
-    await aio.call(device.process_events, [create_enable_event(address, True)])
+    await aio.call(device.process_event, create_enable_event(address, True))
     conn = await conn_queue.get()
 
     await wait_remote_device_connected_event(event_queue, address)
 
     event = create_counter_interrogation_event(
         address, asdu_address, is_test, _request, cause, freeze)
-    await aio.call(device.process_events, [event])
+    await aio.call(device.process_event, event)
 
     msgs = await conn.receive()
     assert len(msgs) == 1
@@ -979,7 +979,7 @@ async def test_data_response(serial_conns, link_type, address, asdu_address,
         link_type, conf, [address], conn_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
-    await aio.call(device.process_events, [create_enable_event(address, True)])
+    await aio.call(device.process_event, create_enable_event(address, True))
     conn = await conn_queue.get()
 
     await wait_remote_device_connected_event(event_queue, address)
@@ -1069,7 +1069,7 @@ async def test_command_response(serial_conns, link_type, is_test, address,
         link_type, conf, [address], conn_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
-    await aio.call(device.process_events, [create_enable_event(address, True)])
+    await aio.call(device.process_event, create_enable_event(address, True))
     conn = await conn_queue.get()
 
     await wait_remote_device_connected_event(event_queue, address)
@@ -1113,7 +1113,7 @@ async def test_interrogation_response(serial_conns, link_type, is_test,
         link_type, conf, [address], conn_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
-    await aio.call(device.process_events, [create_enable_event(address, True)])
+    await aio.call(device.process_event, create_enable_event(address, True))
     conn = await conn_queue.get()
 
     await wait_remote_device_connected_event(event_queue, address)
@@ -1157,7 +1157,7 @@ async def test_counter_interrogation_response(serial_conns, link_type, is_test,
         link_type, conf, [address], conn_queue.put_nowait)
     device = await create_device(conf, eventer_client)
 
-    await aio.call(device.process_events, [create_enable_event(address, True)])
+    await aio.call(device.process_event, create_enable_event(address, True))
     conn = await conn_queue.get()
 
     await wait_remote_device_connected_event(event_queue, address)

@@ -1,6 +1,5 @@
 """Common gateway interfaces"""
 
-from collections.abc import Collection
 import abc
 import importlib.resources
 import typing
@@ -30,9 +29,8 @@ class Device(aio.Resource):
     """Device interface"""
 
     @abc.abstractmethod
-    async def process_events(self,
-                             events: Collection[hat.event.common.Event]):
-        """Process received events
+    async def process_event(self, event: hat.event.common.Event):
+        """Process received event
 
         This method can be coroutine or regular function.
 
