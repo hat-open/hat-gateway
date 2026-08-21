@@ -533,8 +533,18 @@ class Iec101SlaveDevice(common.Device):
         if send_queue is None:
             return
 
-        with contextlib.suppress(aio.QueueClosedError):
-            await send_queue.put((msgs, sent_cb))
+        try:
+            send_queue.put_nowait((msgs, sent_cb))
+
+        except aio.QueueFullError:
+            self._log.warning('send queue full')
+
+            conn = self._conns.get(conn_id)
+            if conn:
+                conn.close()
+
+        except aio.QueueClosedError:
+            pass
 
 
 def cmd_msg_to_event(event_type_prefix: hat.event.common.EventType,
