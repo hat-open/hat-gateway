@@ -17,6 +17,9 @@ import hat.event.common
 from hat.gateway import common
 from hat.gateway.devices.iec101.slave import info
 
+from hat.drivers.iec60870.link import endpoint
+from hat.drivers.iec60870.link.common import ShortFrame
+
 
 device_name = 'device_name'
 event_type_prefix = ('gateway', info.type, device_name)
@@ -67,12 +70,14 @@ def get_conf(link_type,
              addresses=[],
              keep_alive_timeout=3,
              buffers=[],
-             data=[]):
+             data=[],
+             status_delay=0.1,
+             response_timeout=0.01):
     if link_type == 'BALANCED':
         link_type_spec_props = {'direction': 'B_TO_A',
-                                'response_timeout': 0.01,
+                                'response_timeout': response_timeout,
                                 'send_retry_count': 0,
-                                'status_delay': 0.1}
+                                'status_delay': status_delay}
     elif link_type == 'UNBALANCED':
         link_type_spec_props = {'keep_alive_timeout': keep_alive_timeout}
     return {
@@ -1529,5 +1534,73 @@ async def test_command_on_multi_masters(serial_conns, link_type):
             await aio.wait_for(master_conn.receive(), 0.01)
 
     await master_link.async_close()
+    await device.async_close()
+    await eventer_client.async_close()
+
+
+@pytest.mark.parametrize('link_type', ['BALANCED'])
+async def test_send_queue_full(serial_conns, link_type):
+    send_queue_size = 1024
+
+    address = 123
+    data_conf = {'data_type': 'FLOATING',
+                 'asdu_address': 1,
+                 'io_address': 2,
+                 'buffer': 'b1'}
+    conf = get_conf(link_type,
+                    [address],
+                    buffers=[{'name': 'b1', 'size': 512}],
+                    data=[data_conf],
+                    status_delay=1000,
+                    response_timeout=1000)
+
+    event_queue = aio.Queue()
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
+    device = await create_device(conf, eventer_client)
+
+    event = await event_queue.get()
+    assert_connections_event(event, [])
+
+    _endpoint = await endpoint.create(
+        port=conf['port'],
+        address_size=link.common.AddressSize.ONE,
+        direction_valid=True,
+        silent_interval=conf['silent_interval'])
+    # receive RESET_LINK request
+    await _endpoint.receive()
+    # respond on RESET_LINK in order to establish connection
+    await _endpoint.send(ShortFrame())
+    await _endpoint.drain()
+
+    event = await event_queue.get()
+    assert_connections_event(event, [123])
+
+    data_events = []
+    for value in range(send_queue_size + 1):
+        data_event = create_data_event(
+            data_conf['data_type'], data_conf['asdu_address'],
+            data_conf['io_address'], {
+                'value': value,
+                'quality': {'invalid': False,
+                            'not_topical': False,
+                            'substituted': False,
+                            'blocked': False,
+                            'overflow': False}},
+            source_timestamp=hat.event.common.now())
+        data_events.append(data_event)
+
+    # process 1024 data to fill the send queue
+    for data_event in data_events[:send_queue_size]:
+        await aio.call(device.process_event, data_event)
+
+    assert event_queue.empty()
+
+    # after one more data is processed, connection is closed
+    await aio.call(device.process_event, data_events[send_queue_size])
+
+    event = await event_queue.get()
+    assert_connections_event(event, [])
+
+    await _endpoint.async_close()
     await device.async_close()
     await eventer_client.async_close()
