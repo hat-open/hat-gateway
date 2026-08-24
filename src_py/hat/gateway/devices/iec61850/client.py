@@ -390,16 +390,19 @@ class Iec61850ClientDevice(common.Device):
     async def _on_report(self, report):
         try:
             events = list(self._events_from_report(report))
-            if not events:
-                return
-
-            await self._register_events(events)
-            if self._rcb_type[report.report_id] == 'BUFFERED':
-                self._rcbs_entry_ids[report.report_id] = report.entry_id
 
         except Exception as e:
             self._log.warning('report %s ignored: %s',
                               report.report_id, e, exc_info=e)
+            return
+
+        if not events:
+            return
+
+        await self._register_events(events)
+
+        if self._rcb_type[report.report_id] == 'BUFFERED':
+            self._rcbs_entry_ids[report.report_id] = report.entry_id
 
     def _events_from_report(self, report):
         report_id = report.report_id
@@ -638,8 +641,8 @@ class Iec61850ClientDevice(common.Device):
             await self._eventer_client.register(events)
 
         except ConnectionError:
+            self._log.debug('eventer connection closed')
             self.close()
-            raise
 
     async def _register_status(self, status):
         if status == self._conn_status:
