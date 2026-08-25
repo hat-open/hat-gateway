@@ -250,6 +250,7 @@ $defs:
                             - asdu_address
                             - io_address
                             - buffer
+                            - with_ack
                         properties:
                             data_type:
                                 enum:
@@ -273,6 +274,8 @@ $defs:
                                 type:
                                     - "null"
                                     - string
+                            with_ack:
+                                type: boolean
           - oneOf:
               - type: object
                 required:

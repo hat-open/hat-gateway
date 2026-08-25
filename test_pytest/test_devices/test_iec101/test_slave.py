@@ -399,7 +399,8 @@ async def test_interrogate(serial_conns, link_type):
                     data=[{'data_type': 'SINGLE',
                            'asdu_address': asdu_address,
                            'io_address': i,
-                           'buffer': None}
+                           'buffer': None,
+                           'with_ack': True}
                           for i in range(data_count)])
 
     quality = {'invalid': False,
@@ -481,7 +482,8 @@ async def test_interrogated_asdu(serial_conns, link_type, interogated_asdu):
                     data=[{'data_type': 'SINGLE',
                            'asdu_address': asdu_address,
                            'io_address': i,
-                           'buffer': None}
+                           'buffer': None,
+                           'with_ack': True}
                           for asdu_address in device_asdus
                           for i in range(data_count)])
 
@@ -575,7 +577,8 @@ async def test_interrogate_broadcast(serial_conns, link_type, interogated_asdu,
                     data=[{'data_type': 'SINGLE',
                            'asdu_address': asdu_address,
                            'io_address': i,
-                           'buffer': None}
+                           'buffer': None,
+                           'with_ack': True}
                           for asdu_address in device_asdus
                           for i in range(data_count)])
     conf['asdu_address_size'] = asdu_size
@@ -663,7 +666,8 @@ async def test_interrogate_deactivation(serial_conns, link_type):
                     data=[{'data_type': 'SINGLE',
                            'asdu_address': 1,
                            'io_address': 1,
-                           'buffer': None}])
+                           'buffer': None,
+                           'with_ack': True}])
 
     def on_query(params):
         events = [create_data_event('SINGLE', 1, 1,
@@ -737,15 +741,18 @@ async def test_counter_interrogate(serial_conns, link_type, interrogated_asdu):
                     data=[{'data_type': 'SINGLE',
                            'asdu_address': 1,
                            'io_address': 1,
-                           'buffer': None},
+                           'buffer': None,
+                           'with_ack': True},
                           {'data_type': 'BINARY_COUNTER',
                            'asdu_address': 1,
                            'io_address': 2,
-                           'buffer': None},
+                           'buffer': None,
+                           'with_ack': True},
                           {'data_type': 'BINARY_COUNTER',
                            'asdu_address': 2,
                            'io_address': 1,
-                           'buffer': None}])
+                           'buffer': None,
+                           'with_ack': True}])
 
     non_counter_event = create_data_event('SINGLE', 1, 1,
                                           {'value': 'ON',
@@ -997,7 +1004,8 @@ async def test_data(serial_conns, link_type, data_type, event_data,
                     data=[{'data_type': data_type,
                            'asdu_address': 12,
                            'io_address': 34,
-                           'buffer': None}])
+                           'buffer': None,
+                           'with_ack': True}])
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     device = await create_device(conf, eventer_client)
@@ -1046,7 +1054,8 @@ async def test_data_bulk(serial_conns, link_type):
                     data=[{'data_type': 'SINGLE',
                            'asdu_address': 1,
                            'io_address': i,
-                           'buffer': None}
+                           'buffer': None,
+                           'with_ack': True}
                           for i in range(events_count)])
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
@@ -1286,15 +1295,18 @@ async def test_buffer(serial_conns, link_type):
                     data=[{'data_type': 'DOUBLE',
                            'asdu_address': 1,
                            'io_address': 1,
-                           'buffer': 'b1'},
+                           'buffer': 'b1',
+                           'with_ack': True},
                           {'data_type': 'DOUBLE',
                            'asdu_address': 1,
                            'io_address': 2,
-                           'buffer': 'b1'},
+                           'buffer': 'b1',
+                           'with_ack': True},
                           {'data_type': 'DOUBLE',
                            'asdu_address': 1,
                            'io_address': 3,
-                           'buffer': None}])
+                           'buffer': None,
+                           'with_ack': True}])
 
     eventer_client = EventerClient()
     device = await create_device(conf, eventer_client)
@@ -1361,11 +1373,13 @@ async def test_buffer_size(serial_conns, link_type):
                     data=[{'data_type': 'DOUBLE',
                            'asdu_address': 1,
                            'io_address': 2,
-                           'buffer': 'b1'},
+                           'buffer': 'b1',
+                           'with_ack': True},
                           {'data_type': 'DOUBLE',
                            'asdu_address': 1,
                            'io_address': 3,
-                           'buffer': 'b2'}])
+                           'buffer': 'b2',
+                           'with_ack': True}])
 
     eventer_client = EventerClient()
     device = await create_device(conf, eventer_client)
@@ -1430,7 +1444,8 @@ async def test_data_on_multi_masters(serial_conns, link_type):
                     data=[{'data_type': 'DOUBLE',
                            'asdu_address': 1,
                            'io_address': 2,
-                           'buffer': None}])
+                           'buffer': None,
+                           'with_ack': True}])
 
     eventer_client = EventerClient(event_cb=event_queue.put_nowait)
     device = await create_device(conf, eventer_client)
@@ -1546,7 +1561,8 @@ async def test_send_queue_full(serial_conns, link_type):
     data_conf = {'data_type': 'FLOATING',
                  'asdu_address': 1,
                  'io_address': 2,
-                 'buffer': 'b1'}
+                 'buffer': 'b1',
+                 'with_ack': True}
     conf = get_conf(link_type,
                     [address],
                     buffers=[{'name': 'b1', 'size': 512}],

@@ -36,6 +36,7 @@ async def create(conf: common.DeviceConf,
     device._buffers = {}
     device._data_msgs = {}
     device._data_buffers = {}
+    device._data_with_ack = set()
     device._broadcast_asdu_address = _get_broadcast_asdu_address(
         iec101.AsduAddressSize[conf['asdu_address_size']])
     device._log = _create_logger_adapter(conf['name'])
@@ -47,6 +48,7 @@ async def create(conf: common.DeviceConf,
                     data_conf=conf['data'],
                     data_msgs=device._data_msgs,
                     data_buffers=device._data_buffers,
+                    data_with_ack=device._data_with_ack,
                     buffers=device._buffers,
                     eventer_client=eventer_client,
                     event_type_prefix=event_type_prefix)
@@ -101,17 +103,20 @@ class Buffer:
 
     def add(self,
             event_id: hat.event.common.EventId,
+            data_key: common.DataKey,
             data_msg: iec101.DataMsg):
-        self._data[event_id] = data_msg
+        self._data[event_id] = data_key, data_msg
         while len(self._data) > self._size:
             self._data.popitem(last=False)
 
     def remove(self, event_id: hat.event.common.EventId):
         self._data.pop(event_id, None)
 
-    def get_event_id_data_msgs(self) -> Iterable[tuple[hat.event.common.EventId,  # NOQA
-                                                       iec101.DataMsg]]:
-        return self._data.items()
+    def get(self) -> Iterable[tuple[hat.event.common.EventId,
+                                    common.DataKey,
+                                    iec101.DataMsg]]:
+        return ((event_id, data_key, data_msg)
+                for event_id, (data_key, data_msg) in self._data.items())
 
 
 def init_buffers(buffers_conf: json.Data,
@@ -124,6 +129,7 @@ async def init_data(log: logging.Logger,
                     data_conf: json.Data,
                     data_msgs: dict[common.DataKey, iec101.DataMsg],
                     data_buffers: dict[common.DataKey, Buffer],
+                    data_with_ack: set[common.DataKey] | None,
                     buffers: dict[str, Buffer],
                     eventer_client: hat.event.eventer.Client,
                     event_type_prefix: common.EventTypePrefix):
@@ -131,9 +137,14 @@ async def init_data(log: logging.Logger,
         data_key = common.DataKey(data_type=common.DataType[data['data_type']],
                                   asdu_address=data['asdu_address'],
                                   io_address=data['io_address'])
+
         data_msgs[data_key] = None
+
         if data['buffer']:
             data_buffers[data_key] = buffers[data['buffer']]
+
+        if data_with_ack is not None and data['with_ack']:
+            data_with_ack.add(data_key)
 
     event_types = [(*event_type_prefix, 'system', 'data', '*')]
     params = hat.event.common.QueryLatestParams(event_types)
@@ -224,9 +235,13 @@ class Iec101SlaveDevice(common.Device):
 
                     with contextlib.suppress(Exception):
                         for buffer in self._buffers.values():
-                            for event_id, data_msg in buffer.get_event_id_data_msgs():  # NOQA
-                                await self._send_data_msg(conn_id, buffer,
-                                                          event_id, data_msg)
+                            for event_id, data_key, data_msg in buffer.get():
+                                await self._send_data_msg(
+                                    conn_id=conn_id,
+                                    buffer=buffer,
+                                    event_id=event_id,
+                                    data_msg=data_msg,
+                                    with_ack=data_key in self._data_with_ack)
 
                     await conn.wait_closed()
 
@@ -254,8 +269,10 @@ class Iec101SlaveDevice(common.Device):
     async def _connection_send_loop(self, conn, send_queue):
         try:
             while True:
-                msgs, sent_cb = await send_queue.get()
-                await conn.send(msgs, sent_cb=sent_cb)
+                msgs, sent_cb, with_ack = await send_queue.get()
+                await conn.send(msgs,
+                                sent_cb=sent_cb,
+                                with_ack=with_ack)
 
         except ConnectionError:
             self._log.debug('connection close')
@@ -339,10 +356,16 @@ class Iec101SlaveDevice(common.Device):
 
         buffer = self._data_buffers.get(data_key)
         if buffer:
-            buffer.add(event.id, data_msg)
+            buffer.add(event.id, data_key, data_msg)
+
+        with_ack = data_key in self._data_with_ack
 
         for conn_id in self._conns.keys():
-            await self._send_data_msg(conn_id, buffer, event.id, data_msg)
+            await self._send_data_msg(conn_id=conn_id,
+                                      buffer=buffer,
+                                      event_id=event.id,
+                                      data_msg=data_msg,
+                                      with_ack=with_ack)
 
     async def _process_command_event(self, cmd_key, event):
         cmd_msg = cmd_msg_from_event(cmd_key, event)
@@ -523,18 +546,23 @@ class Iec101SlaveDevice(common.Device):
             cause=iec101.ParameterActivationResCause.UNKNOWN_TYPE)
         await self._send(conn_id, [res])
 
-    async def _send_data_msg(self, conn_id, buffer, event_id, data_msg):
+    async def _send_data_msg(self, conn_id, buffer, event_id, data_msg,
+                             with_ack):
         sent_cb = (functools.partial(buffer.remove, event_id)
                    if buffer else None)
-        await self._send(conn_id, [data_msg], sent_cb=sent_cb)
 
-    async def _send(self, conn_id, msgs, sent_cb=None):
+        await self._send(conn_id=conn_id,
+                         msgs=[data_msg],
+                         sent_cb=sent_cb,
+                         with_ack=with_ack)
+
+    async def _send(self, conn_id, msgs, sent_cb=None, with_ack=True):
         send_queue = self._send_queues.get(conn_id)
         if send_queue is None:
             return
 
         try:
-            send_queue.put_nowait((msgs, sent_cb))
+            send_queue.put_nowait((msgs, sent_cb, with_ack))
 
         except aio.QueueFullError:
             self._log.warning('send queue full')

@@ -45,6 +45,7 @@ async def create(conf: common.DeviceConf,
                                  data_conf=conf['data'],
                                  data_msgs=device._data_msgs,
                                  data_buffers=device._data_buffers,
+                                 data_with_ack=None,
                                  buffers=device._buffers,
                                  eventer_client=eventer_client,
                                  event_type_prefix=event_type_prefix)
@@ -167,7 +168,7 @@ class Iec104SlaveDevice(common.Device):
 
         with contextlib.suppress(Exception):
             for buffer in self._buffers.values():
-                for event_id, data_msg in buffer.get_event_id_data_msgs():
+                for event_id, data_key, data_msg in buffer.get():
                     self._send_data_msg(conn, buffer, event_id, data_msg)
 
     async def _register_connections(self):
@@ -217,7 +218,7 @@ class Iec104SlaveDevice(common.Device):
 
         buffer = self._data_buffers.get(data_key)
         if buffer:
-            buffer.add(event.id, data_msg)
+            buffer.add(event.id, data_key, data_msg)
 
         for conn in self._conns.values():
             self._send_data_msg(conn, buffer, event.id, data_msg)
