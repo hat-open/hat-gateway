@@ -18,7 +18,7 @@ from hat.gateway import common
 from hat.gateway.devices.iec101.slave import info
 
 from hat.drivers.iec60870.link import endpoint
-from hat.drivers.iec60870.link.common import ShortFrame
+from hat.drivers.iec60870.link.common import ShortFrame, ReqFunction
 
 
 device_name = 'device_name'
@@ -72,11 +72,12 @@ def get_conf(link_type,
              buffers=[],
              data=[],
              status_delay=0.1,
-             response_timeout=0.01):
+             response_timeout=0.01,
+             send_retry_count=0):
     if link_type == 'BALANCED':
         link_type_spec_props = {'direction': 'B_TO_A',
                                 'response_timeout': response_timeout,
-                                'send_retry_count': 0,
+                                'send_retry_count': send_retry_count,
                                 'status_delay': status_delay}
     elif link_type == 'UNBALANCED':
         link_type_spec_props = {'keep_alive_timeout': keep_alive_timeout}
@@ -1101,6 +1102,83 @@ async def test_data_bulk(serial_conns, link_type):
     await eventer_client.async_close()
 
 
+@pytest.mark.parametrize('with_ack', [True, False])
+async def test_data_with_ack(serial_conns, with_ack):
+    address = 123
+    data_conf = {'data_type': 'FLOATING',
+                 'asdu_address': 1,
+                 'io_address': 2,
+                 'buffer': 'b1',
+                 'with_ack': with_ack}
+    send_retry_count = 3
+    conf = get_conf('BALANCED',
+                    [address],
+                    buffers=[{'name': 'b1', 'size': 512}],
+                    data=[data_conf],
+                    status_delay=1000,
+                    response_timeout=0.01,
+                    send_retry_count=send_retry_count)
+
+    event_queue = aio.Queue()
+    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
+
+    device = await create_device(conf, eventer_client)
+
+    event = await event_queue.get()
+    assert_connections_event(event, [])
+
+    master_endpoint = await endpoint.create(
+        port=conf['port'],
+        address_size=link.common.AddressSize.ONE,
+        direction_valid=True,
+        silent_interval=conf['silent_interval'])
+    # receive RESET_LINK request
+    await master_endpoint.receive()
+    # respond on RESET_LINK in order to establish connection
+    await master_endpoint.send(ShortFrame())
+    await master_endpoint.drain()
+
+    event = await event_queue.get()
+    assert_connections_event(event, [123])
+
+    data_event = create_data_event(
+        data_conf['data_type'], data_conf['asdu_address'],
+        data_conf['io_address'], {
+            'value': 123,
+            'quality': {'invalid': False,
+                        'not_topical': False,
+                        'substituted': False,
+                        'blocked': False,
+                        'overflow': False}},
+        source_timestamp=hat.event.common.now())
+
+    await aio.call(device.process_event, data_event)
+
+    req = await master_endpoint.receive()
+
+    if with_ack:
+        assert req.function == ReqFunction.DATA
+        for i in range(send_retry_count):
+            req_retry = await master_endpoint.receive()
+            assert req_retry == req
+
+        # connection closes due to no response after send_retry_count
+        event = await event_queue.get()
+        assert_connections_event(event, [])
+
+    else:
+        assert req.function == ReqFunction.DATA_NO_RES
+
+        with pytest.raises(asyncio.TimeoutError):
+            await aio.wait_for(master_endpoint.receive(), 0.05)
+
+        assert event_queue.empty()
+
+    await master_endpoint.async_close()
+    await device.async_close()
+    await eventer_client.async_close()
+
+
 @pytest.mark.parametrize("command_type, command, command_json", [
     ('SINGLE',
      iec101.SingleCommand(value=iec101.SingleValue.ON,
@@ -1577,16 +1655,16 @@ async def test_send_queue_full(serial_conns, link_type):
     event = await event_queue.get()
     assert_connections_event(event, [])
 
-    _endpoint = await endpoint.create(
+    master_endpoint = await endpoint.create(
         port=conf['port'],
         address_size=link.common.AddressSize.ONE,
         direction_valid=True,
         silent_interval=conf['silent_interval'])
     # receive RESET_LINK request
-    await _endpoint.receive()
+    await master_endpoint.receive()
     # respond on RESET_LINK in order to establish connection
-    await _endpoint.send(ShortFrame())
-    await _endpoint.drain()
+    await master_endpoint.send(ShortFrame())
+    await master_endpoint.drain()
 
     event = await event_queue.get()
     assert_connections_event(event, [123])
@@ -1617,6 +1695,6 @@ async def test_send_queue_full(serial_conns, link_type):
     event = await event_queue.get()
     assert_connections_event(event, [])
 
-    await _endpoint.async_close()
+    await master_endpoint.async_close()
     await device.async_close()
     await eventer_client.async_close()
