@@ -5,8 +5,8 @@ import pytest
 from hat import aio
 from hat import json
 from hat import util
+from hat.drivers import net
 from hat.drivers import snmp
-from hat.drivers import udp
 import hat.event.common
 
 from hat.gateway.devices.snmp.trap_listener import info
@@ -124,7 +124,7 @@ def assert_data_event(event, remote_dev, oid, data):
 
 @pytest.fixture
 def addr():
-    return udp.Address('127.0.0.1', util.get_unused_udp_port())
+    return net.UdpAddress('127.0.0.1', util.get_unused_udp_port())
 
 
 @pytest.fixture

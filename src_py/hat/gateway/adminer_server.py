@@ -2,12 +2,12 @@ import logging
 
 from hat import aio
 from hat import json
-from hat.drivers import tcp
+from hat.drivers import net
 
 from hat.gateway import adminer
 
 
-async def create_adminer_server(addr: tcp.Address,
+async def create_adminer_server(addr: net.StreamAddress,
                                 log_conf: json.Data,
                                 **kwargs
                                 ) -> 'AdminerServer':

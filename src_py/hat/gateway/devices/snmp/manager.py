@@ -5,8 +5,8 @@ import logging
 
 from hat import aio
 from hat import util
+from hat.drivers import net
 from hat.drivers import snmp
-from hat.drivers import udp
 import hat.event.common
 import hat.event.eventer
 
@@ -261,7 +261,7 @@ info = common.DeviceInfo(
 async def _create_manager(conf):
     if conf['version'] == 'V1':
         return await snmp.create_v1_manager(
-            remote_addr=udp.Address(
+            remote_addr=net.UdpAddress(
                 host=conf['remote_host'],
                 port=conf['remote_port']),
             community=conf['community'],
@@ -269,7 +269,7 @@ async def _create_manager(conf):
 
     if conf['version'] == 'V2C':
         return await snmp.create_v2c_manager(
-            remote_addr=udp.Address(
+            remote_addr=net.UdpAddress(
                 host=conf['remote_host'],
                 port=conf['remote_port']),
             community=conf['community'],
@@ -278,7 +278,7 @@ async def _create_manager(conf):
     if conf['version'] == 'V3':
         return await aio.wait_for(
             snmp.create_v3_manager(
-                remote_addr=udp.Address(
+                remote_addr=net.UdpAddress(
                     host=conf['remote_host'],
                     port=conf['remote_port']),
                 context=snmp.Context(

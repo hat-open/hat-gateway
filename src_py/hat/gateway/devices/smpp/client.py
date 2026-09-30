@@ -5,9 +5,9 @@ import typing
 
 from hat import aio
 from hat import util
+from hat.drivers import net
 from hat.drivers import smpp
 from hat.drivers import ssl
-from hat.drivers import tcp
 import hat.event.common
 import hat.event.eventer
 
@@ -70,7 +70,7 @@ class SmppClientDevice(common.Device):
                                if self._conf['ssl'] else None)
                     conn = await aio.wait_for(
                         smpp.connect(
-                            addr=tcp.Address(
+                            addr=net.TcpAddress(
                                 host=self._conf['remote_address']['host'],
                                 port=self._conf['remote_address']['port']),
                             system_id=self._conf['system_id'],

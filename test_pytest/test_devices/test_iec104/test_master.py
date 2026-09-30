@@ -10,7 +10,7 @@ from hat import aio
 from hat import json
 from hat import util
 from hat.drivers import iec104
-from hat.drivers import tcp
+from hat.drivers import net
 import hat.event.common
 
 from hat.gateway.devices.iec104 import common
@@ -306,7 +306,7 @@ async def create_server(port):
 
     async def create_server(connection_cb, **kwargs):
         return await iec104.listen(connection_cb=connection_cb,
-                                   addr=tcp.Address('127.0.0.1', port),
+                                   addr=net.TcpAddress('127.0.0.1', port),
                                    **kwargs)
 
     return create_server

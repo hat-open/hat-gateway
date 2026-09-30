@@ -8,7 +8,7 @@ import logging
 
 from hat import aio
 from hat.drivers import iec104
-from hat.drivers import tcp
+from hat.drivers import net
 import hat.event.common
 import hat.event.eventer
 
@@ -55,8 +55,8 @@ async def create(conf: common.DeviceConf,
 
     device._srv = await iec104.listen(
         connection_cb=device._on_connection,
-        addr=tcp.Address(host=conf['local_host'],
-                         port=conf['local_port']),
+        addr=net.TcpAddress(host=conf['local_host'],
+                            port=conf['local_port']),
         response_timeout=conf['response_timeout'],
         supervisory_timeout=conf['supervisory_timeout'],
         test_timeout=conf['test_timeout'],

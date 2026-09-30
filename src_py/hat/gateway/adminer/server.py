@@ -4,7 +4,7 @@ import typing
 from hat import aio
 from hat import json
 from hat.drivers import chatter
-from hat.drivers import tcp
+from hat.drivers import net
 
 from hat.gateway.adminer import common
 
@@ -19,7 +19,7 @@ SetLogConfCb: typing.TypeAlias = aio.AsyncCallable[[json.Data], None]
 """Set logging configuratio callback"""
 
 
-async def listen(addr: tcp.Address,
+async def listen(addr: net.StreamAddress,
                  *,
                  get_log_conf_cb: GetLogConfCb | None = None,
                  set_log_conf_cb: SetLogConfCb | None = None,

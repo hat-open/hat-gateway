@@ -12,7 +12,7 @@ from hat import aio
 from hat import json
 from hat import util
 from hat.drivers import iec104
-from hat.drivers import tcp
+from hat.drivers import net
 import hat.event.common
 
 from hat.gateway.devices.iec104 import common
@@ -269,7 +269,8 @@ def create_conf(port):
 def create_connection(port):
 
     async def create_connection(**kwargs):
-        return await iec104.connect(tcp.Address('127.0.0.1', port), **kwargs)
+        return await iec104.connect(net.TcpAddress('127.0.0.1', port),
+                                    **kwargs)
 
     return create_connection
 

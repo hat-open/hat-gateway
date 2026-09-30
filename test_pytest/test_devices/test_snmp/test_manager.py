@@ -6,8 +6,8 @@ import pytest
 from hat import aio
 from hat import json
 from hat import util
+from hat.drivers import net
 from hat.drivers import snmp
-from hat.drivers import udp
 import hat.event.common
 
 from hat.gateway.devices.snmp.manager import info
@@ -178,7 +178,7 @@ async def create_agent(port):
                            v3_request_cb=None,
                            authoritative_engine_id=None,
                            users=[]):
-        address = udp.Address('127.0.0.1', port)
+        address = net.UdpAddress('127.0.0.1', port)
         agent = await snmp.create_agent(
             local_addr=address,
             v1_request_cb=v1_request_cb,

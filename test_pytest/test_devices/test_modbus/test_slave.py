@@ -7,8 +7,8 @@ import time
 import pytest
 
 from hat.drivers import modbus
+from hat.drivers import net
 from hat.drivers import serial
-from hat.drivers import tcp
 import hat.event.common
 
 from hat import aio
@@ -83,7 +83,7 @@ def create_event(event_type, payload_data):
 
 @pytest.fixture
 def slave_addr():
-    return tcp.Address('127.0.0.1', util.get_unused_tcp_port())
+    return net.TcpAddress('127.0.0.1', util.get_unused_tcp_port())
 
 
 @pytest.fixture

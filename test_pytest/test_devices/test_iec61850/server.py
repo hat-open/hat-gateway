@@ -6,7 +6,7 @@ from hat import aio
 from hat import util
 from hat.drivers import iec61850
 from hat.drivers import mms
-from hat.drivers import tcp
+from hat.drivers import net
 from hat.drivers.iec61850 import encoder
 
 
@@ -37,7 +37,7 @@ OperateCb: typing.TypeAlias = aio.AsyncCallable[
     mms.DataAccessError | None]
 
 
-async def create_server(addr: tcp.Address,
+async def create_server(addr: net.TcpAddress,
                         datasets: dict[iec61850.DatasetRef,
                                        Collection[iec61850.DataRef]] = {},
                         rcbs: dict[iec61850.RcbRef,

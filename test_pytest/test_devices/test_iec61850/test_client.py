@@ -12,7 +12,7 @@ from hat import json
 from hat import util
 from hat.drivers import iec61850
 from hat.drivers import mms
-from hat.drivers import tcp
+from hat.drivers import net
 import hat.event.common
 
 from hat.gateway.devices.iec61850.client import info
@@ -266,7 +266,7 @@ def port():
 
 @pytest.fixture
 def addr(port):
-    return tcp.Address('127.0.0.1', port)
+    return net.TcpAddress('127.0.0.1', port)
 
 
 @pytest.fixture

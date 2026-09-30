@@ -4,7 +4,7 @@ import logging.config
 import pytest
 
 from hat import util
-from hat.drivers import tcp
+from hat.drivers import net
 
 import hat.gateway.adminer
 import hat.gateway.adminer_server
@@ -12,7 +12,7 @@ import hat.gateway.adminer_server
 
 @pytest.fixture
 def addr():
-    return tcp.Address('127.0.0.1', util.get_unused_tcp_port())
+    return net.TcpAddress('127.0.0.1', util.get_unused_tcp_port())
 
 
 async def test_adminer_server(monkeypatch, addr):

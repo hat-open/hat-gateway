@@ -6,8 +6,8 @@ import typing
 
 from hat import aio
 from hat import asn1
+from hat.drivers import net
 from hat.drivers import snmp
-from hat.drivers import udp
 import hat.event.common
 import hat.event.eventer
 
@@ -69,8 +69,8 @@ async def create(conf: common.DeviceConf,
         for user_conf in conf['users']]
 
     device._listener = await snmp.create_trap_listener(
-        local_addr=udp.Address(host=conf['local_host'],
-                               port=conf['local_port']),
+        local_addr=net.UdpAddress(host=conf['local_host'],
+                                  port=conf['local_port']),
         v1_trap_cb=device._on_v1_trap,
         v2c_trap_cb=device._on_v2c_trap,
         v2c_inform_cb=device._on_v2c_inform,

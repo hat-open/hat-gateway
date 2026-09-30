@@ -1,6 +1,6 @@
 [project]
 name = "hat-gateway"
-version = "0.6.46"
+version = "0.6.47"
 description = "Hat gateway"
 readme = "README.rst"
 requires-python = ">=3.10"
@@ -8,10 +8,10 @@ license = {text = "Apache-2.0"}
 dependencies = [
     "appdirs ~=1.4.4",
     "hat-aio ~=0.7.13",
-    "hat-drivers ~=0.10.7",
-    "hat-event ~=0.9.41",
+    "hat-drivers ~=0.10.9",
+    "hat-event ~=0.9.44",
     "hat-json ~=0.6.8",
-    "hat-monitor ~=0.8.21",
+    "hat-monitor ~=0.8.23",
     "hat-sbs ~=0.7.6",
     "hat-util ~=0.6.22",
 ]
@@ -28,10 +28,10 @@ Documentation = "http://hat-gateway.hat-open.com"
 run = [
     "appdirs ~=1.4.4",
     "hat-aio ~=0.7.13",
-    "hat-drivers ~=0.10.7",
-    "hat-event ~=0.9.41",
+    "hat-drivers ~=0.10.9",
+    "hat-event ~=0.9.44",
     "hat-json ~=0.6.8",
-    "hat-monitor ~=0.8.21",
+    "hat-monitor ~=0.8.23",
     "hat-sbs ~=0.7.6",
     "hat-util ~=0.6.22",
 ]

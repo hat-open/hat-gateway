@@ -9,7 +9,7 @@ import logging
 
 from hat import aio
 from hat.drivers import iec104
-from hat.drivers import tcp
+from hat.drivers import net
 import hat.event.common
 import hat.event.eventer
 
@@ -64,8 +64,8 @@ class Iec104MasterDevice(common.Device):
                 for address in conf['remote_addresses']:
                     try:
                         self._conn = await iec104.connect(
-                            addr=tcp.Address(host=address['host'],
-                                             port=address['port']),
+                            addr=net.TcpAddress(host=address['host'],
+                                                port=address['port']),
                             response_timeout=conf['response_timeout'],
                             supervisory_timeout=conf['supervisory_timeout'],
                             test_timeout=conf['test_timeout'],

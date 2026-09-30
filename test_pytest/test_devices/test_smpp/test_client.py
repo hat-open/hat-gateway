@@ -5,8 +5,8 @@ import pytest
 from hat import aio
 from hat import json
 from hat import util
+from hat.drivers import net
 from hat.drivers import smpp
-from hat.drivers import tcp
 from hat.drivers.smpp import transport
 import hat.event.common
 
@@ -159,8 +159,8 @@ def create_server(port):
             finally:
                 await aio.uncancellable(conn.async_close())
 
-        return await tcp.listen(connection_cb=on_connection,
-                                addr=tcp.Address('127.0.0.1', port),
+        return await net.listen(connection_cb=on_connection,
+                                addr=net.TcpAddress('127.0.0.1', port),
                                 bind_connections=True)
 
     return create_server

@@ -6,7 +6,7 @@ from hat import aio
 from hat import json
 from hat import util
 from hat.drivers import modbus
-from hat.drivers import tcp
+from hat.drivers import net
 import hat.event.common
 
 from hat.gateway.devices.modbus.master import info
@@ -106,7 +106,7 @@ def create_remote_device_write_event(device_id, data_name, request_id, value):
 
 @pytest.fixture
 def slave_addr():
-    return tcp.Address('127.0.0.1', util.get_unused_tcp_port())
+    return net.TcpAddress('127.0.0.1', util.get_unused_tcp_port())
 
 
 @pytest.fixture

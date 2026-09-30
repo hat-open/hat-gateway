@@ -4,7 +4,7 @@ import logging
 from hat import aio
 from hat import json
 from hat.drivers import chatter
-from hat.drivers import tcp
+from hat.drivers import net
 
 from hat.gateway.adminer import common
 
@@ -17,7 +17,7 @@ class AdminerError(Exception):
     """Errors reported by Gateway Adminer Server"""
 
 
-async def connect(addr: tcp.Address,
+async def connect(addr: net.StreamAddress,
                   **kwargs
                   ) -> 'Client':
     """Connect to Gateway Adminer Server

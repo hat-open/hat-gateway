@@ -10,7 +10,7 @@ from hat import aio
 from hat import json
 from hat import util
 from hat.drivers import iec61850
-from hat.drivers import tcp
+from hat.drivers import net
 import hat.event.common
 
 from hat.gateway import common
@@ -210,8 +210,8 @@ class Iec61850ClientDevice(common.Device):
                                     conn_conf['host'], conn_conf['port'])
                     self._conn = await aio.wait_for(
                         iec61850.connect(
-                            addr=tcp.Address(conn_conf['host'],
-                                             conn_conf['port']),
+                            addr=net.TcpAddress(conn_conf['host'],
+                                                conn_conf['port']),
                             data_value_types=self._dataset_change_value_types,
                             cmd_value_types=self._cmd_value_types,
                             report_data_refs=self._report_data_refs,

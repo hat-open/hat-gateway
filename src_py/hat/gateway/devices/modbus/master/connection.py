@@ -5,8 +5,8 @@ import time
 from hat import json
 from hat import aio
 from hat.drivers import modbus
+from hat.drivers import net
 from hat.drivers import serial
-from hat.drivers import tcp
 
 from hat.gateway.devices.modbus.master import common
 
@@ -22,7 +22,7 @@ async def connect(conf: json.Data,
     modbus_type = modbus.ModbusType[conf['modbus_type']]
 
     if transport_conf['type'] == 'TCP':
-        addr = tcp.Address(transport_conf['host'], transport_conf['port'])
+        addr = net.TcpAddress(transport_conf['host'], transport_conf['port'])
         master = await modbus.create_tcp_master(
             modbus_type=modbus_type,
             addr=addr,

@@ -8,7 +8,7 @@ import uuid
 from hat import aio
 from hat.drivers import modbus
 from hat.drivers import serial
-from hat.drivers import tcp
+from hat.drivers import net
 import hat.event.common
 import hat.event.eventer
 
@@ -93,8 +93,8 @@ class ModbusSlaveDevice(aio.Resource):
             if transport_conf['type'] == 'TCP':
                 tcp_server = await modbus.create_tcp_server(
                     modbus_type=modbus_type,
-                    addr=tcp.Address(transport_conf['local_host'],
-                                     transport_conf['local_port']),
+                    addr=net.TcpAddress(transport_conf['local_host'],
+                                        transport_conf['local_port']),
                     slave_cb=self._on_tcp_connection,
                     request_cb=self._on_request)
 
