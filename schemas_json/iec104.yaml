@@ -13,7 +13,6 @@ $defs:
             - receive_window_size
             - reconnect_delay
             - time_sync_delay
-            - security
         properties:
             name:
                 type: string
@@ -45,10 +44,6 @@ $defs:
                 type:
                     - "null"
                     - number
-            security:
-                oneOf:
-                  - type: "null"
-                  - $ref: "hat-gateway://iec104.yaml#/$defs/security"
     slave:
         type: object
         required:
@@ -61,7 +56,6 @@ $defs:
             - test_timeout
             - send_window_size
             - receive_window_size
-            - security
             - buffers
             - data
         properties:
@@ -91,10 +85,6 @@ $defs:
                 type: integer
             receive_window_size:
                 type: integer
-            security:
-                oneOf:
-                  - type: "null"
-                  - $ref: "hat-gateway://iec104.yaml#/$defs/security"
             buffers:
                 type: array
                 items:
@@ -202,29 +192,3 @@ $defs:
                                 type: string
                             port:
                                 type: integer
-    security:
-        type: object
-        required:
-            - cert_path
-            - key_path
-            - verify_cert
-            - ca_path
-        properties:
-            cert_path:
-                type: string
-            key_path:
-                type:
-                    - "null"
-                    - string
-            verify_cert:
-                type: boolean
-            ca_path:
-                type:
-                    - "null"
-                    - string
-            strict_mode:
-                type: boolean
-            renegotiate_delay:
-                type:
-                    - "null"
-                    - number

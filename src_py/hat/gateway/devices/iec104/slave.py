@@ -14,7 +14,6 @@ import hat.event.eventer
 
 from hat.gateway.devices.iec101 import slave as iec101_slave
 from hat.gateway.devices.iec104 import common
-from hat.gateway.devices.iec104 import ssl
 
 
 mlog: logging.Logger = logging.getLogger(__name__)
@@ -50,9 +49,6 @@ async def create(conf: common.DeviceConf,
                                  eventer_client=eventer_client,
                                  event_type_prefix=event_type_prefix)
 
-    ssl_ctx = (ssl.create_ssl_ctx(conf['security'], ssl.SslProtocol.TLS_SERVER)
-               if conf['security'] else None)
-
     device._srv = await iec104.listen(
         connection_cb=device._on_connection,
         addr=net.TcpAddress(host=conf['local_host'],
@@ -62,7 +58,6 @@ async def create(conf: common.DeviceConf,
         test_timeout=conf['test_timeout'],
         send_window_size=conf['send_window_size'],
         receive_window_size=conf['receive_window_size'],
-        ssl=ssl_ctx,
         name=conf['name'])
 
     try:
@@ -111,15 +106,6 @@ class Iec104SlaveDevice(common.Device):
             self._log.debug('connection closed: max connections exceeded '
                             '(remote host %s)', remote_host)
             return
-
-        if self._conf['security']:
-            try:
-                ssl.init_security(self._conf['security'], conn)
-
-            except Exception as e:
-                self._log.error('init security error: %s', exc_info=e)
-                conn.close()
-                return
 
         conn_id = next(self._next_conn_ids)
 

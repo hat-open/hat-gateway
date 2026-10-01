@@ -14,7 +14,6 @@ import hat.event.common
 import hat.event.eventer
 
 from hat.gateway.devices.iec104 import common
-from hat.gateway.devices.iec104 import ssl
 
 
 mlog: logging.Logger = logging.getLogger(__name__)
@@ -32,11 +31,7 @@ class Iec104MasterDevice(common.Device):
         self._async_group = aio.Group()
         self._log = _create_logger_adapter(conf['name'])
 
-        ssl_ctx = (
-            ssl.create_ssl_ctx(conf['security'], ssl.SslProtocol.TLS_CLIENT)
-            if conf['security'] else None)
-
-        self.async_group.spawn(self._connection_loop, conf, ssl_ctx)
+        self.async_group.spawn(self._connection_loop, conf)
 
     @property
     def async_group(self) -> aio.Group:
@@ -49,7 +44,7 @@ class Iec104MasterDevice(common.Device):
         except Exception as e:
             self._log.warning('error processing event: %s', e, exc_info=e)
 
-    async def _connection_loop(self, conf, ssl_ctx):
+    async def _connection_loop(self, conf):
 
         async def cleanup():
             with contextlib.suppress(ConnectionError):
@@ -71,17 +66,7 @@ class Iec104MasterDevice(common.Device):
                             test_timeout=conf['test_timeout'],
                             send_window_size=conf['send_window_size'],
                             receive_window_size=conf['receive_window_size'],
-                            ssl=ssl_ctx,
                             name=conf['name'])
-
-                        if conf['security']:
-                            try:
-                                ssl.init_security(conf['security'], self._conn)
-
-                            except Exception:
-                                await aio.uncancellable(
-                                    self._conn.async_close())
-                                raise
 
                         break
 

@@ -1,8 +1,6 @@
 import datetime
 import itertools
 import math
-import ssl
-import subprocess
 
 import pytest
 
@@ -216,19 +214,6 @@ async def wait_connected_event(event_queue):
             break
 
 
-@pytest.fixture
-def pem_path(tmp_path):
-    path = tmp_path / 'pem'
-    subprocess.run(['openssl', 'req', '-batch', '-x509', '-noenc',
-                    '-newkey', 'rsa:2048',
-                    '-days', '1',
-                    '-keyout', str(path),
-                    '-out', str(path)],
-                   stderr=subprocess.DEVNULL,
-                   check=True)
-    return path
-
-
 def create_event(event_type, payload_data, source_timestamp=None):
     return hat.event.common.Event(
         id=next(next_event_ids),
@@ -284,8 +269,7 @@ def create_conf(port):
                     send_window_size=12,
                     receive_window_size=8,
                     reconnect_delay=0.01,
-                    time_sync_delay=None,
-                    security=None):
+                    time_sync_delay=None):
         return {'name': '',
                 'remote_addresses': [{'host': '127.0.0.1',
                                       'port': port}],
@@ -295,8 +279,7 @@ def create_conf(port):
                 'send_window_size': send_window_size,
                 'receive_window_size': receive_window_size,
                 'reconnect_delay': reconnect_delay,
-                'time_sync_delay': time_sync_delay,
-                'security': security}
+                'time_sync_delay': time_sync_delay}
 
     return create_conf
 
@@ -372,41 +355,6 @@ async def test_status(create_conf, create_server):
 
     assert event_queue.empty()
 
-    await server.async_close()
-    await eventer_client.async_close()
-
-
-async def test_secure_connection(create_conf, create_server, pem_path):
-    conn_queue = aio.Queue()
-    event_queue = aio.Queue()
-
-    conf = create_conf(security={'enabled': True,
-                                 'cert_path': pem_path,
-                                 'key_path': None,
-                                 'verify_cert': False,
-                                 'ca_path': None})
-
-    eventer_client = EventerClient(event_cb=event_queue.put_nowait)
-
-    ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    ssl_ctx.check_hostname = False
-    ssl_ctx.load_cert_chain(pem_path)
-    server = await create_server(conn_queue.put_nowait, ssl=ssl_ctx)
-
-    device = await create_device(conf, eventer_client)
-
-    event = await event_queue.get()
-    assert_status_event(event, 'CONNECTING')
-
-    event = await event_queue.get()
-    assert_status_event(event, 'CONNECTED')
-
-    assert event_queue.empty()
-
-    conn = await conn_queue.get()
-    assert conn.is_open
-
-    await device.async_close()
     await server.async_close()
     await eventer_client.async_close()
 
