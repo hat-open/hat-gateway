@@ -1,0 +1,261 @@
+IEC61850 devices
+================
+
+IEC61850 client
+---------------
+
+IEC61850 client device configuration is specified by
+``hat-gateway://iec61850.yaml#/$defs/client``.
+
+According to :ref:`gateway specification <gateway>`, all IEC104 master device
+event types have prefix::
+
+    gateway/iec61850_client/<device_name>/<source>/...
+
+where ``<source>`` can be ``gateway`` or ``system``.
+Together with IEC61850 specific events, generic `enable` and `running` events
+are also supported. Specific events are defined in the following sections.
+
+When IEC61850 client device is enabled, it starts the connection loop, in order
+to connect to the remote IEC61850 server, at the `host` and `port` given in
+configuration. After connection is successfully established, device performs
+the following initialization procedures, in the respective order:
+
+#) creation of dynamic datasets
+#) initialization of report control blocks (`rcb`'s')
+
+If any of the procedures fails, connection is closed and than retried after
+`reconnect_delay`.
+
+
+Creation of dynamic datasets
+''''''''''''''''''''''''''''
+
+After successful connection, `datasets`, defined in configuration with `dynamic`
+``True``, are created. There are two types of dynamic datasets, distinguished
+in configuration by their reference:
+
+- non-persisted - with reference defined by
+  ``hat-gateway://iec61850.yaml#/$defs/refs/dataset_nonpersisted``
+
+  Non-persisted datasets are created simply by calling connection's method
+  `create_dataset`.
+
+- persisted - with reference defined by
+  ``hat-gateway://iec61850.yaml#/$defs/refs/dataset_persisted``
+
+  In case of persisted datasets, creation follows the following procedure:
+
+  #) In order to get persisted datasets that already exist, connection's method
+     `get_persisted_dataset_refs` is called.
+  #) If a dynamic dataset to be created, does not exist already, it is created
+     by `create_dataset`.
+
+     For each dataset found as existing in the previous step, method
+     `get_dataset_data_refs` is called in order to get all data references that
+     are assigned to it. If all the data references are equal to the `values`
+     references from the configuration, dataset is considered created.
+
+     Otherwise, if existing dataset does not have all the data references equal
+     to the ones from the configuration, dataset is first deleted, by calling
+     method `delete_dataset`, and then created by calling `create_dataset`.
+
+  In case any of the steps fails, connection is closed.
+
+
+Initialization of `rcb`'s
+'''''''''''''''''''''''''
+
+After creation of dynamic datasets, device performs initialization of each
+configured `rcb` using connection's methods `get_rcb_attrs` and `set_rcb_attrs`
+in order to `get` and `set` specific `rcb` attributes, respectively. Each `get`
+or `set` is considered failed, if called method raises exception, or if it
+returns `ServiceError` for the specific attribute. Thereby, some initialization
+steps are considered critical, meaning failure results with closing the
+connection. When a non-critical step fails, only warning message is logged and
+initialization continues. Initialization steps are the following, in the
+respective order:
+
+#) `get_rcb_attrs` method is called in order to get values of the following
+ `rcb` attributes and verify their values against the configured ones:
+
+    - ``REPORT_ID`` - each `rcb` has `report_id` defined in configuration. In
+      case retrieved value does not correspond to the configured value,
+      connection is closed.
+    - ``DATASET`` - this attribute is included only for `rcb`'s that have
+      assigned `dataset` which is not dynamic. In case retrieved value does not
+      correspond to the configured value, connection is closed. This attribute
+      is not included for dynamic datasets, since they are only created in the
+      previous step, and will be set to a `rcb` later in the initialization
+      procedure.
+    - ``CONF_REVISION`` - this attribute is optionally retrieved, in case
+      `conf_revision` property is defined in configuration. In case retrieved
+      value does not correspond to the configured value, connection is closed.
+
+   This step is critical, that is, if `get_rcb_attrs` fails for any reason, or
+   `ServiceError` is received for any of the attributes, connection is closed.
+
+#) Attribute ``REPORT_ENABLE`` is set to ``False``. This is non-critical step,
+   that is in case of failure, a warning message is logged and initialization
+   continues.
+
+#) Attribute ``DATASET`` is set to reference of the configured `dataset`, but
+   only if `dataset` is dynamic, otherwise this step is omitted.
+
+#) This step differs in regard whether `rcb` type is ``BUFFERED`` or
+   ``UNBUFFERED``.
+
+   For ``UNBUFFERED``:
+
+     * ``RESERVE`` attribute is set to ``True``. In case of failure, a
+       warning message is logged and initialization continues.
+
+   For ``BUFFERED``:
+
+     #) ``RESERVATION_TIME`` is set to configuration defined value of
+        `reservation_time`. If `rcb` configuration does not contain
+        `reservation_time`, this step is omitted. In case of failure, a
+        warning message is logged and initialization continues.
+
+     #) ``PURGE_BUFFER`` attribute is set to ``True``, but only if configuration
+        parameter `purge_buffer` is ``True``, or if cached `entry_id` is
+        ``null``, or does not exist. In case of failure, a warning message is
+        logged and initialization continues.
+
+        or
+
+        ``ENTRY_ID`` attribute is set to cached value (queried on device
+        creation and updated on each received report), but only if
+        `purge_buffer` is ``False`` and `entry_id` value is cached and not
+        ``null``.
+
+        If setting ``ENTRY_ID`` to cached value fails, for any reason, setting
+        is tried again but to value ``\x00``, in order to re-synchronize.
+
+        If this setting trial fails again, initialization continues with an
+        appropriate warning log message.
+
+#) In a single call of `set_rcb_attrs`, the following attributes are set to the
+   corresponding value defined in configuration:
+
+   * ``TRIGGER_OPTIONS`` corresponds to parameter `trigger_options`
+   * ``OPTIONAL_FIELDS`` corresponds to parameter `optional_fields`
+   * ``BUFFER_TIME`` corresponds to parameter `buffer_time`
+   * ``INTEGRITY_PERIOD`` corresponds to parameter `integrity_period`
+
+   Since all properties are optional, they are included only if defined in
+   configuration. If neither one property is defined, this step is omitted. In
+   case of failure, a warning message is logged and initialization continues.
+
+#) attribute ``REPORT_ENABLE`` is set to ``False``. This step is critical,
+   that is, in case of failure, connection is closed.
+
+#) attribute ``GI`` is set to ``True`` in order to request general
+   interrogation. This step is critical, that is, in case of failure,
+   connection is closed.
+
+
+Gateway events
+''''''''''''''
+
+Events registered by gateway have event type starting with::
+
+    gateway/iec61850_client/<device_name>/gateway/...
+
+Available gateway events are:
+
+    * .../status
+
+        Represents change in connection status. Upon enabling device, new
+        ``CONNECTING`` status is registered. Once device is disabled,
+        ``DISCONNECTED`` status should be assumed regardless of last registered
+        `status` event. Rregistration of ``DISCONNECTED`` status event during
+        device disabling is mandatory but should not be relied upon, due to
+        connection with event server cannot be guaranteed. Once, IEC61850
+        connection is established ``CONNECTED`` status is registered, before
+        the initialization procedures described beforehand.
+
+        Source timestamp is ``None``.
+
+        Payload is specified by
+        ``hat-gateway://iec61850.yaml#/$defs/events/client/gateway/status``.
+
+    * .../data/<data_name>
+
+        Represents data received within IEC61850 report. In case report is
+        received with attribute `more_segments_follow` ``True``, report is
+        cached and no event is generated. Only after report is received with
+        `more_segments_follow` ``False``, `data` of this, and all cached
+        reports with the same `sequence_number`, are considered in order to
+        create one or more corresponding events. If configuration of a data
+        defines `report_ids`, corresponding data event is registered only when
+        one of the specified `report_ids` is received. If `report_ids` is not
+        given in configuration, data event is registered for all the received
+        reports, data is assigned to.
+
+
+        Source timestamp is ``None``.
+
+        Payload is specified by
+        ``hat-gateway://iec61850.yaml#/$defs/events/client/gateway/data``.
+
+    * .../command/<command_name>
+
+        Source timestamp is ``None``.
+
+        Payload is specified by
+        ``hat-gateway://iec61850.yaml#/$defs/events/client/gateway/command``.
+
+    * .../change/<value_name>
+
+        Source timestamp is ``None``.
+
+        Payload is specified by
+        ``hat-gateway://iec61850.yaml#/$defs/events/client/gateway/change``.
+
+    * .../entry_id/<report_id>
+
+        This event is queried within device's create function, in order to cache
+        `entry_id` for each `rcb` configured as ``BUFFERED`` and identified by
+        `<report_id>`. `entry_id` value is used in the initialization procedure
+        for eachb ``BUFFERED`` `rcb`, as described beforehand. This event is in
+        order to persist `entry_id` information after device is disabled. It is
+        envisaged to be consumed exclusively by the device.
+
+        On each received IEC61850 report, that corresponds to ``BUFFERED``
+        `rcb`, device registers this event, where payload is equal to
+        hexadecimal encoding of bytes, or to ``null``, if report doesn't
+        contain it (its `entry_id` is ``None``).
+
+        For reports configured as ``UNBUFFERED``, this is event is not
+        registered, nor queried.
+
+        Source timestamp is ``None``.
+
+        Payload is specified by
+        ``hat-gateway://iec61850.yaml#/$defs/events/client/gateway/entry_id``.
+
+
+System events
+'''''''''''''
+
+Events registered by other Hat components, which are consumed by gateway, have
+event type starting with::
+
+    gateway/iec61850_client/<device_name>/system/...
+
+Available system events are:
+
+    * .../command/<command_name>
+
+        Source timestamp is ``None``.
+
+        Payload is specified by
+        ``hat-gateway://iec61850.yaml#/$defs/events/client/system/command``.
+
+    * .../change/<value_name>
+
+        Source timestamp is ``None``.
+
+        Payload is specified by
+        ``hat-gateway://iec61850.yaml#/$defs/events/client/system/change``.
